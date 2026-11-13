@@ -16,7 +16,11 @@ ADR-014: Packaging native artifacts
 Status
 ======
 
-Accepted
+Accepted (partly implemented)
+
+The default distribution is PHP-only, as this decision requires. Not
+implemented as of 1.5.1: the separate platform-specific native artifacts, because
+no Rust transport exists to package.
 
 Date
 ====

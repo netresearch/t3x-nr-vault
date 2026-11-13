@@ -16,7 +16,10 @@ ADR-011: Credential Sets data model
 Status
 ======
 
-Accepted
+Proposed
+
+Not implemented as of 1.5.1: there is no ``tx_nrvault_credential_set``
+table and no code that reads or writes one.
 
 Date
 ====

@@ -16,7 +16,10 @@ ADR-013: Rust FFI preload-only mode
 Status
 ======
 
-Accepted
+Proposed
+
+Not implemented as of 1.5.1: no Rust or FFI transport exists, so the
+preload requirement has nothing to apply to.
 
 Date
 ====

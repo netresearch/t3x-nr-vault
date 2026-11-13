@@ -16,7 +16,14 @@ ADR-010: Secure Outbound inside nr-vault
 Status
 ======
 
-Accepted
+Accepted (partly implemented)
+
+The placement decision holds: the outbound client lives in nr-vault, with
+audit logging (``VaultHttpClient``, :ref:`adr-008-http-client`,
+:ref:`adr-027-oauth-client-unification`). Not implemented as of 1.5.1:
+``ServiceRegistryService``, ``CredentialSetService``,
+``SecureHttpClientInterface``, the Rust transport backend and the backend
+module extensions named in the decision.
 
 Date
 ====

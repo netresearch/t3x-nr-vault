@@ -16,7 +16,10 @@ ADR-015: HTTP/3 feature flag
 Status
 ======
 
-Accepted
+Proposed
+
+Not implemented as of 1.5.1: there is no HTTP/3 feature flag, capability
+detection or fallback code.
 
 Date
 ====
