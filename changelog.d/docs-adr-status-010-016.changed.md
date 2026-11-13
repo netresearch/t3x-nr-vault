@@ -1,1 +1,0 @@
-- ADR status corrected for ADR-010 to ADR-016. ADR-011, ADR-013, ADR-015 and ADR-016 are now `Proposed` because no code implements them; ADR-010, ADR-012 and ADR-014 stay `Accepted` and are marked partly implemented, with the missing components named. No decision text changed.
