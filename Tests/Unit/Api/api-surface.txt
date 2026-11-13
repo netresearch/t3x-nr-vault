@@ -696,6 +696,7 @@ Netresearch\NrVault\Exception\AwsSecretsManagerException (class)
   method static nameExists(string $identifier): self
   method static nameTaken(string $identifier): self
   method static notConfigured(string $detail): self
+  method static pathMismatch(string $identifier): self
   method static requestRejected(string $operation, int $status, string $awsCode): self
   method static transportFailure(string $operation, string $detail): self
   method static unsafeName(string $what): self

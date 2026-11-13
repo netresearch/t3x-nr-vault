@@ -163,12 +163,21 @@ AWS secret names are shared with everything else in the account. For a new secre
 (or a row without a value) the adapter therefore creates the AWS secret with
 ``CreateSecret``, which fails when the name exists, instead of writing a version.
 When it exists, the adapter reads it: only a document that is an nr-vault write
-for this very identifier (format marker and identifier match), an unreferenced
-leftover of an earlier crash, is adopted and overwritten. Anything else is
+for this very identifier and this installation (format marker, identifier and an
+HMAC of the master key stored in the document), an unreferenced leftover of an
+earlier crash, is adopted and overwritten; a document of another installation is
+not, so each installation needs its own prefix. Anything else is
 refused with code ``1794500011`` and left untouched. Compensation follows the
 same rule: a failed row write destroys only a secret this call created, and
-puts an adopted one back. An existing AWS-bound row owns
-its secret and is updated as before.
+puts an adopted one back. An existing AWS-bound row owns its secret at the
+location it recorded: when the stored reference differs from the one the current
+region and prefix resolve to, store, delete and read are refused (code
+``1794500014``) instead of touching an unrelated secret; the document must carry
+the row's identifier and no other installation's marker before it is overwritten
+or destroyed. A document without a marker (an earlier write) is accepted for a
+row bound to it, because such a row holds no envelope to compare, and the next
+write stamps the marker. A document that is not a JSON object does not make the
+row undeletable.
 
 Taking a write back does not compare payloads. ``CreateSecret`` and
 ``PutSecretValue`` return the ``VersionId`` they created, and the rollback (put
@@ -176,8 +185,12 @@ the previous document back, or delete the secret this call created) reads the
 ``AWSCURRENT`` version id with ``GetSecretValue`` and applies only if it is still
 the one the write returned. AWS has no conditional put or delete, so the id is
 read immediately before the write or delete and a write that lands in that gap
-is not detected. A failed audit write is compensated by :php:`VaultService`
-through ``delete()``, which removes the secret with the row. The prefix ``typo3/`` stays the default; a
+is not detected; the read is retried a few times so a read that has not caught
+up with the write is not mistaken for a concurrent writer, and a rollback that is
+skipped is logged as a warning. A failed audit write is compensated by
+:php:`VaultService`: an adapter implementing
+:php:`CreateCompensatingAdapterInterface` destroys a secret the call created and
+puts back one it adopted, then removes the row. The prefix ``typo3/`` stays the default; a
 dedicated prefix keeps the names apart from other users of the account.
 
 A row bound to another external adapter is refused

@@ -207,8 +207,15 @@ Names that already exist
    name is taken by something that is not an nr-vault secret for that
    identifier, the store is refused (code ``1794500011``), the AWS secret is left
    unchanged and no row is written. Use a dedicated ``aws.secretPrefix`` so
-   names cannot collide with other users of the account. An unreferenced secret
-   that an interrupted nr-vault write left behind is recognised and reused.
+   names cannot collide with other users of the account, and give each
+   installation its own. An unreferenced secret that an interrupted nr-vault
+   write of this installation left behind is recognised and reused; one written
+   by another installation is not. A row whose stored location differs from the
+   one the current region and prefix resolve to is refused (code
+   ``1794500014``). If the audit write of a create then fails, a reused secret
+   is put back as it was; a secret the call created is removed. A rollback that
+   is skipped because somebody wrote to the secret since is logged as a
+   warning.
 
 Half-finished writes
    A crash between the AWS write and the row write leaves an unreferenced secret
