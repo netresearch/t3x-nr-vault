@@ -281,16 +281,35 @@ final class AwsSecretsManagerStoreTest extends TestCase
     #[Test]
     public function restoreIfCurrentChangesNothingWhenSomebodyWroteSince(): void
     {
-        $store = $this->store(self::json(200, ['Name' => 'typo3/api_key', 'VersionId' => 'v-theirs', 'SecretString' => '{}']));
+        $store = $this->store(
+            self::json(200, ['Name' => 'typo3/api_key', 'VersionId' => 'v-theirs', 'SecretString' => '{}']),
+            self::json(200, ['Name' => 'typo3/api_key', 'VersionId' => 'v-theirs', 'SecretString' => '{}']),
+            self::json(200, ['Name' => 'typo3/api_key', 'VersionId' => 'v-theirs', 'SecretString' => '{}']),
+        );
 
         self::assertFalse($store->restoreIfCurrent('api_key', ['k' => 'previous'], 'v-ours'));
-        self::assertCount(1, $this->requests, 'nothing was written');
+        self::assertCount(3, $this->requests, 'three reads, nothing was written');
+    }
+
+    #[Test]
+    public function restoreIfCurrentRetriesAReadThatHasNotCaughtUpWithTheWrite(): void
+    {
+        $store = $this->store(
+            self::json(200, ['Name' => 'typo3/api_key', 'VersionId' => 'v-older', 'SecretString' => '{}']),
+            self::json(200, ['Name' => 'typo3/api_key', 'VersionId' => 'v-ours', 'SecretString' => '{}']),
+            self::json(200, ['Name' => 'typo3/api_key', 'VersionId' => 'v-restored']),
+        );
+
+        self::assertTrue($store->restoreIfCurrent('api_key', ['k' => 'previous'], 'v-ours'));
+        self::assertCount(3, $this->requests);
     }
 
     #[Test]
     public function destroyIfCurrentDeletesOnlyWhileTheCurrentVersionIsTheGivenOne(): void
     {
         $store = $this->store(
+            self::json(200, ['Name' => 'typo3/api_key', 'VersionId' => 'v-theirs', 'SecretString' => '{}']),
+            self::json(200, ['Name' => 'typo3/api_key', 'VersionId' => 'v-theirs', 'SecretString' => '{}']),
             self::json(200, ['Name' => 'typo3/api_key', 'VersionId' => 'v-theirs', 'SecretString' => '{}']),
             self::json(200, ['Name' => 'typo3/api_key', 'VersionId' => 'v-ours', 'SecretString' => '{}']),
             self::json(200, ['Name' => 'typo3/api_key', 'DeletionDate' => 1_700_000_000]),
@@ -300,7 +319,7 @@ final class AwsSecretsManagerStoreTest extends TestCase
         self::assertTrue($store->destroyIfCurrent('api_key', 'v-ours'));
 
         self::assertSame(
-            ['GetSecretValue', 'GetSecretValue', 'DeleteSecret'],
+            ['GetSecretValue', 'GetSecretValue', 'GetSecretValue', 'GetSecretValue', 'DeleteSecret'],
             array_map(static fn (RequestInterface $request): string => substr($request->getHeaderLine('X-Amz-Target'), strlen('secretsmanager.')), $this->requests),
         );
     }

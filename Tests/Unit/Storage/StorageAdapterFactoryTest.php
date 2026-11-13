@@ -85,7 +85,14 @@ final class StorageAdapterFactoryTest extends TestCase
                 new ExternalStoreJournal(),
                 new NullLogger(),
             ),
-            new AwsSecretsManagerAdapter($local, $this->createMock(AwsSecretStoreInterface::class), $configuration),
+            new AwsSecretsManagerAdapter(
+                $local,
+                $this->createMock(AwsSecretStoreInterface::class),
+                $configuration,
+                new InstallationMarker($this->createMock(MasterKeyProviderInterface::class)),
+                new ExternalStoreJournal(),
+                new NullLogger(),
+            ),
         );
     }
 }

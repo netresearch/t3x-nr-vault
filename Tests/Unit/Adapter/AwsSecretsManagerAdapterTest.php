@@ -13,17 +13,22 @@ use Netresearch\NrVault\Adapter\AwsSecretsManagerAdapter;
 use Netresearch\NrVault\Adapter\LocalEncryptionAdapter;
 use Netresearch\NrVault\Configuration\Dto\AwsSecretsConfig;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
+use Netresearch\NrVault\Crypto\MasterKeyProviderInterface;
 use Netresearch\NrVault\Domain\Model\Secret;
 use Netresearch\NrVault\Domain\Repository\SecretRepositoryInterface;
 use Netresearch\NrVault\Exception\AwsSecretsManagerException;
 use Netresearch\NrVault\Exception\ConfigurationException;
 use Netresearch\NrVault\Storage\Aws\AwsSecretStoreInterface;
+use Netresearch\NrVault\Storage\ExternalStoreJournal;
+use Netresearch\NrVault\Storage\InstallationMarker;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
+use Psr\Log\AbstractLogger;
 use RuntimeException;
+use Stringable;
 
 #[CoversClass(AwsSecretsManagerAdapter::class)]
 #[AllowMockObjectsWithoutExpectations]
@@ -60,6 +65,13 @@ final class AwsSecretsManagerAdapterTest extends TestCase
     /** @var list<callable(): mixed> */
     private array $readScript = [];
 
+    /** @var list<string> */
+    private array $warnings = [];
+
+    private string $masterKey = 'unit-test-master-key-of-this-installation';
+
+    private ExternalStoreJournal $journal;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -73,6 +85,11 @@ final class AwsSecretsManagerAdapterTest extends TestCase
         $this->versions                       = [];
         $this->concurrentWriterReplacesSecret = null;
         $this->readKeysSorted                 = false;
+        $this->createScript                   = [];
+        $this->readScript                     = [];
+        $this->warnings                       = [];
+        $this->masterKey                      = 'unit-test-master-key-of-this-installation';
+        $this->journal                        = new ExternalStoreJournal();
     }
 
     #[Test]
@@ -525,6 +542,217 @@ final class AwsSecretsManagerAdapterTest extends TestCase
     }
 
     #[Test]
+    public function aRowWhoseStoredLocationIsNotTheConfiguredOneIsNeitherOverwrittenNorDestroyed(): void
+    {
+        $adapter = $this->adapter();
+        $adapter->store($this->envelopeSecret('api_key'));
+        // The region or the prefix changed (or a database copy runs with other
+        // settings): the secret the same identifier names now is somebody else's.
+        $this->rows['api_key'] = $this->rows['api_key']->withExternalStorage('aws', 'eu-central-1:elsewhere/api_key');
+        $this->aws['api_key']  = ['unrelated' => 'value'];
+        $this->awsCalls        = [];
+
+        foreach (['rotate', 'delete', 'restore', 'retrieve'] as $operation) {
+            try {
+                match ($operation) {
+                    'rotate'  => $adapter->store($this->envelopeSecret('api_key', 'newer')->withUid(1)),
+                    'delete'  => $adapter->delete('api_key'),
+                    'restore' => $adapter->store((new Secret(identifier: 'api_key', uid: 1))->withExternalStorage('aws', 'eu-central-1:elsewhere/api_key')),
+                    default   => $adapter->retrieve('api_key'),
+                };
+                self::fail($operation . ' must be refused.');
+            } catch (AwsSecretsManagerException $e) {
+                self::assertSame(1794500014, $e->getCode(), $operation);
+            }
+        }
+
+        self::assertSame(['unrelated' => 'value'], $this->aws['api_key']);
+        self::assertSame([], $this->awsCalls, 'AWS is not touched at the wrong location');
+        self::assertArrayHasKey('api_key', $this->rows);
+        self::assertSame('aws', $adapter->retrieveIncludingDisabled('api_key')?->getAdapter(), 'the administrative lookup still returns the row');
+    }
+
+    #[Test]
+    public function aBoundRowWhoseSecretHoldsAnotherIdentifiersPayloadIsNeitherOverwrittenNorDestroyed(): void
+    {
+        $adapter = $this->adapter();
+        $adapter->store($this->envelopeSecret('api_key'));
+        $adapter->store($this->envelopeSecret('other_key'));
+        $this->aws['api_key'] = $this->aws['other_key'];
+
+        foreach (['rotate', 'delete'] as $operation) {
+            try {
+                $operation === 'rotate'
+                    ? $adapter->store($this->envelopeSecret('api_key', 'newer')->withUid(1))
+                    : $adapter->delete('api_key');
+                self::fail($operation . ' must be refused.');
+            } catch (AwsSecretsManagerException $e) {
+                self::assertSame(1794500011, $e->getCode(), $operation);
+            }
+        }
+
+        self::assertSame($this->aws['other_key'], $this->aws['api_key']);
+    }
+
+    #[Test]
+    public function aRowWhoseSecretIsNotAJsonObjectCanStillBeDeleted(): void
+    {
+        $adapter = $this->adapter();
+        $adapter->store($this->envelopeSecret('api_key'));
+
+        $this->readScript = [static fn (): never => throw AwsSecretsManagerException::malformedResponse('read', 'secret value is not valid JSON')];
+
+        $adapter->delete('api_key');
+
+        self::assertArrayNotHasKey('api_key', $this->aws);
+        self::assertArrayNotHasKey('api_key', $this->rows);
+    }
+
+    #[Test]
+    public function aBoundRowWhoseSecretCarriesAnotherInstallationsMarkerIsNeitherOverwrittenNorDestroyed(): void
+    {
+        $adapter = $this->adapter();
+        $adapter->store($this->envelopeSecret('api_key'));
+        $this->aws['api_key']['installation'] = 'marker-of-installation-b';
+        $theirs                               = $this->aws['api_key'];
+
+        foreach (['rotate', 'delete'] as $operation) {
+            try {
+                $operation === 'rotate'
+                    ? $adapter->store($this->envelopeSecret('api_key', 'newer')->withUid(1))
+                    : $adapter->delete('api_key');
+                self::fail($operation . ' must be refused.');
+            } catch (AwsSecretsManagerException $e) {
+                self::assertSame(1794500011, $e->getCode(), $operation);
+            }
+        }
+
+        self::assertSame($theirs, $this->aws['api_key']);
+    }
+
+    #[Test]
+    public function aBoundRowWhoseSecretHoldsALegacyWriteWithoutAMarkerIsUpdatedAndStamped(): void
+    {
+        $adapter = $this->adapter();
+        $adapter->store($this->envelopeSecret('api_key'));
+        unset($this->aws['api_key']['installation']);
+
+        $adapter->store($this->envelopeSecret('api_key', 'newer')->withUid(1));
+
+        self::assertSame(base64_encode('newer'), $this->aws['api_key']['encrypted_value']);
+        self::assertArrayHasKey('installation', $this->aws['api_key'], 'the next write stamps the marker');
+    }
+
+    #[Test]
+    public function aBoundRowWhoseSecretHoldsALegacyWriteOfAnotherIdentifierIsRefused(): void
+    {
+        $adapter = $this->adapter();
+        $adapter->store($this->envelopeSecret('api_key'));
+        unset($this->aws['api_key']['installation']);
+        $this->aws['api_key']['identifier'] = 'other_key';
+
+        $this->expectException(AwsSecretsManagerException::class);
+        $this->expectExceptionCode(1794500011);
+
+        $adapter->delete('api_key');
+    }
+
+    #[Test]
+    public function anUnreferencedWriteOfAnotherInstallationIsNotAdopted(): void
+    {
+        $adapter = $this->adapter();
+        $adapter->store($this->envelopeSecret('api_key'));
+
+        $theirs = $this->aws['api_key'];
+        unset($this->rows['api_key']);
+        $this->masterKey = 'the-master-key-of-installation-b';
+
+        try {
+            $this->adapter()->store($this->envelopeSecret('api_key', 'mine'));
+            self::fail("Another installation's secret must not be adopted.");
+        } catch (AwsSecretsManagerException $e) {
+            self::assertSame(1794500011, $e->getCode());
+        }
+
+        self::assertSame($theirs, $this->aws['api_key']);
+    }
+
+    #[Test]
+    public function aFailedCreateAuditPutsAnAdoptedSecretBackInsteadOfDestroyingIt(): void
+    {
+        $adapter = $this->adapter();
+        $adapter->store($this->envelopeSecret('api_key'));
+
+        $orphan = $this->aws['api_key'];
+        unset($this->rows['api_key']);
+
+        $adapter->store($this->envelopeSecret('api_key', 'adopted'));
+        $adapter->compensateCreate('api_key');
+
+        self::assertEquals($orphan, $this->aws['api_key'], 'the adopted secret is back');
+        self::assertArrayNotHasKey('api_key', $this->rows, 'the row is removed');
+    }
+
+    #[Test]
+    public function aFailedCreateAuditDestroysASecretThisCallCreated(): void
+    {
+        $adapter = $this->adapter();
+        $adapter->store($this->envelopeSecret('api_key'));
+
+        $adapter->compensateCreate('api_key');
+
+        self::assertArrayNotHasKey('api_key', $this->aws);
+        self::assertArrayNotHasKey('api_key', $this->rows);
+    }
+
+    #[Test]
+    public function aFailedCreateAuditDoesNotDestroyASecretAConcurrentWriterWroteSince(): void
+    {
+        $adapter = $this->adapter();
+        $adapter->store($this->envelopeSecret('api_key'));
+        $this->awsWrite('api_key', ['somebody' => 'else']);
+
+        $adapter->compensateCreate('api_key');
+
+        self::assertSame(['somebody' => 'else'], $this->aws['api_key']);
+        self::assertNotSame([], $this->warnings, 'the skipped rollback is reported');
+        self::assertStringNotContainsString('else', implode(' ', $this->warnings));
+    }
+
+    #[Test]
+    public function aCompensationWithoutARecordedStoreDeletesLikeBefore(): void
+    {
+        $adapter = $this->adapter();
+        $adapter->store($this->envelopeSecret('api_key'));
+
+        $this->journal->forget('aws', 'api_key');
+
+        $adapter->compensateCreate('api_key');
+
+        self::assertArrayNotHasKey('api_key', $this->aws);
+        self::assertArrayNotHasKey('api_key', $this->rows);
+    }
+
+    #[Test]
+    public function aRollbackThatIsSkippedBecauseSomebodyWroteSinceIsReportedWithoutASecret(): void
+    {
+        $adapter = $this->adapter();
+        $adapter->store($this->envelopeSecret('api_key'));
+
+        $this->failRowWrite                   = true;
+        $this->concurrentWriterReplacesSecret = ['identifier' => 'api_key', 'format' => 1, 'winner' => true];
+
+        try {
+            $adapter->store($this->envelopeSecret('api_key', 'newer')->withUid(1));
+            self::fail('The row failure must propagate.');
+        } catch (RuntimeException) {
+        }
+
+        self::assertCount(1, $this->warnings);
+        self::assertStringNotContainsString('newer', $this->warnings[0]);
+    }
+
+    #[Test]
     public function aRollbackNeverOverwritesAConcurrentWritersVersion(): void
     {
         $adapter = $this->adapter();
@@ -732,6 +960,11 @@ final class AwsSecretsManagerAdapterTest extends TestCase
         return 'v1';
     }
 
+    public function recordWarning(string $message): void
+    {
+        $this->warnings[] = $message;
+    }
+
     public function awsDestroy(string $identifier): void
     {
         $this->awsCalls[] = 'destroy:' . $identifier;
@@ -859,6 +1092,20 @@ final class AwsSecretsManagerAdapterTest extends TestCase
             }
         };
 
-        return new AwsSecretsManagerAdapter(new LocalEncryptionAdapter($repository), $kv, $configuration);
+        $masterKey = $this->createMock(MasterKeyProviderInterface::class);
+        $masterKey->method('getMasterKey')->willReturnCallback(fn (): string => $this->masterKey);
+
+        $logger = new class ($this) extends AbstractLogger {
+            public function __construct(private readonly AwsSecretsManagerAdapterTest $test) {}
+
+            public function log($level, string|Stringable $message, array $context = []): void
+            {
+                if ($level === 'warning') {
+                    $this->test->recordWarning((string) $message);
+                }
+            }
+        };
+
+        return new AwsSecretsManagerAdapter(new LocalEncryptionAdapter($repository), $kv, $configuration, new InstallationMarker($masterKey), $this->journal, $logger);
     }
 }

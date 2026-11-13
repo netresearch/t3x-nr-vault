@@ -16,8 +16,12 @@ use Netresearch\NrVault\Exception\AwsSecretsManagerException;
 use Netresearch\NrVault\Exception\ConfigurationException;
 use Netresearch\NrVault\Storage\Aws\AwsSecretsEndpoint;
 use Netresearch\NrVault\Storage\Aws\AwsSecretStoreInterface;
+use Netresearch\NrVault\Storage\ExternalStoreJournal;
+use Netresearch\NrVault\Storage\InstallationMarker;
+use Psr\Log\LoggerInterface;
 use Throwable;
 
+use function array_key_exists;
 use function in_array;
 use function is_int;
 use function is_string;
@@ -45,7 +49,7 @@ use function is_string;
  * overwrites. A delete removes the AWS secret first and the row second, so a
  * delete that fails half-way can be repeated.
  */
-final readonly class AwsSecretsManagerAdapter implements VaultAdapterInterface
+final readonly class AwsSecretsManagerAdapter implements CreateCompensatingAdapterInterface, VaultAdapterInterface
 {
     public const IDENTIFIER = 'aws';
 
@@ -57,6 +61,9 @@ final readonly class AwsSecretsManagerAdapter implements VaultAdapterInterface
         private LocalEncryptionAdapter $registry,
         private AwsSecretStoreInterface $store,
         private ExtensionConfigurationInterface $configuration,
+        private InstallationMarker $installation,
+        private ExternalStoreJournal $journal,
+        private LoggerInterface $logger,
     ) {}
 
     public function getIdentifier(): string
@@ -94,8 +101,10 @@ final readonly class AwsSecretsManagerAdapter implements VaultAdapterInterface
         if (($secret->getEncryptedValue() ?? '') === '') {
             $boundToAws = $secret->getAdapter() === self::IDENTIFIER
                 || ($existing instanceof Secret && $existing->getAdapter() === self::IDENTIFIER);
-            $previous = $boundToAws ? $this->store->read($identifier) : null;
+            $previous = null;
             if ($boundToAws) {
+                $this->assertOwnsLocation($existing instanceof Secret && $existing->getAdapter() === self::IDENTIFIER ? $existing : $secret);
+                $previous = $this->readOwned($identifier);
                 $this->store->destroy($identifier);
             }
 
@@ -124,7 +133,12 @@ final readonly class AwsSecretsManagerAdapter implements VaultAdapterInterface
         // version id it created; taking a write back is applied only while the
         // secret is still at that version, so a concurrent writer is neither
         // overwritten nor deleted and no payload is compared.
-        $previous = $bound ? $this->store->read($identifier) : null;
+        $previous = null;
+        if ($bound) {
+            $this->assertOwnsLocation($existing);
+            $previous = $this->readOwned($identifier);
+        }
+
         if ($previous !== null) {
             $version = $this->store->write($identifier, $payload);
         } else {
@@ -132,14 +146,29 @@ final readonly class AwsSecretsManagerAdapter implements VaultAdapterInterface
         }
 
         $row = $secret->withExternalStorage(self::IDENTIFIER, $this->store->reference($identifier));
+        $this->journal->remember(self::IDENTIFIER, $identifier, $previous, $version);
 
         try {
             return $this->registry->store($row, $persistGroupRelations)->withEnvelope(...$this->envelopeOf($secret));
         } catch (Throwable $e) {
+            $this->journal->forget(self::IDENTIFIER, $identifier);
             $this->undoAwsWrite($identifier, $previous, $version);
 
             throw $e;
         }
+    }
+
+    public function compensateCreate(string $identifier): void
+    {
+        $entry = $this->journal->take(self::IDENTIFIER, $identifier);
+        if ($entry === null) {
+            $this->delete($identifier);
+
+            return;
+        }
+
+        $this->undoAwsWrite($identifier, $entry['previous'], is_string($entry['version']) ? $entry['version'] : null, true);
+        $this->registry->delete($identifier);
     }
 
     public function retrieve(string $identifier): ?Secret
@@ -167,7 +196,18 @@ final readonly class AwsSecretsManagerAdapter implements VaultAdapterInterface
 
         $previous = null;
         if ($row instanceof Secret && $row->getAdapter() === self::IDENTIFIER) {
-            $previous = $this->store->read($identifier);
+            $this->assertOwnsLocation($row);
+
+            try {
+                $previous = $this->readOwned($identifier);
+            } catch (AwsSecretsManagerException $e) {
+                // The row owns this secret by its recorded location; a value that
+                // is not even a JSON object must not make the row undeletable.
+                if ($e->getCode() !== 1794500008) {
+                    throw $e;
+                }
+            }
+
             $this->store->destroy($identifier);
         }
 
@@ -222,13 +262,26 @@ final readonly class AwsSecretsManagerAdapter implements VaultAdapterInterface
      *
      * @param array<string, mixed>|null $previous
      */
-    private function undoAwsWrite(string $identifier, ?array $previous, string $version): void
+    private function undoAwsWrite(string $identifier, ?array $previous, ?string $version, bool $rowIsBeingRemoved = false): void
     {
         try {
+            if ($version === null) {
+                return;
+            }
+
             if ($previous !== null) {
-                $this->store->restoreIfCurrent($identifier, $previous, $version);
-            } elseif (!$this->registry->exists($identifier)) {
-                $this->store->destroyIfCurrent($identifier, $version);
+                $applied = $this->store->restoreIfCurrent($identifier, $previous, $version);
+            } elseif ($rowIsBeingRemoved || !$this->registry->exists($identifier)) {
+                $applied = $this->store->destroyIfCurrent($identifier, $version);
+            } else {
+                return;
+            }
+
+            if (!$applied) {
+                $this->logger->warning(
+                    'nr-vault: the rollback of an AWS Secrets Manager write was skipped because the secret is not at the version this call wrote (somebody wrote since, or the read was stale). The secret was left as it is.',
+                    ['secret' => $identifier],
+                );
             }
         } catch (Throwable) {
             // The original failure is the one to report.
@@ -281,7 +334,7 @@ final readonly class AwsSecretsManagerAdapter implements VaultAdapterInterface
                 continue;
             }
 
-            if (($existing['identifier'] ?? null) !== $identifier || ($existing['format'] ?? null) !== self::FORMAT) {
+            if (($existing['identifier'] ?? null) !== $identifier || ($existing['format'] ?? null) !== self::FORMAT || ($existing['installation'] ?? null) !== $this->installation->value()) {
                 throw AwsSecretsManagerException::nameTaken($identifier);
             }
 
@@ -289,6 +342,43 @@ final readonly class AwsSecretsManagerAdapter implements VaultAdapterInterface
         }
 
         throw AwsSecretsManagerException::claimUnstable($identifier);
+    }
+
+    /**
+     * The row's stored location must be the one the current configuration
+     * resolves to. After the region or the prefix changed, or on a database copy
+     * run with other settings, the same identifier names an unrelated secret,
+     * which a write would overwrite and a delete would destroy.
+     *
+     * @throws AwsSecretsManagerException
+     */
+    private function assertOwnsLocation(Secret $row): void
+    {
+        if ($row->getExternalReference() !== $this->store->reference($row->getIdentifier())) {
+            throw AwsSecretsManagerException::pathMismatch($row->getIdentifier());
+        }
+    }
+
+    /**
+     * Read the secret of a row that is bound to it. What is there must be an
+     * nr-vault write for this identifier; anything else is somebody else's. A
+     * write that carries another installation's marker is refused. One without a
+     * marker was written by an earlier version: a row bound to AWS holds no
+     * envelope to compare it with, so it is accepted on identifier, format and
+     * the row's recorded location, and the next write stamps the marker.
+     *
+     * @return array<string, mixed>|null
+     *
+     * @throws AwsSecretsManagerException
+     */
+    private function readOwned(string $identifier): ?array
+    {
+        $payload = $this->store->read($identifier);
+        if ($payload !== null && (($payload['identifier'] ?? null) !== $identifier || ($payload['format'] ?? null) !== self::FORMAT || (array_key_exists('installation', $payload) && $payload['installation'] !== $this->installation->value()))) {
+            throw AwsSecretsManagerException::nameTaken($identifier);
+        }
+
+        return $payload;
     }
 
     /**
@@ -342,7 +432,15 @@ final readonly class AwsSecretsManagerAdapter implements VaultAdapterInterface
         }
 
         $identifier = $row->getIdentifier();
-        $payload    = $this->store->read($identifier);
+        if ($row->getExternalReference() !== $this->store->reference($identifier)) {
+            if ($requireValue) {
+                throw AwsSecretsManagerException::pathMismatch($identifier);
+            }
+
+            return $row;
+        }
+
+        $payload = $this->store->read($identifier);
         if ($payload === null) {
             if ($requireValue) {
                 throw AwsSecretsManagerException::backingObjectMissing($identifier);
@@ -392,6 +490,7 @@ final readonly class AwsSecretsManagerAdapter implements VaultAdapterInterface
     {
         return [
             'format'               => self::FORMAT,
+            'installation'         => $this->installation->value(),
             'identifier'           => $secret->getIdentifier(),
             'encrypted_value'      => base64_encode($secret->getEncryptedValue() ?? ''),
             'encrypted_dek'        => base64_encode($secret->getEncryptedDek()),

@@ -37,6 +37,10 @@ use function sprintf;
  */
 final class AwsSecretsManagerStore implements AwsSecretStoreInterface
 {
+    private const VERSION_READ_ATTEMPTS = 3;
+
+    private const VERSION_READ_DELAY_MICROSECONDS = 150_000;
+
     private ?SecretsManagerClient $client = null;
 
     public function __construct(
@@ -122,7 +126,7 @@ final class AwsSecretsManagerStore implements AwsSecretStoreInterface
 
     public function restoreIfCurrent(string $identifier, #[SensitiveParameter] array $data, string $versionId): bool
     {
-        if ($this->currentVersion($identifier) !== $versionId) {
+        if (!$this->isCurrent($identifier, $versionId)) {
             return false;
         }
 
@@ -133,7 +137,7 @@ final class AwsSecretsManagerStore implements AwsSecretStoreInterface
 
     public function destroyIfCurrent(string $identifier, string $versionId): bool
     {
-        if ($this->currentVersion($identifier) !== $versionId) {
+        if (!$this->isCurrent($identifier, $versionId)) {
             return false;
         }
 
@@ -204,6 +208,32 @@ final class AwsSecretsManagerStore implements AwsSecretStoreInterface
     private function put(SecretsManagerClient $client, string $name, #[SensitiveParameter] string $encoded): string
     {
         return $this->versionOf($client->putSecretValue(['SecretId' => $name, 'SecretString' => $encoded]), 'write');
+    }
+
+    /**
+     * Whether AWSCURRENT is the given version. A read that has not caught up
+     * with our own write shows an older version for a moment; a few short
+     * retries tell that apart from a real concurrent write, which keeps showing
+     * another version.
+     */
+    private function isCurrent(string $identifier, string $versionId): bool
+    {
+        for ($attempt = 1; $attempt <= self::VERSION_READ_ATTEMPTS; ++$attempt) {
+            $current = $this->currentVersion($identifier);
+            if ($current === null) {
+                return false;
+            }
+
+            if ($current === $versionId) {
+                return true;
+            }
+
+            if ($attempt < self::VERSION_READ_ATTEMPTS) {
+                usleep(self::VERSION_READ_DELAY_MICROSECONDS);
+            }
+        }
+
+        return false;
     }
 
     /**

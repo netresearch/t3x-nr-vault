@@ -120,6 +120,18 @@ final class AwsSecretsManagerException extends VaultException
         );
     }
 
+    public static function pathMismatch(string $identifier): self
+    {
+        return new self(
+            sprintf(
+                'The registry row for secret "%s" points at a different AWS secret than the one the current aws.region and aws.secretPrefix resolve to. '
+                . 'Nothing was changed. Restore the previous settings (or move the secret and update the row) before touching this secret.',
+                $identifier,
+            ),
+            1794500014,
+        );
+    }
+
     public static function backingObjectMismatch(string $identifier): self
     {
         return new self(
