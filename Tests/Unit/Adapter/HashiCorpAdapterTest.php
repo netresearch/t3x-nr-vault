@@ -46,16 +46,27 @@ final class HashiCorpAdapterTest extends TestCase
 
     private bool $rowAppearsBeforeFailure = false;
 
+    /** @var array<string, int> */
+    private array $versions = [];
+
+    /** @var array<string, mixed>|null */
+    private ?array $concurrentWriterReplacesKey = null;
+
+    private bool $readKeysSorted = false;
+
     protected function setUp(): void
     {
         parent::setUp();
 
-        $this->rows                    = [];
-        $this->vault                   = [];
-        $this->vaultCalls              = [];
-        $this->failRowWrite            = false;
-        $this->failRowDelete           = false;
-        $this->rowAppearsBeforeFailure = false;
+        $this->rows                        = [];
+        $this->vault                       = [];
+        $this->vaultCalls                  = [];
+        $this->failRowWrite                = false;
+        $this->failRowDelete               = false;
+        $this->rowAppearsBeforeFailure     = false;
+        $this->versions                    = [];
+        $this->concurrentWriterReplacesKey = null;
+        $this->readKeysSorted              = false;
 
         LegacyKvStoreNotice::reset();
     }
@@ -499,6 +510,78 @@ final class HashiCorpAdapterTest extends TestCase
     }
 
     #[Test]
+    public function aRollbackNeverOverwritesAConcurrentWritersVersion(): void
+    {
+        $adapter = $this->adapter();
+        $adapter->store($this->envelopeSecret('api_key'));
+
+        $this->failRowWrite                = true;
+        $this->concurrentWriterReplacesKey = ['identifier' => 'api_key', 'format' => 1, 'winner' => true];
+
+        try {
+            $adapter->store($this->envelopeSecret('api_key', 'newer')->withUid(1));
+            self::fail('The row failure must propagate.');
+        } catch (RuntimeException) {
+        }
+
+        self::assertSame(['identifier' => 'api_key', 'format' => 1, 'winner' => true], $this->vaultRead('api_key'));
+    }
+
+    #[Test]
+    public function aRollbackOfACreateNeverDeletesAKeyAConcurrentWriterHasWrittenSince(): void
+    {
+        $this->failRowWrite                = true;
+        $this->concurrentWriterReplacesKey = ['identifier' => 'api_key', 'format' => 1, 'winner' => true];
+
+        try {
+            $this->adapter()->store($this->envelopeSecret('api_key'));
+            self::fail('The row failure must propagate.');
+        } catch (RuntimeException) {
+        }
+
+        self::assertSame(['identifier' => 'api_key', 'format' => 1, 'winner' => true], $this->vaultRead('api_key'));
+    }
+
+    #[Test]
+    public function aRollbackDoesNotDependOnTheOrderOfTheKeysVaultReturns(): void
+    {
+        $adapter = $this->adapter();
+        $adapter->store($this->envelopeSecret('api_key'));
+
+        $before               = $this->vault['api_key'];
+        $this->readKeysSorted = true;
+        $this->failRowWrite   = true;
+
+        try {
+            $adapter->store($this->envelopeSecret('api_key', 'newer')->withUid(1));
+            self::fail('The row failure must propagate.');
+        } catch (RuntimeException) {
+        }
+
+        self::assertEquals($before, $this->vault['api_key'], 'the previous envelope is back although Vault reorders the keys');
+    }
+
+    #[Test]
+    public function anAdoptedOrphanIsPutBackWhenTheRowWriteFails(): void
+    {
+        $adapter = $this->adapter();
+        $adapter->store($this->envelopeSecret('api_key'));
+
+        $orphan = $this->vault['api_key'];
+        unset($this->rows['api_key']);
+        $this->readKeysSorted = true;
+        $this->failRowWrite   = true;
+
+        try {
+            $adapter->store($this->envelopeSecret('api_key', 'adopted'));
+            self::fail('The row failure must propagate.');
+        } catch (RuntimeException) {
+        }
+
+        self::assertEquals($orphan, $this->vault['api_key']);
+    }
+
+    #[Test]
     public function aStoreWithoutACreateOnlyWriteStillWorksButReportsTheDeprecationOnce(): void
     {
         $deprecations = $this->collectDeprecations(function (): void {
@@ -574,8 +657,13 @@ final class HashiCorpAdapterTest extends TestCase
     public function vaultRead(string $identifier): ?array
     {
         $this->vaultCalls[] = 'read:' . $identifier;
+        $data               = $this->vault[$identifier] ?? null;
+        if ($data !== null && $this->readKeysSorted) {
+            // Vault returns keys in its own order, not the one that was sent.
+            ksort($data);
+        }
 
-        return $this->vault[$identifier] ?? null;
+        return $data;
     }
 
     /**
@@ -583,8 +671,9 @@ final class HashiCorpAdapterTest extends TestCase
      */
     public function vaultWrite(string $identifier, array $data): void
     {
-        $this->vaultCalls[]       = 'write:' . $identifier;
-        $this->vault[$identifier] = $data;
+        $this->vaultCalls[]          = 'write:' . $identifier;
+        $this->vault[$identifier]    = $data;
+        $this->versions[$identifier] = ($this->versions[$identifier] ?? 0) + 1;
     }
 
     /**
@@ -597,13 +686,19 @@ final class HashiCorpAdapterTest extends TestCase
             throw HashiCorpException::keyExists($identifier);
         }
 
-        $this->vault[$identifier] = $data;
+        $this->vault[$identifier]    = $data;
+        $this->versions[$identifier] = 1;
+    }
+
+    public function vaultVersion(string $identifier): int
+    {
+        return $this->versions[$identifier] ?? 0;
     }
 
     public function vaultDestroy(string $identifier): void
     {
         $this->vaultCalls[] = 'destroy:' . $identifier;
-        unset($this->vault[$identifier]);
+        unset($this->vault[$identifier], $this->versions[$identifier]);
     }
 
     /**
@@ -663,6 +758,10 @@ final class HashiCorpAdapterTest extends TestCase
         );
         $repository->method('save')->willReturnCallback(function (Secret $secret): Secret {
             if ($this->failRowWrite) {
+                if ($this->concurrentWriterReplacesKey !== null) {
+                    $this->vaultWrite($secret->getIdentifier(), $this->concurrentWriterReplacesKey);
+                }
+
                 if ($this->rowAppearsBeforeFailure) {
                     $this->rows[$secret->getIdentifier()] = $secret->withUid(99);
                 }
@@ -704,9 +803,40 @@ final class HashiCorpAdapterTest extends TestCase
                 $this->test->vaultWrite($identifier, $data);
             }
 
-            public function create(string $identifier, array $data): void
+            public function create(string $identifier, array $data): int
             {
                 $this->test->vaultCreate($identifier, $data);
+
+                return $this->test->vaultVersion($identifier);
+            }
+
+            public function writeVersioned(string $identifier, array $data): int
+            {
+                $this->test->vaultWrite($identifier, $data);
+
+                return $this->test->vaultVersion($identifier);
+            }
+
+            public function restoreIfCurrent(string $identifier, array $data, int $version): bool
+            {
+                if ($this->test->vaultVersion($identifier) !== $version) {
+                    return false;
+                }
+
+                $this->test->vaultWrite($identifier, $data);
+
+                return true;
+            }
+
+            public function destroyIfCurrent(string $identifier, int $version): bool
+            {
+                if ($this->test->vaultVersion($identifier) !== $version) {
+                    return false;
+                }
+
+                $this->test->vaultDestroy($identifier);
+
+                return true;
             }
 
             public function destroy(string $identifier): void

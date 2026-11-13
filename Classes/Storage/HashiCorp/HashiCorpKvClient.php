@@ -13,6 +13,7 @@ use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Exception\HashiCorpException;
 
 use function is_array;
+use function is_int;
 
 /**
  * KV v2 client for the HashiCorp Vault storage adapter.
@@ -59,7 +60,7 @@ final readonly class HashiCorpKvClient implements AtomicKvStoreInterface
         $this->assertSuccess($result['status'], 'write');
     }
 
-    public function create(string $identifier, array $data): void
+    public function create(string $identifier, array $data): int
     {
         $url    = $this->endpoint()->dataUrl($identifier);
         $result = $this->send('POST', $url, ['options' => ['cas' => 0], 'data' => $data], 'create');
@@ -71,6 +72,51 @@ final readonly class HashiCorpKvClient implements AtomicKvStoreInterface
         }
 
         $this->assertSuccess($result['status'], 'create');
+
+        return $this->versionOf($result['json'], 'create');
+    }
+
+    public function writeVersioned(string $identifier, array $data): int
+    {
+        $url    = $this->endpoint()->dataUrl($identifier);
+        $result = $this->send('POST', $url, ['data' => $data], 'write');
+
+        $this->assertSuccess($result['status'], 'write');
+
+        return $this->versionOf($result['json'], 'write');
+    }
+
+    public function restoreIfCurrent(string $identifier, array $data, int $version): bool
+    {
+        $url    = $this->endpoint()->dataUrl($identifier);
+        $result = $this->send('POST', $url, ['options' => ['cas' => $version], 'data' => $data], 'restore');
+
+        if ($result['status'] === 400) {
+            return false;
+        }
+
+        $this->assertSuccess($result['status'], 'restore');
+
+        return true;
+    }
+
+    public function destroyIfCurrent(string $identifier, int $version): bool
+    {
+        $result = $this->send('GET', $this->endpoint()->metadataUrl($identifier), null, 'read');
+        if ($result['status'] === 404) {
+            return false;
+        }
+
+        $this->assertSuccess($result['status'], 'read');
+
+        $metadata = $result['json']['data'] ?? null;
+        if (!is_array($metadata) || ($metadata['current_version'] ?? null) !== $version) {
+            return false;
+        }
+
+        $this->destroy($identifier);
+
+        return true;
     }
 
     public function destroy(string $identifier): void
@@ -90,6 +136,20 @@ final readonly class HashiCorpKvClient implements AtomicKvStoreInterface
     public function reference(string $identifier): string
     {
         return $this->endpoint()->reference($identifier);
+    }
+
+    /**
+     * @param array<array-key, mixed> $json
+     */
+    private function versionOf(array $json, string $operation): int
+    {
+        $data    = $json['data'] ?? null;
+        $version = is_array($data) ? ($data['version'] ?? null) : null;
+        if (!is_int($version)) {
+            throw HashiCorpException::malformedResponse($operation, 'response has no "data.version"');
+        }
+
+        return $version;
     }
 
     private function endpoint(): HashiCorpEndpoint

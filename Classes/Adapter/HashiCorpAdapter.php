@@ -111,9 +111,9 @@ final readonly class HashiCorpAdapter implements VaultAdapterInterface
         $payload = $this->toPayload($secret);
         if ($existing instanceof Secret && $existing->getAdapter() === self::IDENTIFIER) {
             $previous = $this->kv->read($identifier);
-            $this->kv->write($identifier, $payload);
+            $version  = $this->put($identifier, $payload);
         } else {
-            $previous = $this->claimPath($identifier, $payload);
+            [$previous, $version] = $this->claimPath($identifier, $payload);
         }
 
         $row = $secret->withExternalStorage(self::IDENTIFIER, $this->kv->reference($identifier));
@@ -121,7 +121,7 @@ final readonly class HashiCorpAdapter implements VaultAdapterInterface
         try {
             return $this->registry->store($row, $persistGroupRelations)->withEnvelope(...$this->envelopeOf($secret));
         } catch (Throwable $e) {
-            $this->undoVaultWrite($identifier, $previous);
+            $this->undoVaultWrite($identifier, $previous, $version);
 
             throw $e;
         }
@@ -199,11 +199,26 @@ final readonly class HashiCorpAdapter implements VaultAdapterInterface
      * exists by now: a concurrent create that won the unique key owns it. An
      * update puts the previous envelope back.
      *
+     * With a store that reports versions, both are check-and-set against the
+     * version this call wrote: Vault applies the rollback only if nobody wrote
+     * since, so a concurrent writer is never overwritten or deleted and no
+     * payload is compared. A store without versions gets the plain behaviour.
+     *
      * @param array<string, mixed>|null $previous
      */
-    private function undoVaultWrite(string $identifier, ?array $previous): void
+    private function undoVaultWrite(string $identifier, ?array $previous, ?int $version): void
     {
         try {
+            if ($version !== null && $this->kv instanceof AtomicKvStoreInterface) {
+                if ($previous !== null) {
+                    $this->kv->restoreIfCurrent($identifier, $previous, $version);
+                } elseif (!$this->registry->exists($identifier)) {
+                    $this->kv->destroyIfCurrent($identifier, $version);
+                }
+
+                return;
+            }
+
             if ($previous !== null) {
                 $this->kv->write($identifier, $previous);
             } elseif (!$this->registry->exists($identifier)) {
@@ -227,22 +242,41 @@ final readonly class HashiCorpAdapter implements VaultAdapterInterface
     }
 
     /**
+     * Write a new version; the version is known only for a store that reports it.
+     *
+     * @param array<string, mixed> $payload
+     */
+    private function put(string $identifier, array $payload): ?int
+    {
+        if ($this->kv instanceof AtomicKvStoreInterface) {
+            return $this->kv->writeVersioned($identifier, $payload);
+        }
+
+        $this->kv->write($identifier, $payload);
+
+        return null;
+    }
+
+    /**
      * @param array<string, mixed> $payload
      *
-     * @return array<string, mixed>|null The adopted earlier write, null when the key was created now
+     * @return array{0: array<string, mixed>|null, 1: int|null} The adopted earlier write (null when
+     *                                                          the key was created now) and the KV
+     *                                                          version written (null for a store
+     *                                                          that does not report it)
      *
      * @throws HashiCorpException When the path belongs to something else
      */
-    private function claimPath(string $identifier, array $payload): ?array
+    private function claimPath(string $identifier, array $payload): array
     {
         if (!$this->kv instanceof AtomicKvStoreInterface) {
-            return $this->claimPathWithoutCreateOnly($identifier, $payload);
+            LegacyKvStoreNotice::report();
+
+            return $this->adopt($identifier, $payload, $this->kv->read($identifier));
         }
 
         try {
-            $this->kv->create($identifier, $payload);
-
-            return null;
+            return [null, $this->kv->create($identifier, $payload)];
         } catch (HashiCorpException $e) {
             if ($e->getCode() !== 1794400013) {
                 throw $e;
@@ -253,54 +287,21 @@ final readonly class HashiCorpAdapter implements VaultAdapterInterface
     }
 
     /**
-     * The path of a store without a create-only write: read, then write. A key
-     * that appears between the two is overwritten, which is why this is
-     * deprecated.
-     *
-     * @param array<string, mixed> $payload
-     *
-     * @return array<string, mixed>|null
-     */
-    private function claimPathWithoutCreateOnly(string $identifier, array $payload): ?array
-    {
-        LegacyKvStoreNotice::report();
-
-        $existing = $this->kv->read($identifier);
-        if ($existing !== null) {
-            return $this->adopt($identifier, $payload, $existing);
-        }
-
-        $this->kv->write($identifier, $payload);
-
-        return null;
-    }
-
-    /**
-     * The key exists. It is taken over only when it is an earlier nr-vault
-     * write for this identifier.
+     * The key exists, or not any more. It is taken over only when it is an
+     * earlier nr-vault write for this identifier.
      *
      * @param array<string, mixed>      $payload
      * @param array<string, mixed>|null $existing
      *
-     * @return array<string, mixed>|null
+     * @return array{0: array<string, mixed>|null, 1: int|null}
      */
-    private function adopt(string $identifier, array $payload, ?array $existing): ?array
+    private function adopt(string $identifier, array $payload, ?array $existing): array
     {
-        if ($existing === null) {
-            // Gone again between the refused create and this read: nothing of
-            // ours or theirs is left to protect.
-            $this->kv->write($identifier, $payload);
-
-            return null;
-        }
-
-        if (($existing['identifier'] ?? null) !== $identifier || ($existing['format'] ?? null) !== self::FORMAT) {
+        if ($existing !== null && (($existing['identifier'] ?? null) !== $identifier || ($existing['format'] ?? null) !== self::FORMAT)) {
             throw HashiCorpException::pathTaken($identifier);
         }
 
-        $this->kv->write($identifier, $payload);
-
-        return $existing;
+        return [$existing, $this->put($identifier, $payload)];
     }
 
     /**

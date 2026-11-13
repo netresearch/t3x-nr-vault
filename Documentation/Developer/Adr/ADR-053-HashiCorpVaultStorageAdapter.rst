@@ -75,7 +75,15 @@ envelope to Vault.
     over; anything else is refused with code ``1794400012`` and left untouched,
     including by the compensation, which destroys only a key this call created
     and puts a taken-over one back. There is no window between the check and the
-    write for a store that offers the create-only write. The interface for it is
+    write for a store that offers the create-only write. Every write of such a
+    store reports the KV version it created, and the rollback is a check-and-set
+    against exactly that version (``cas``): Vault applies it only if nobody wrote
+    since, so a concurrent writer is neither overwritten nor deleted, and no
+    payload is compared. The one exception is the delete that takes back a
+    create: KV v2 has no conditional delete, so the version is read immediately
+    before the delete and a write landing in that gap is not detected. A failed
+    audit write is compensated by :php:`VaultService` through ``delete()``, which
+    removes the key with the row. The interface for it is
     :php:`AtomicKvStoreInterface`, which the shipped store implements. A store
     that implements only :php:`KvStoreInterface` is deprecated: the adapter
     reads, then writes, which leaves that window open, and reports a

@@ -44,12 +44,28 @@ final class HashiCorpCreateRaceTest extends AbstractHashiCorpContainerTestCase
                 $this->inner->write($identifier, $data);
             }
 
-            public function create(string $identifier, array $data): void
+            public function create(string $identifier, array $data): int
             {
                 // The competing writer wins the race: its key exists before
                 // the adapter's create reaches Vault.
                 $this->inner->write($this->identifier, ['theirs' => 'somebody-elses-value']);
-                $this->inner->create($identifier, $data);
+
+                return $this->inner->create($identifier, $data);
+            }
+
+            public function writeVersioned(string $identifier, array $data): int
+            {
+                return $this->inner->writeVersioned($identifier, $data);
+            }
+
+            public function restoreIfCurrent(string $identifier, array $data, int $version): bool
+            {
+                return $this->inner->restoreIfCurrent($identifier, $data, $version);
+            }
+
+            public function destroyIfCurrent(string $identifier, int $version): bool
+            {
+                return $this->inner->destroyIfCurrent($identifier, $version);
             }
 
             public function destroy(string $identifier): void

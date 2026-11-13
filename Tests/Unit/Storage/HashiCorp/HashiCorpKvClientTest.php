@@ -24,6 +24,7 @@ use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
+use Psr\Http\Message\RequestInterface;
 
 #[CoversClass(HashiCorpKvClient::class)]
 #[CoversClass(HashiCorpHttp::class)]
@@ -165,6 +166,74 @@ final class HashiCorpKvClientTest extends TestCase
         $this->expectExceptionCode(1794400006);
 
         $this->client($http)->create('api_key', ['k' => 'v']);
+    }
+
+    #[Test]
+    public function createAndWriteVersionedReturnTheVersionVaultCreated(): void
+    {
+        $http = new RecordingHttpClient(
+            RecordingHttpClient::json(200, ['data' => ['version' => 1]]),
+            RecordingHttpClient::json(200, ['data' => ['version' => 2]]),
+        );
+        $client = $this->client($http);
+
+        self::assertSame(1, $client->create('api_key', ['k' => 'v']));
+        self::assertSame(2, $client->writeVersioned('api_key', ['k' => 'w']));
+        self::assertSame(['data' => ['k' => 'w']], $http->bodyOf(1));
+    }
+
+    #[Test]
+    public function aWriteWithoutAVersionInTheResponseIsRefused(): void
+    {
+        $http = new RecordingHttpClient(RecordingHttpClient::json(200, ['data' => []]));
+
+        $this->expectException(HashiCorpException::class);
+        $this->expectExceptionCode(1794400008);
+
+        $this->client($http)->writeVersioned('api_key', ['k' => 'v']);
+    }
+
+    #[Test]
+    public function restoreIfCurrentIsACheckAndSetAgainstTheGivenVersion(): void
+    {
+        $http = new RecordingHttpClient(RecordingHttpClient::json(200, ['data' => ['version' => 4]]));
+
+        self::assertTrue($this->client($http)->restoreIfCurrent('api_key', ['k' => 'v'], 3));
+
+        self::assertSame(['options' => ['cas' => 3], 'data' => ['k' => 'v']], $http->bodyOf(0));
+    }
+
+    #[Test]
+    public function restoreIfCurrentChangesNothingWhenSomebodyWroteSince(): void
+    {
+        $http = new RecordingHttpClient(new Response(400, [], '{"errors":["check-and-set parameter did not match the current version"]}'));
+
+        self::assertFalse($this->client($http)->restoreIfCurrent('api_key', ['k' => 'v'], 3));
+    }
+
+    #[Test]
+    public function destroyIfCurrentDeletesOnlyWhileTheKeyIsAtTheGivenVersion(): void
+    {
+        $http = new RecordingHttpClient(
+            RecordingHttpClient::json(200, ['data' => ['current_version' => 2]]),
+            RecordingHttpClient::json(200, ['data' => ['current_version' => 3]]),
+            new Response(204),
+        );
+        $client = $this->client($http);
+
+        self::assertFalse($client->destroyIfCurrent('api_key', 1), 'somebody wrote since');
+
+        self::assertTrue($client->destroyIfCurrent('api_key', 3));
+        $methods = array_map(static fn (RequestInterface $request): string => $request->getMethod(), $http->requests);
+        self::assertSame(['GET', 'GET', 'DELETE'], $methods, 'only the second call deleted');
+    }
+
+    #[Test]
+    public function destroyIfCurrentOfAMissingKeyIsFalse(): void
+    {
+        $http = new RecordingHttpClient(new Response(404, [], '{"errors":[]}'));
+
+        self::assertFalse($this->client($http)->destroyIfCurrent('api_key', 1));
     }
 
     #[Test]

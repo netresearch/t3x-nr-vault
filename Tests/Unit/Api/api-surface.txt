@@ -1034,7 +1034,10 @@ Netresearch\NrVault\Service\VaultServiceInterface (interface)
   method store(string $identifier, string $secret, array $options = …): void
 
 Netresearch\NrVault\Storage\HashiCorp\AtomicKvStoreInterface (interface)
-  method create(string $identifier, array $data): void
+  method create(string $identifier, array $data): int
+  method destroyIfCurrent(string $identifier, int $version): bool
+  method restoreIfCurrent(string $identifier, array $data, int $version): bool
+  method writeVersioned(string $identifier, array $data): int
 
 Netresearch\NrVault\Storage\HashiCorp\KvStoreInterface (interface)
   method destroy(string $identifier): void
