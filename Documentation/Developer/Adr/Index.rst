@@ -41,7 +41,7 @@ ADR      Title                                                    Status
 011      :ref:`adr-011-credential-sets`                           Proposed
 012      :ref:`adr-012-secure-http-transports`                    Accepted (partly implemented)
 013      :ref:`adr-013-rust-ffi-preload`                          Proposed
-014      :ref:`adr-014-packaging-native`                          Proposed
+014      :ref:`adr-014-packaging-native`                          Accepted (partly implemented)
 015      :ref:`adr-015-http3-feature-flag`                        Proposed
 016      :ref:`adr-016-sidecar-option`                            Proposed
 017      :ref:`adr-017-audit-metadata-retention`                  Accepted
