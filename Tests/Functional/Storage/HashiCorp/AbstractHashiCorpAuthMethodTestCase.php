@@ -10,9 +10,12 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Tests\Functional\Storage\HashiCorp;
 
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
+use Netresearch\NrVault\Exception\AuditWriteException;
 use Netresearch\NrVault\Exception\HashiCorpException;
 use Netresearch\NrVault\Service\VaultServiceInterface;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
+use TYPO3\CMS\Core\Database\ConnectionPool;
 
 /**
  * The cases every auth method must pass against a real Vault, through the real
@@ -103,6 +106,57 @@ abstract class AbstractHashiCorpAuthMethodTestCase extends AbstractHashiCorpCont
 
         $service->setEnabled($identifier, true);
         self::assertSame('kept-value', $service->retrieve($identifier));
+    }
+
+    /**
+     * @return iterable<string, array{string}>
+     */
+    public static function auditFailureOperations(): iterable
+    {
+        yield 'create' => ['create'];
+        yield 'rotate' => ['rotate'];
+        yield 'delete' => ['delete'];
+    }
+
+    #[Test]
+    #[DataProvider('auditFailureOperations')]
+    public function anAuditFailureLeavesVaultAndTheRowAsTheyWere(string $operation): void
+    {
+        $identifier = $this->newIdentifier();
+        $service    = $this->get(VaultServiceInterface::class);
+        if ($operation !== 'create') {
+            $service->store($identifier, 'original-value');
+        }
+
+        $valueBefore = $operation === 'create' ? null : $this->server->storedData($identifier);
+
+        $connection = $this->get(ConnectionPool::class)->getConnectionForTable('tx_nrvault_secret');
+        $schema     = $connection->createSchemaManager();
+        $table      = $schema->introspectSchema()->getTable('tx_nrvault_audit_log');
+        $schema->dropTable('tx_nrvault_audit_log');
+
+        try {
+            $failure = $this->thrownBy(static fn () => match ($operation) {
+                'create' => $service->store($identifier, 'new-value'),
+                'rotate' => $service->rotate($identifier, 'new-value'),
+                default  => $service->delete($identifier),
+            });
+        } finally {
+            $schema->createTable($table);
+        }
+
+        self::assertInstanceOf(AuditWriteException::class, $failure);
+
+        if ($operation === 'create') {
+            self::assertFalse($service->exists($identifier));
+            self::assertNull($this->server->storedData($identifier), 'no Vault key survives a failed create');
+
+            return;
+        }
+
+        self::assertSame('hashicorp', $this->row($identifier)['adapter']);
+        self::assertSame('original-value', $service->retrieve($identifier), 'the value is back after the compensation');
+        self::assertSame($valueBefore, $this->server->storedData($identifier));
     }
 
     #[Test]

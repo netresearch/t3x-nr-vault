@@ -120,6 +120,10 @@ Negative
    unreferenced Vault key (overwritten by the next store of that identifier) or,
    after a failed update of the row, a row whose metadata is one write behind the
    envelope. Neither loses a value.
+-  When the audit write fails after a Vault change, the existing compensation
+   restores the previous envelope as a new KV version; a compensated delete
+   recreates the key with its latest value only, so older KV versions are not
+   restored. Nothing here is crash-atomic (:ref:`adr-036-mutation-audit-atomicity`).
 -  A Vault outage makes secrets stored there unreadable; secrets stored locally
    are unaffected.
 -  Master-key rotation is unavailable while Vault-backed secrets exist.

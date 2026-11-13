@@ -908,7 +908,13 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
             // hands the value to store() afterwards. Classify by the VALUE,
             // so that path faces secret.create — like the module controller —
             // and is audited as the creation it is.
-            $isCreation = !$existing instanceof Secret || ($existing->getEncryptedValue() ?? '') === '';
+            // A row that points at an external store is an existing secret even
+            // when its envelope could not be loaded: classifying it as a creation
+            // would swap the rotate and policy gates for the weaker create gate.
+            $isCreation = !$existing instanceof Secret
+                || (($existing->getEncryptedValue() ?? '') === ''
+                    && $existing->getAdapter() === 'local'
+                    && $existing->getExternalReference() === '');
 
             // Separation of duties: the per-secret ACL above answers "may this
             // actor touch THIS secret", the operation permission answers "may
