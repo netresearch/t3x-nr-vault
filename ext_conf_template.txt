@@ -6,7 +6,7 @@
 ####################
 
 # cat=Storage; type=options[local,hashicorp,aws]; label=Storage Adapter: Backend storage for encrypted secrets (local = database, hashicorp = HashiCorp Vault, aws = AWS Secrets Manager)
-# NOTE: 'local' and 'hashicorp' are implemented. 'aws' is planned; until then it behaves like 'local'. Secrets already stored locally stay local when you switch; only new secrets use the configured adapter. Master key rotation refuses to run while secrets live outside the local database.
+# NOTE: All three are implemented. 'aws' needs the AWS SDK for PHP (composer require aws/aws-sdk-php) and fails with a configuration error without it; it never falls back to 'local'. Secrets already stored locally stay local when you switch; only new secrets use the configured adapter, and a secret stored in one external adapter is not usable under the other. Master key rotation refuses to run while secrets live outside the local database.
 storageAdapter = local
 
 #################
@@ -153,13 +153,32 @@ hashicorp.transitWrappedKeyPath =
 ################################
 ### AWS SECRETS MANAGER ###
 ################################
-# NOTE: AWS Secrets Manager adapter is planned but not yet implemented. These settings are reserved for future use.
+# The settings below configure the AWS Secrets Manager storage adapter (storageAdapter = aws).
+# Credentials are explicit: the SDK's default credential chain (environment, shared files, instance metadata) is never used.
 
-# cat=AWS Secrets Manager; type=string; label=AWS Region: AWS region for Secrets Manager (e.g., eu-central-1)
+# cat=AWS Secrets Manager; type=string; label=AWS Region: AWS region for Secrets Manager (e.g., eu-central-1). Required.
 aws.region =
 
-# cat=AWS Secrets Manager; type=string; label=Secret Prefix: Prefix for secret names in AWS Secrets Manager
+# cat=AWS Secrets Manager; type=string; label=Secret Prefix: Prefix of every secret name in AWS Secrets Manager. Slashes at both ends are ignored; the name is <prefix>/<identifier>, with ":" in an identifier written as "+". Scope the IAM policy to it.
 aws.secretPrefix = typo3/
+
+# cat=AWS Secrets Manager; type=string; label=Endpoint URL: Optional custom endpoint (a compatible service or a VPC endpoint), as a bare origin such as https://secretsmanager.vpce.example.com. Empty uses the regional AWS endpoint. https is required unless aws.allowInsecureHttp is on. AWS_ENDPOINT_URL* environment variables are ignored.
+aws.endpoint =
+
+# cat=AWS Secrets Manager; type=boolean; label=Allow Plain HTTP: Allow an http:// endpoint for the storage adapter. Off by default because the signed requests and every secret envelope would cross the network unencrypted. Intended for local development only.
+aws.allowInsecureHttp = 0
+
+# cat=AWS Secrets Manager; type=string; label=Access Key ID Environment Variable: Name of the environment variable holding the access key id. Read in preference to aws.accessKeyId. The default is not AWS_ACCESS_KEY_ID, so credentials that belong to something else on the host are never picked up by accident.
+aws.accessKeyIdEnvVar = NR_VAULT_AWS_ACCESS_KEY_ID
+
+# cat=AWS Secrets Manager; type=string; label=Access Key ID: Access key id, used when the environment variable named in aws.accessKeyIdEnvVar is empty. An identifier, not a secret.
+aws.accessKeyId =
+
+# cat=AWS Secrets Manager; type=string; label=Secret Access Key Environment Variable: Name of the environment variable holding the secret access key. The key is read from the environment only and is never stored in this configuration.
+aws.secretAccessKeyEnvVar = NR_VAULT_AWS_SECRET_ACCESS_KEY
+
+# cat=AWS Secrets Manager; type=string; label=Session Token Environment Variable: Name of the environment variable holding an optional session token, for temporary credentials. Empty or unset means long-lived credentials.
+aws.sessionTokenEnvVar = NR_VAULT_AWS_SESSION_TOKEN
 
 #################
 ### ANALYTICS ###

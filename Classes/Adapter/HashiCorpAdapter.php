@@ -12,6 +12,7 @@ namespace Netresearch\NrVault\Adapter;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Domain\Dto\SecretFilters;
 use Netresearch\NrVault\Domain\Model\Secret;
+use Netresearch\NrVault\Exception\ConfigurationException;
 use Netresearch\NrVault\Exception\HashiCorpException;
 use Netresearch\NrVault\Storage\ExternalStoreJournal;
 use Netresearch\NrVault\Storage\HashiCorp\AtomicKvStoreInterface;
@@ -86,6 +87,9 @@ final readonly class HashiCorpAdapter implements CreateCompensatingAdapterInterf
     {
         $identifier = $secret->getIdentifier();
         $existing   = $this->registry->retrieveIncludingDisabled($identifier);
+
+        $this->assertNotBoundElsewhere($existing);
+        $this->assertNotBoundElsewhere($secret);
 
         // A write without a value has nothing to put into Vault. Restoring a
         // valueless row that is, or just was, bound to Vault also removes the
@@ -176,7 +180,10 @@ final readonly class HashiCorpAdapter implements CreateCompensatingAdapterInterf
 
     public function retrieve(string $identifier): ?Secret
     {
-        return $this->withBackingEnvelope($this->registry->retrieve($identifier), true);
+        $row = $this->registry->retrieve($identifier);
+        $this->assertNotBoundElsewhere($row);
+
+        return $this->withBackingEnvelope($row, true);
     }
 
     public function retrieveIncludingDisabled(string $identifier): ?Secret
@@ -191,7 +198,9 @@ final readonly class HashiCorpAdapter implements CreateCompensatingAdapterInterf
 
     public function delete(string $identifier): void
     {
-        $row      = $this->registry->retrieveIncludingDisabled($identifier);
+        $row = $this->registry->retrieveIncludingDisabled($identifier);
+        $this->assertNotBoundElsewhere($row);
+
         $previous = null;
         if ($row instanceof Secret && $row->getAdapter() === self::IDENTIFIER) {
             $this->assertOwnsLocation($row);
@@ -416,6 +425,25 @@ final readonly class HashiCorpAdapter implements CreateCompensatingAdapterInterf
         }
 
         return [$existing, $this->put($identifier, $payload)];
+    }
+
+    /**
+     * A row that another external adapter owns stays with it. Rebinding it here
+     * would write a second copy of the envelope and orphan the first; deleting
+     * it would orphan that copy and leave a secret nothing refers to.
+     *
+     * @throws ConfigurationException
+     */
+    private function assertNotBoundElsewhere(?Secret $secret): void
+    {
+        if (!$secret instanceof Secret) {
+            return;
+        }
+
+        $boundTo = $secret->getAdapter();
+        if (!in_array($boundTo, ['local', self::IDENTIFIER], true)) {
+            throw ConfigurationException::secretBoundToAnotherAdapter($secret->getIdentifier(), $boundTo, self::IDENTIFIER);
+        }
     }
 
     /**

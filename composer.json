@@ -42,6 +42,7 @@
         "psr/http-factory": "^1.0"
     },
     "require-dev": {
+        "aws/aws-sdk-php": "^3.403",
         "mikey179/vfsstream": "^1.6.11",
         "netresearch/typo3-ci-workflows": "^2.0.3",
         "roave/security-advisories": "dev-latest",
@@ -52,6 +53,7 @@
         "typo3/testing-framework": ">=9.1 <11"
     },
     "suggest": {
+        "aws/aws-sdk-php": "Required for storageAdapter = aws (AWS Secrets Manager); selecting it without the SDK installed fails with a configuration error",
         "ext-curl": "Enables the CURLOPT_RESOLVE DNS pin and the cancellable outbound send (VaultHttpClient::sendCancellable()); without it both degrade, they do not fail",
         "typo3/cms-dashboard": "Adds vault secret count and audit activity widgets to the TYPO3 dashboard",
         "typo3/cms-install": "Offers the audit-log HMAC migration wizard on TYPO3 13, whose upgrade API lives in EXT:install; TYPO3 14 needs nothing, its upgrade API is in EXT:core"

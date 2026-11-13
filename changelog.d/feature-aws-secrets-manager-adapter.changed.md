@@ -1,0 +1,2 @@
+- `storageAdapter = aws` no longer behaves like `local`: it selects the AWS Secrets Manager adapter. An installation that had set it while waiting for the adapter must install `aws/aws-sdk-php` and configure region and credentials, or switch the setting back to `local`; new secrets are not stored locally under `aws`.
+- The HashiCorp Vault and AWS Secrets Manager adapters refuse to store, read or delete a secret that is bound to the other external adapter, instead of treating its empty envelope as a new secret and rebinding it.
