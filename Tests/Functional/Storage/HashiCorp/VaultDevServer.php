@@ -50,9 +50,10 @@ final class VaultDevServer
 
     private static ?self $shared = null;
 
+    private ?StartedGenericContainer $reviewStub = null;
+
     private function __construct(
         private readonly StartedGenericContainer $vault,
-        private readonly StartedGenericContainer $reviewStub,
         public readonly string $host,
         public readonly string $address,
     ) {}
@@ -218,7 +219,7 @@ final class VaultDevServer
 
     public function stop(): void
     {
-        foreach ([$this->vault, $this->reviewStub] as $container) {
+        foreach (array_filter([$this->vault, $this->reviewStub]) as $container) {
             try {
                 $container->stop();
             } catch (Throwable) {
@@ -227,78 +228,27 @@ final class VaultDevServer
         }
     }
 
-    private static function boot(): self
-    {
-        $stubScript = (string) file_get_contents(__DIR__ . '/Fixtures/token-review-stub.py');
-
-        $stub = (new GenericContainer(self::STUB_IMAGE))
-            ->withCommand(['python', '-c', $stubScript])
-            ->withExposedPorts(8080)
-            ->start();
-
-        $vault = (new GenericContainer(self::VAULT_IMAGE))
-            ->withEnvironment([
-                'VAULT_DEV_ROOT_TOKEN_ID'  => self::ROOT_TOKEN,
-                'VAULT_DEV_LISTEN_ADDRESS' => '0.0.0.0:8200',
-                'SKIP_SETCAP'              => '1',
-            ])
-            ->withExposedPorts(8200)
-            ->start();
-
-        self::waitUntilAnswering($stub, 8080, 'POST', '/ready');
-        self::waitUntilAnswering($vault, 8200, 'GET', '/v1/sys/health');
-
-        $host   = $vault->getHost();
-        $server = new self($vault, $stub, $host, sprintf('http://%s:%d', $host, $vault->getMappedPort(8200))); // NOSONAR: test fixture without TLS by design
-        $server->provision($stub->getIpAddress('bridge'));
-
-        return $server;
-    }
-
     /**
-     * Poll the container until it answers. Written out instead of using the
-     * library's wait strategy so that a slow or broken start reports the
-     * container's own log, which is the only place the reason is.
+     * Start the token review stub and point Vault's Kubernetes auth at it. Only
+     * the Kubernetes test needs this, so a stub that fails to start fails that
+     * class alone.
      */
-    private static function waitUntilAnswering(StartedGenericContainer $container, int $port, string $method, string $path): void
+    public function enableKubernetesAuth(): void
     {
-        $deadline = microtime(true) + 120;
-        $client   = new Client(['http_errors' => false, 'timeout' => 3, 'connect_timeout' => 3]);
-
-        while (microtime(true) < $deadline) {
-            try {
-                // The port mapping can appear a moment after the container starts.
-                $url = sprintf('http://%s:%d%s', $container->getHost(), $container->getMappedPort($port), $path); // NOSONAR: test fixture without TLS by design
-                if ($client->request($method, $url)->getStatusCode() === 200) {
-                    return;
-                }
-            } catch (Throwable) {
-                // Not listening yet.
-            }
-
-            usleep(500_000);
+        if ($this->reviewStub instanceof StartedGenericContainer) {
+            return;
         }
 
-        throw new RuntimeException(
-            sprintf("Container did not answer %s %s within 120 seconds. Its log:\n%s", $method, $path, substr($container->logs(), -2000)),
-            1794400104,
-        );
-    }
-
-    private function provision(string $reviewStubIp): void
-    {
-        $policy = <<<'HCL'
-            path "secret/data/typo3/*" { capabilities = ["create", "read", "update"] }
-            path "secret/metadata/typo3/*" { capabilities = ["read", "delete"] }
-            HCL;
-        $this->expectOk($this->admin('PUT', '/v1/sys/policies/acl/' . self::POLICY, ['policy' => $policy]));
-
-        $this->expectOk($this->admin('POST', '/v1/sys/auth/approle', ['type' => 'approle']));
-        $this->expectOk($this->admin('POST', '/v1/auth/approle/role/typo3', ['token_policies' => [self::POLICY], 'token_ttl' => '1h']));
+        $stub = (new GenericContainer(self::STUB_IMAGE))
+            ->withCommand(['python', '-c', (string) file_get_contents(__DIR__ . '/Fixtures/token-review-stub.py')])
+            ->withExposedPorts(8080)
+            ->start();
+        $this->reviewStub = $stub;
+        self::waitUntilAnswering($stub, 8080, 'POST', '/ready');
 
         $this->expectOk($this->admin('POST', '/v1/sys/auth/kubernetes', ['type' => 'kubernetes']));
         $this->expectOk($this->admin('POST', '/v1/auth/kubernetes/config', [
-            'kubernetes_host'        => sprintf('http://%s:8080', $reviewStubIp), // NOSONAR: test fixture without TLS by design
+            'kubernetes_host'        => sprintf('http://%s:8080', $stub->getIpAddress('bridge')), // NOSONAR: test fixture without TLS by design
             'token_reviewer_jwt'     => 'reviewer',
             'disable_iss_validation' => true,
             'disable_local_ca_jwt'   => true,
@@ -309,6 +259,74 @@ final class VaultDevServer
             'token_policies'                   => [self::POLICY],
             'token_ttl'                        => '1h',
         ]));
+    }
+
+    private static function boot(): self
+    {
+        $vault = (new GenericContainer(self::VAULT_IMAGE))
+            ->withEnvironment([
+                'VAULT_DEV_ROOT_TOKEN_ID'  => self::ROOT_TOKEN,
+                'VAULT_DEV_LISTEN_ADDRESS' => '0.0.0.0:8200',
+                'SKIP_SETCAP'              => '1',
+            ])
+            ->withExposedPorts(8200)
+            ->start();
+
+        self::waitUntilAnswering($vault, 8200, 'GET', '/v1/sys/health');
+
+        $host   = $vault->getHost();
+        $server = new self($vault, $host, sprintf('http://%s:%d', $host, $vault->getMappedPort(8200))); // NOSONAR: test fixture without TLS by design
+        $server->provision();
+
+        return $server;
+    }
+
+    /**
+     * Poll the container until it answers. Written out instead of using the
+     * library's wait strategy so that a slow or broken start reports the
+     * container's own log and the last thing the poll saw.
+     */
+    private static function waitUntilAnswering(StartedGenericContainer $container, int $port, string $method, string $path): void
+    {
+        $deadline = microtime(true) + 120;
+        $client   = new Client(['http_errors' => false, 'timeout' => 3, 'connect_timeout' => 3]);
+        $seen     = 'no attempt';
+
+        while (microtime(true) < $deadline) {
+            // The port mapping can appear a moment after the container starts,
+            // and "localhost" may resolve to an address the mapping is not on.
+            foreach ([$container->getHost(), '127.0.0.1'] as $host) {
+                try {
+                    $url      = sprintf('http://%s:%d%s', $host, $container->getMappedPort($port), $path); // NOSONAR: test fixture without TLS by design
+                    $response = $client->request($method, $url);
+                    $seen     = sprintf('%s answered HTTP %d', $url, $response->getStatusCode());
+                    if ($response->getStatusCode() === 200) {
+                        return;
+                    }
+                } catch (Throwable $e) {
+                    $seen = $host . ': ' . $e->getMessage();
+                }
+            }
+
+            usleep(500_000);
+        }
+
+        throw new RuntimeException(
+            sprintf("Container did not answer %s %s within 120 seconds. Last attempt: %s\nIts log:\n%s", $method, $path, $seen, substr($container->logs(), -2000)),
+            1794400104,
+        );
+    }
+
+    private function provision(): void
+    {
+        $policy = <<<'HCL'
+            path "secret/data/typo3/*" { capabilities = ["create", "read", "update"] }
+            path "secret/metadata/typo3/*" { capabilities = ["read", "delete"] }
+            HCL;
+        $this->expectOk($this->admin('PUT', '/v1/sys/policies/acl/' . self::POLICY, ['policy' => $policy]));
+
+        $this->expectOk($this->admin('POST', '/v1/sys/auth/approle', ['type' => 'approle']));
+        $this->expectOk($this->admin('POST', '/v1/auth/approle/role/typo3', ['token_policies' => [self::POLICY], 'token_ttl' => '1h']));
     }
 
     /**

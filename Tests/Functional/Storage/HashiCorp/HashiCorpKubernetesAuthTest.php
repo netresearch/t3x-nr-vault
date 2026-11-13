@@ -31,6 +31,7 @@ final class HashiCorpKubernetesAuthTest extends AbstractHashiCorpAuthMethodTestC
 
     protected function prepare(VaultDevServer $server): void
     {
+        $server->enableKubernetesAuth();
         $this->jwtPath = sys_get_temp_dir() . '/nr-vault-test-sa-' . bin2hex(random_bytes(6));
         file_put_contents($this->jwtPath, $server->serviceAccountJwt() . "\n");
     }
