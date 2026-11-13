@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.1] - 2026-11-14
+
+### Fixed
+
+- The HashiCorp Vault storage adapter no longer overwrites or deletes data it does not own. For a new secret it reads the KV path first and refuses (code `1794400012`, nothing changed) when the path holds anything other than an nr-vault write for the same identifier. An unreferenced earlier write of the same identifier is taken over; a failed row write puts its previous payload back, and a key this call created is destroyed only while no row exists. Before, a path that already held foreign data received a new version, and a failed audit or row write then deleted the key with all its versions. The check and the write are two requests, so a key created by someone else in between is not detected.
+
 ## [1.6.0] - 2026-11-13
 
 ### Added
@@ -2316,7 +2322,8 @@ upgrading.
 - Constructor property promotion
 - Modern PHP 8.x patterns (match, named arguments, attributes)
 
-[Unreleased]: https://github.com/netresearch/t3x-nr-vault/compare/v1.6.0...HEAD
+[Unreleased]: https://github.com/netresearch/t3x-nr-vault/compare/v1.6.1...HEAD
+[1.6.1]: https://github.com/netresearch/t3x-nr-vault/compare/v1.6.0...v1.6.1
 [1.6.0]: https://github.com/netresearch/t3x-nr-vault/compare/v1.5.1...v1.6.0
 [1.5.1]: https://github.com/netresearch/t3x-nr-vault/compare/v1.5.0...v1.5.1
 [1.5.0]: https://github.com/netresearch/t3x-nr-vault/compare/v1.4.2...v1.5.0

@@ -86,7 +86,7 @@
                 "providesPackages": {}
             },
             "extension-key": "nr_vault",
-            "version": "1.6.0",
+            "version": "1.6.1",
             "web-dir": ".Build/web"
         },
         "branch-alias": {
