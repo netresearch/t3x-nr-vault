@@ -204,9 +204,17 @@ Master-key rotation
    keys held in Vault are not re-wrapped by this release.
 
 Audit
-   Every operation is written to the nr-vault audit log exactly as for local
-   secrets. Vault's own audit device records the access to the KV paths in
-   addition.
+   Every operation is written to the nr-vault audit log, and when the audit
+   write fails the previous state is restored. Unlike local secrets, the Vault
+   write and the database write are not one transaction: a crash after the
+   Vault write and before the audit write persists the change without an audit
+   entry. Vault's own audit device records every access to the KV paths, so
+   monitor it for writes and deletes that have no matching nr-vault entry.
+
+Changing ``hashicorp.path``
+   The Vault key of a secret is derived from the current setting. Existing
+   Vault-backed secrets are not found under a new path, so move the keys in
+   Vault first (or keep the old path) before you change it.
 
 Backup
    The database no longer contains the envelopes. A restore needs the database

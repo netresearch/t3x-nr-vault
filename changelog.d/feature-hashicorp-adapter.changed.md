@@ -1,2 +1,2 @@
-- `vault:rotate-master-key` refuses to run while any secret is stored outside the local database, naming the first one, because an envelope in an external store cannot be re-wrapped in the rotation transaction. It changes nothing in that case.
+- `vault:rotate-master-key` refuses to rotate while any secret is stored outside the local database, because an envelope in an external store cannot be re-wrapped in the rotation transaction. The first secret is checked before the transaction starts; any later one fails inside it and rolls the whole batch back, so nothing is committed. A dry run checks only the first secret.
 - An unknown `storageAdapter` value is refused instead of being treated as `local`.

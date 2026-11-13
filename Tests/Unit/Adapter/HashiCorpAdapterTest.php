@@ -40,14 +40,20 @@ final class HashiCorpAdapterTest extends TestCase
 
     private bool $failRowWrite = false;
 
+    private bool $failRowDelete = false;
+
+    private bool $rowAppearsBeforeFailure = false;
+
     protected function setUp(): void
     {
         parent::setUp();
 
-        $this->rows         = [];
-        $this->vault        = [];
-        $this->vaultCalls   = [];
-        $this->failRowWrite = false;
+        $this->rows                    = [];
+        $this->vault                   = [];
+        $this->vaultCalls              = [];
+        $this->failRowWrite            = false;
+        $this->failRowDelete           = false;
+        $this->rowAppearsBeforeFailure = false;
     }
 
     #[Test]
@@ -188,6 +194,75 @@ final class HashiCorpAdapterTest extends TestCase
 
         self::assertArrayHasKey('api_key', $this->vault);
         self::assertNotContains('destroy:api_key', $this->vaultCalls);
+    }
+
+    #[Test]
+    public function aFailedUpdateRestoresThePreviousEnvelopeInVault(): void
+    {
+        $adapter = $this->adapter();
+        $adapter->store($this->envelopeSecret('api_key'));
+
+        $before             = $this->vault['api_key'];
+        $this->failRowWrite = true;
+
+        try {
+            $adapter->store($this->envelopeSecret('api_key', 'newer')->withUid(1));
+            self::fail('The row failure must propagate.');
+        } catch (RuntimeException) {
+        }
+
+        self::assertSame($before, $this->vault['api_key']);
+    }
+
+    #[Test]
+    public function aFailedCreateDoesNotDestroyTheObjectOfAConcurrentCreate(): void
+    {
+        $this->failRowWrite            = true;
+        $this->rowAppearsBeforeFailure = true;
+
+        try {
+            $this->adapter()->store($this->envelopeSecret('api_key'));
+            self::fail('The row failure must propagate.');
+        } catch (RuntimeException) {
+        }
+
+        self::assertArrayHasKey('api_key', $this->vault, 'a row refers to the object now');
+    }
+
+    #[Test]
+    public function aFailedRowDeleteRestoresTheVaultValue(): void
+    {
+        $adapter = $this->adapter();
+        $adapter->store($this->envelopeSecret('api_key'));
+
+        $before              = $this->vault['api_key'];
+        $this->failRowDelete = true;
+
+        try {
+            $adapter->delete('api_key');
+            self::fail('The row failure must propagate.');
+        } catch (RuntimeException) {
+        }
+
+        self::assertSame($before, $this->vault['api_key']);
+        self::assertArrayHasKey('api_key', $this->rows);
+    }
+
+    #[Test]
+    public function restoringADanglingExternalRowRemovesAValueWrittenSince(): void
+    {
+        $adapter = $this->adapter();
+        $adapter->store($this->envelopeSecret('api_key'));
+
+        $dangling = $adapter->retrieveIncludingDisabled('api_key');
+        unset($this->vault['api_key']);
+        self::assertInstanceOf(Secret::class, $dangling);
+        $valueless = $dangling->withExternalStorage('hashicorp', 'secret/data/typo3/api_key');
+        $adapter->store($this->envelopeSecret('api_key', 'written-since')->withUid(1));
+
+        $adapter->store($valueless);
+
+        self::assertArrayNotHasKey('api_key', $this->vault);
     }
 
     #[Test]
@@ -391,7 +466,11 @@ final class HashiCorpAdapterTest extends TestCase
         );
         $repository->method('save')->willReturnCallback(function (Secret $secret): Secret {
             if ($this->failRowWrite) {
-                throw new RuntimeException('row write failed', 3042847472);
+                if ($this->rowAppearsBeforeFailure) {
+                    $this->rows[$secret->getIdentifier()] = $secret->withUid(99);
+                }
+
+                throw new RuntimeException('row write failed', 4778462882);
             }
 
             $saved                               = $secret->getUid() === null ? $secret->withUid(count($this->rows) + 1) : $secret;
@@ -400,6 +479,10 @@ final class HashiCorpAdapterTest extends TestCase
             return $saved;
         });
         $repository->method('delete')->willReturnCallback(function (Secret $secret): void {
+            if ($this->failRowDelete) {
+                throw new RuntimeException('row delete failed', 4778462883);
+            }
+
             unset($this->rows[$secret->getIdentifier()]);
         });
 

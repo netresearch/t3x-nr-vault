@@ -71,15 +71,27 @@ final readonly class HashiCorpAdapter implements VaultAdapterInterface
 
     public function store(Secret $secret, bool $persistGroupRelations = true): Secret
     {
-        $existing = $this->registry->retrieveIncludingDisabled($secret->getIdentifier());
-
         $identifier = $secret->getIdentifier();
+        $existing   = $this->registry->retrieveIncludingDisabled($identifier);
 
-        // A write without a value (restoring a row that had none) has nothing
-        // to put into Vault and must not mark the row as Vault-backed.
-        if (($secret->getEncryptedValue() ?? '') === '' || !$this->belongsInVault($existing)) {
+        // A write without a value has nothing to put into Vault. Restoring a
+        // valueless row that points at Vault (a row whose object was missing)
+        // also removes a value written since, so the restore is complete.
+        if (($secret->getEncryptedValue() ?? '') === '') {
+            if ($secret->getAdapter() === self::IDENTIFIER) {
+                $this->kv->destroy($identifier);
+            }
+
             return $this->registry->store($secret, $persistGroupRelations);
         }
+
+        if (!$this->belongsInVault($existing)) {
+            return $this->registry->store($secret, $persistGroupRelations);
+        }
+
+        $previous = $existing instanceof Secret && $existing->getAdapter() === self::IDENTIFIER
+            ? $this->kv->read($identifier)
+            : null;
 
         $this->kv->write($identifier, $this->toPayload($secret));
 
@@ -88,16 +100,7 @@ final readonly class HashiCorpAdapter implements VaultAdapterInterface
         try {
             return $this->registry->store($row, $persistGroupRelations)->withEnvelope(...$this->envelopeOf($secret));
         } catch (Throwable $e) {
-            // A failed first insert must not leave a value in Vault that no
-            // row refers to. An update keeps its object: the previous version
-            // is the row's last good state.
-            if (!$existing instanceof Secret) {
-                try {
-                    $this->kv->destroy($identifier);
-                } catch (Throwable) {
-                    // The original failure is the one to report.
-                }
-            }
+            $this->undoVaultWrite($identifier, $previous);
 
             throw $e;
         }
@@ -120,12 +123,23 @@ final readonly class HashiCorpAdapter implements VaultAdapterInterface
 
     public function delete(string $identifier): void
     {
-        $row = $this->registry->retrieveIncludingDisabled($identifier);
+        $row      = $this->registry->retrieveIncludingDisabled($identifier);
+        $previous = null;
         if ($row instanceof Secret && $row->getAdapter() === self::IDENTIFIER) {
+            $previous = $this->kv->read($identifier);
             $this->kv->destroy($identifier);
         }
 
-        $this->registry->delete($identifier);
+        try {
+            $this->registry->delete($identifier);
+        } catch (Throwable $e) {
+            // The row stays, so the value it points at must stay too.
+            if ($previous !== null) {
+                $this->restore($identifier, $previous);
+            }
+
+            throw $e;
+        }
     }
 
     public function exists(string $identifier): bool
@@ -156,6 +170,39 @@ final readonly class HashiCorpAdapter implements VaultAdapterInterface
     public function incrementReadCount(int $uid): void
     {
         $this->registry->incrementReadCount($uid);
+    }
+
+    /**
+     * Take back a Vault write after the row could not be written. A first
+     * insert removes the key it created, unless a row for the identifier
+     * exists by now: a concurrent create that won the unique key owns it. An
+     * update puts the previous envelope back.
+     *
+     * @param array<string, mixed>|null $previous
+     */
+    private function undoVaultWrite(string $identifier, ?array $previous): void
+    {
+        try {
+            if ($previous !== null) {
+                $this->kv->write($identifier, $previous);
+            } elseif (!$this->registry->exists($identifier)) {
+                $this->kv->destroy($identifier);
+            }
+        } catch (Throwable) {
+            // The original failure is the one to report.
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     */
+    private function restore(string $identifier, array $payload): void
+    {
+        try {
+            $this->kv->write($identifier, $payload);
+        } catch (Throwable) {
+            // The original failure is the one to report.
+        }
     }
 
     /**

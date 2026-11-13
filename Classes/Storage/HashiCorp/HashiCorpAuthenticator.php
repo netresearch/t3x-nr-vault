@@ -12,6 +12,7 @@ namespace Netresearch\NrVault\Storage\HashiCorp;
 use Netresearch\NrVault\Configuration\Dto\VaultServerConfig;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Exception\HashiCorpException;
+use SensitiveParameter;
 
 use function is_array;
 use function is_string;
@@ -152,7 +153,7 @@ final class HashiCorpAuthenticator
     /**
      * @param array<string, string> $credentials
      */
-    private function login(string $url, array $credentials, string $method): string
+    private function login(string $url, #[SensitiveParameter] array $credentials, string $method): string
     {
         $result = $this->http->request('POST', $url, null, $credentials, $method . ' login');
         if ($result['status'] < 200 || $result['status'] >= 300) {

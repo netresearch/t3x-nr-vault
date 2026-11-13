@@ -52,6 +52,7 @@ final readonly class HashiCorpHttp
         string $url,
         #[SensitiveParameter]
         ?string $token,
+        #[SensitiveParameter]
         ?array $body,
         string $operation,
     ): array {

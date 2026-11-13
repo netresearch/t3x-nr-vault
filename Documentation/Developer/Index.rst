@@ -131,11 +131,13 @@ Implement :php:`VaultAdapterInterface` to add new storage backends:
        }
    }
 
-Register in :file:`Services.yaml` by overriding the interface alias. Adapter
+Register in :file:`Services.yaml` by overriding the interface binding. Adapter
 selection is **not** pluggable through a tag: nothing consumes a
-``nr_vault.adapter`` tag, and :php:`VaultAdapterInterface` is a plain alias to
-:php:`LocalEncryptionAdapter`. Repointing that alias is what swaps the
-adapter, and it swaps it for the whole installation.
+``nr_vault.adapter`` tag. By default :php:`VaultAdapterInterface` is built by
+:php:`StorageAdapterFactory`, which picks the built-in adapter named by the
+``storageAdapter`` setting. Binding the interface in your own
+:file:`Services.yaml` replaces that factory result and swaps the adapter for the
+whole installation, whatever ``storageAdapter`` says.
 
 .. code-block:: yaml
    :caption: EXT:my_extension/Configuration/Services.yaml

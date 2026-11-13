@@ -26,10 +26,10 @@ use function sprintf;
  */
 final readonly class HashiCorpEndpoint
 {
-    private const SEGMENT_PATTERN = '/^[A-Za-z0-9._-]+$/';
+    private const SEGMENT_PATTERN = '/^[A-Za-z0-9._-]+$/D';
 
     /** Identifiers are a user pattern, a UUID v7 or the `site:<ns>:<name>` form. */
-    private const IDENTIFIER_PATTERN = '/^[A-Za-z0-9_:-]{1,255}$/';
+    private const IDENTIFIER_PATTERN = '/^[A-Za-z0-9_:-]{1,255}$/D';
 
     /**
      * @param list<string> $kvMount  Segments of the KV v2 mount

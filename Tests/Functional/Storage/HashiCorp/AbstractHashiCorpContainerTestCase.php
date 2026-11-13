@@ -35,16 +35,12 @@ abstract class AbstractHashiCorpContainerTestCase extends AbstractVaultFunctiona
     {
         parent::setUpBeforeClass();
 
-        try {
-            VaultDevServer::shared();
-        } catch (Throwable $e) {
-            $ci = getenv('CI');
-            if ($ci !== false && $ci !== '') {
-                throw $e;
-            }
-
-            self::markTestSkipped('Docker is not available for Testcontainers: ' . $e->getMessage());
+        $ci = getenv('CI');
+        if ((!is_string($ci) || $ci === '') && !file_exists('/var/run/docker.sock') && getenv('DOCKER_HOST') === false) {
+            self::markTestSkipped('No Docker socket and no DOCKER_HOST: Testcontainers cannot start Vault.');
         }
+
+        VaultDevServer::shared();
     }
 
     protected function setUp(): void

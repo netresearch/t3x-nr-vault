@@ -113,6 +113,7 @@ final class HashiCorpEndpointTest extends TestCase
         yield 'query character' => ['secret/data/a?b'];
         yield 'space' => ['secret/data/a b'];
         yield 'empty segment' => ['secret/data//x'];
+        yield 'trailing newline' => ["secret/data/typo3\n"];
     }
 
     #[Test]
@@ -136,6 +137,7 @@ final class HashiCorpEndpointTest extends TestCase
         yield 'percent' => ['a%2fb'];
         yield 'empty' => [''];
         yield 'too long' => [str_repeat('a', 256)];
+        yield 'trailing newline' => ["api_key\n"];
     }
 
     #[Test]
