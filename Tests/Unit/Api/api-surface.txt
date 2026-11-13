@@ -291,15 +291,26 @@ Netresearch\NrVault\Configuration\Dto\TransitConfig (class)
   property readonly wrappedKeyPath: string
 
 Netresearch\NrVault\Configuration\Dto\VaultServerConfig (class)
-  constructor(string $address = …, string $path = …, string $authMethod = …, string $token = …)
+  const AUTH_APPROLE = "approle"
+  const AUTH_KUBERNETES = "kubernetes"
+  const AUTH_TOKEN = "token"
+  constructor(string $address = …, string $path = …, string $authMethod = …, string $token = …, string $tokenEnvVar = …, string $approleMount = …, string $roleId = …, string $secretIdEnvVar = …, string $kubernetesMount = …, string $kubernetesRole = …, string $kubernetesJwtPath = …, bool $allowInsecureHttp = …)
   method hasTokenAuth(): bool
   method isValid(): bool
   method static fromArray(array $config): self
   method toArray(): array
   property readonly address: string
+  property readonly allowInsecureHttp: bool
+  property readonly approleMount: string
   property readonly authMethod: string
+  property readonly kubernetesJwtPath: string
+  property readonly kubernetesMount: string
+  property readonly kubernetesRole: string
   property readonly path: string
+  property readonly roleId: string
+  property readonly secretIdEnvVar: string
   property readonly token: string
+  property readonly tokenEnvVar: string
 
 Netresearch\NrVault\Configuration\ExtensionConfigurationInterface (interface)
   method getAuditHmacEpoch(): int
@@ -581,6 +592,8 @@ Netresearch\NrVault\Domain\Model\Secret (class)
   method isHidden(): bool
   method static fromDatabaseRow(array $row, array $allowedGroups = …, array $writeGroups = …): self
   method toDatabaseRow(): array
+  method withEnvelope(string $encryptedValue, string $encryptedDek, string $dekNonce, string $valueNonce, string $valueChecksum, int $encryptionVersion, string $encryptionAlgorithm): self
+  method withExternalStorage(string $adapter, string $externalReference): self
   method withMetadata(array $metadata): self
   method withReEncryptedDek(string $encryptedDek, string $dekNonce): self
   method withUid(?int $uid): self
@@ -683,6 +696,19 @@ Netresearch\NrVault\Exception\EnvelopeFormatException (class)
   method static missingMarker(): self
   method static notBase64(): self
   method static notJson(): self
+
+Netresearch\NrVault\Exception\HashiCorpException (class)
+  method static backingObjectMismatch(string $identifier): self
+  method static backingObjectMissing(string $identifier): self
+  method static credentialMissing(string $what): self
+  method static externalSecretsBlockMasterKeyRotation(string $identifier, string $adapter): self
+  method static insecureTransport(): self
+  method static loginRejected(string $method, int $status): self
+  method static malformedResponse(string $operation, string $detail): self
+  method static notConfigured(string $detail): self
+  method static requestRejected(string $operation, int $status): self
+  method static transportFailure(string $operation, string $detail): self
+  method static unsafePath(string $what): self
 
 Netresearch\NrVault\Exception\MasterKeyException (class)
   method static cannotStore(string $reason): self
@@ -1004,3 +1030,9 @@ Netresearch\NrVault\Service\VaultServiceInterface (interface)
   method rotate(string $identifier, string $newSecret, string $reason = …): void
   method setEnabled(string $identifier, bool $enabled, string $reason = …): void
   method store(string $identifier, string $secret, array $options = …): void
+
+Netresearch\NrVault\Storage\HashiCorp\KvStoreInterface (interface)
+  method destroy(string $identifier): void
+  method read(string $identifier): ?array
+  method reference(string $identifier): string
+  method write(string $identifier, array $data): void

@@ -183,6 +183,58 @@ final readonly class Secret
     }
 
     /**
+     * Record that the encryption envelope of this secret lives in an external
+     * store, and drop it from this instance.
+     *
+     * The registry row of such a secret keeps everything the module needs to
+     * list, authorise and audit it (owner, groups, metadata, counters) and a
+     * pointer to the external object; the envelope itself is empty, which the
+     * constructor accepts as a consistent state. {@see withEnvelope()} is the
+     * reverse step on read.
+     */
+    public function withExternalStorage(string $adapter, string $externalReference): self
+    {
+        return $this->cloneWith([
+            'adapter'             => $adapter,
+            'externalReference'   => $externalReference,
+            'encryptedValue'      => null,
+            'encryptedDek'        => '',
+            'dekNonce'            => '',
+            'valueNonce'          => '',
+            'valueChecksum'       => '',
+            'encryptionVersion'   => EncryptionServiceInterface::ENCRYPTION_VERSION_LEGACY,
+            'encryptionAlgorithm' => '',
+        ]);
+    }
+
+    /**
+     * Attach an encryption envelope that was read from an external store.
+     *
+     * The constructor re-checks the all-or-nothing invariant, so a partial or
+     * unknown-algorithm envelope from the external object fails here instead
+     * of surfacing later as an undecryptable secret.
+     */
+    public function withEnvelope(
+        string $encryptedValue,
+        string $encryptedDek,
+        string $dekNonce,
+        string $valueNonce,
+        string $valueChecksum,
+        int $encryptionVersion,
+        string $encryptionAlgorithm,
+    ): self {
+        return $this->cloneWith([
+            'encryptedValue'      => $encryptedValue,
+            'encryptedDek'        => $encryptedDek,
+            'dekNonce'            => $dekNonce,
+            'valueNonce'          => $valueNonce,
+            'valueChecksum'       => $valueChecksum,
+            'encryptionVersion'   => $encryptionVersion,
+            'encryptionAlgorithm' => $encryptionAlgorithm,
+        ]);
+    }
+
+    /**
      * Replace the read-tier allowed-groups list. Returns a new Secret;
      * the MM relations are persisted by `SecretRepository::save()`.
      *

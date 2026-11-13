@@ -147,8 +147,27 @@ services:
     # service via GeneralUtility::makeInstance(<Interface>::class).
     public: true
 
+  # The `storageAdapter` setting names the adapter; StorageAdapterFactory
+  # selects it. A consuming extension that binds VaultAdapterInterface in its
+  # own Services.yaml still replaces this definition.
   Netresearch\NrVault\Adapter\VaultAdapterInterface:
-    alias: Netresearch\NrVault\Adapter\LocalEncryptionAdapter
+    factory: ['@Netresearch\NrVault\Storage\StorageAdapterFactory', 'create']
+
+  Netresearch\NrVault\Storage\HashiCorp\KvStoreInterface:
+    alias: Netresearch\NrVault\Storage\HashiCorp\HashiCorpKvClient
+
+  # The HashiCorp adapter talks to Vault through SecureHttpClientFactory, like
+  # the audit webhook sink: SSRF range check, DNS pin, no redirects, no request
+  # logging. 10 seconds bounds a whole transfer so an unreachable Vault cannot
+  # hold a web request open indefinitely.
+  nr_vault.hashicorp.http_client:
+    class: Psr\Http\Client\ClientInterface
+    factory: ['@Netresearch\NrVault\Http\SecureHttpClientFactory', 'create']
+    arguments: [10]
+
+  Netresearch\NrVault\Storage\HashiCorp\HashiCorpHttp:
+    arguments:
+      $httpClient: '@nr_vault.hashicorp.http_client'
 
   Netresearch\NrVault\Domain\Repository\SecretRepositoryInterface:
     alias: Netresearch\NrVault\Domain\Repository\SecretRepository

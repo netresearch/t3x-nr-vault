@@ -316,6 +316,67 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
     }
 
     #[Test]
+    public function refusesBeforeAnyTransactionWhenTheFirstSecretLivesOutsideTheLocalDatabase(): void
+    {
+        $external = $this->createTestSecret('external-secret')->withExternalStorage('hashicorp', 'secret/data/typo3/external-secret');
+
+        $this->secretRepository->method('findIdentifiers')->willReturn(['external-secret']);
+        $this->secretRepository->method('findByIdentifierIncludingDisabled')->willReturn($external);
+        $this->encryptionService->expects(self::never())->method('reEncryptDek');
+        // The audit-chain inventory reads through the pool before the key check;
+        // what must not happen is the rotation transaction.
+        $connection = $this->createMock(Connection::class);
+        $connection->expects(self::never())->method('beginTransaction');
+        $this->connectionPool->method('getConnectionForTable')->willReturn($connection);
+
+        $exitCode = $this->commandTester->execute([
+            '--old-key' => $this->createKeyFile('old', str_repeat('a', 32)),
+            '--new-key' => $this->createKeyFile('new', str_repeat('b', 32)),
+            '--confirm' => true,
+        ]);
+
+        self::assertSame(1, $exitCode);
+        self::assertStringContainsString('stored in the "hashicorp" adapter', $this->commandTester->getDisplay());
+        self::assertStringNotContainsString('Failed to decrypt with old master key', $this->commandTester->getDisplay());
+    }
+
+    #[Test]
+    public function rollsBackWhenALaterSecretLivesOutsideTheLocalDatabase(): void
+    {
+        $local    = $this->createTestSecret('local-secret');
+        $external = $this->createTestSecret('external-secret')->withExternalStorage('hashicorp', 'secret/data/typo3/external-secret');
+
+        $this->secretRepository->method('findIdentifiers')->willReturn(['local-secret', 'external-secret']);
+        $this->secretRepository->method('findByIdentifierIncludingDisabled')->willReturnCallback(
+            static fn (string $id): Secret => $id === 'local-secret' ? $local : $external,
+        );
+        $this->encryptionService->method('reEncryptDek')->willReturn(new ReEncryptedDek('new', 'n'));
+
+        $lockResult = self::createStub(Result::class);
+        $lockResult->method('fetchOne')->willReturn(1);
+
+        $connection = $this->createMock(Connection::class);
+        $connection->method('executeQuery')->willReturn($lockResult);
+        $connection->method('isTransactionActive')->willReturn(true);
+        $connection->expects(self::once())->method('rollBack');
+        $connection->expects(self::never())->method('commit');
+        $this->connectionPool->method('getConnectionForTable')->willReturn($connection);
+
+        $auditRows = [];
+        $this->recordAuditRows($auditRows);
+
+        $exitCode = $this->commandTester->execute([
+            '--old-key' => $this->createKeyFile('old', str_repeat('a', 32)),
+            '--new-key' => $this->createKeyFile('new', str_repeat('b', 32)),
+            '--confirm' => true,
+        ]);
+
+        self::assertSame(1, $exitCode);
+        self::assertStringContainsString('external-secret', $this->commandTester->getDisplay());
+        self::assertStringContainsString('rolled back', $this->commandTester->getDisplay());
+    }
+
+    #[Test]
     public function usesDefaultKeyWhenOldKeyNotProvided(): void
     {
         $this->mockMasterKeyProvider(str_repeat('d', 32));

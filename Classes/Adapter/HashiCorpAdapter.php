@@ -1,0 +1,328 @@
+<?php
+
+/*
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ */
+
+declare(strict_types=1);
+
+namespace Netresearch\NrVault\Adapter;
+
+use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
+use Netresearch\NrVault\Domain\Dto\SecretFilters;
+use Netresearch\NrVault\Domain\Model\Secret;
+use Netresearch\NrVault\Exception\HashiCorpException;
+use Netresearch\NrVault\Storage\HashiCorp\HashiCorpEndpoint;
+use Netresearch\NrVault\Storage\HashiCorp\KvStoreInterface;
+use Throwable;
+
+use function is_int;
+use function is_string;
+
+/**
+ * Stores the encryption envelope of a secret in HashiCorp Vault (KV v2).
+ *
+ * The registry row in the TYPO3 database stays: it carries the owner, the group
+ * tiers, the metadata, the counters and a pointer to the Vault object, so
+ * listing, access control, expiry and the audit trail work exactly as for a
+ * local secret. What moves is the envelope — encrypted value, wrapped data key,
+ * nonces and checksum. The value is still encrypted by nr-vault before it
+ * leaves the process; Vault holds ciphertext it cannot read, and a stolen
+ * database holds no envelope at all.
+ *
+ * Each row routes by its own `adapter` column. A secret stored locally before
+ * the setting changed stays local and keeps working; only a secret that does
+ * not exist yet (or exists without a value, the FormEngine creation path) goes
+ * to Vault.
+ *
+ * Write order is Vault first, then the row. A crash between the two leaves an
+ * unreferenced Vault object, which the next store of the same identifier
+ * overwrites. Delete order is the reverse of what would be convenient: Vault
+ * first, then the row, so a delete that fails half-way can be repeated.
+ */
+final readonly class HashiCorpAdapter implements VaultAdapterInterface
+{
+    public const IDENTIFIER = 'hashicorp';
+
+    private const FORMAT = 1;
+
+    public function __construct(
+        private LocalEncryptionAdapter $registry,
+        private KvStoreInterface $kv,
+        private ExtensionConfigurationInterface $configuration,
+    ) {}
+
+    public function getIdentifier(): string
+    {
+        return self::IDENTIFIER;
+    }
+
+    public function isAvailable(): bool
+    {
+        try {
+            HashiCorpEndpoint::fromConfig($this->configuration->getHashiCorpConfig());
+        } catch (HashiCorpException) {
+            return false;
+        }
+
+        return true;
+    }
+
+    public function store(Secret $secret, bool $persistGroupRelations = true): Secret
+    {
+        $identifier = $secret->getIdentifier();
+        $existing   = $this->registry->retrieveIncludingDisabled($identifier);
+
+        // A write without a value has nothing to put into Vault. Restoring a
+        // valueless row that is, or just was, bound to Vault also removes the
+        // value written since, so the restore is complete; the previous object
+        // is put back if the row write fails.
+        if (($secret->getEncryptedValue() ?? '') === '') {
+            $boundToVault = $secret->getAdapter() === self::IDENTIFIER
+                || ($existing instanceof Secret && $existing->getAdapter() === self::IDENTIFIER);
+            $previous = $boundToVault ? $this->kv->read($identifier) : null;
+            if ($boundToVault) {
+                $this->kv->destroy($identifier);
+            }
+
+            try {
+                return $this->registry->store($secret, $persistGroupRelations);
+            } catch (Throwable $e) {
+                if ($previous !== null) {
+                    $this->restore($identifier, $previous);
+                }
+
+                throw $e;
+            }
+        }
+
+        if (!$this->belongsInVault($existing)) {
+            return $this->registry->store($secret, $persistGroupRelations);
+        }
+
+        $previous = $existing instanceof Secret && $existing->getAdapter() === self::IDENTIFIER
+            ? $this->kv->read($identifier)
+            : null;
+
+        $this->kv->write($identifier, $this->toPayload($secret));
+
+        $row = $secret->withExternalStorage(self::IDENTIFIER, $this->kv->reference($identifier));
+
+        try {
+            return $this->registry->store($row, $persistGroupRelations)->withEnvelope(...$this->envelopeOf($secret));
+        } catch (Throwable $e) {
+            $this->undoVaultWrite($identifier, $previous);
+
+            throw $e;
+        }
+    }
+
+    public function retrieve(string $identifier): ?Secret
+    {
+        return $this->withBackingEnvelope($this->registry->retrieve($identifier), true);
+    }
+
+    public function retrieveIncludingDisabled(string $identifier): ?Secret
+    {
+        return $this->withBackingEnvelope($this->registry->retrieveIncludingDisabled($identifier), false);
+    }
+
+    public function setHidden(int $uid, bool $hidden): void
+    {
+        $this->registry->setHidden($uid, $hidden);
+    }
+
+    public function delete(string $identifier): void
+    {
+        $row      = $this->registry->retrieveIncludingDisabled($identifier);
+        $previous = null;
+        if ($row instanceof Secret && $row->getAdapter() === self::IDENTIFIER) {
+            $previous = $this->kv->read($identifier);
+            $this->kv->destroy($identifier);
+        }
+
+        try {
+            $this->registry->delete($identifier);
+        } catch (Throwable $e) {
+            // The row stays, so the value it points at must stay too.
+            if ($previous !== null) {
+                $this->restore($identifier, $previous);
+            }
+
+            throw $e;
+        }
+    }
+
+    public function exists(string $identifier): bool
+    {
+        return $this->registry->exists($identifier);
+    }
+
+    public function list(?SecretFilters $filters = null): array
+    {
+        return $this->registry->list($filters);
+    }
+
+    public function listSecrets(?SecretFilters $filters = null): array
+    {
+        return $this->registry->listSecrets($filters);
+    }
+
+    public function getMetadata(string $identifier): ?array
+    {
+        return $this->registry->getMetadata($identifier);
+    }
+
+    public function updateMetadata(string $identifier, array $metadata): void
+    {
+        $this->registry->updateMetadata($identifier, $metadata);
+    }
+
+    public function incrementReadCount(int $uid): void
+    {
+        $this->registry->incrementReadCount($uid);
+    }
+
+    /**
+     * Take back a Vault write after the row could not be written. A first
+     * insert removes the key it created, unless a row for the identifier
+     * exists by now: a concurrent create that won the unique key owns it. An
+     * update puts the previous envelope back.
+     *
+     * @param array<string, mixed>|null $previous
+     */
+    private function undoVaultWrite(string $identifier, ?array $previous): void
+    {
+        try {
+            if ($previous !== null) {
+                $this->kv->write($identifier, $previous);
+            } elseif (!$this->registry->exists($identifier)) {
+                $this->kv->destroy($identifier);
+            }
+        } catch (Throwable) {
+            // The original failure is the one to report.
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     */
+    private function restore(string $identifier, array $payload): void
+    {
+        try {
+            $this->kv->write($identifier, $payload);
+        } catch (Throwable) {
+            // The original failure is the one to report.
+        }
+    }
+
+    /**
+     * A new secret, or a row that exists but holds no value yet, goes to Vault;
+     * a row already bound to Vault stays there; a row that was stored locally
+     * stays local.
+     */
+    private function belongsInVault(?Secret $existing): bool
+    {
+        if (!$existing instanceof Secret) {
+            return true;
+        }
+
+        if ($existing->getAdapter() === self::IDENTIFIER) {
+            return true;
+        }
+
+        return ($existing->getEncryptedValue() ?? '') === '';
+    }
+
+    /**
+     * @param bool $requireValue A missing Vault object is an error on the path
+     *                           that returns plaintext. On the administrative
+     *                           lookup it is not: the row comes back without an
+     *                           envelope, so the operator can still delete it
+     *                           and a rotation can write a new value to Vault.
+     */
+    private function withBackingEnvelope(?Secret $row, bool $requireValue): ?Secret
+    {
+        if (!$row instanceof Secret || $row->getAdapter() !== self::IDENTIFIER) {
+            return $row;
+        }
+
+        $identifier = $row->getIdentifier();
+        $payload    = $this->kv->read($identifier);
+        if ($payload === null) {
+            if ($requireValue) {
+                throw HashiCorpException::backingObjectMissing($identifier);
+            }
+
+            return $row;
+        }
+
+        if (($payload['identifier'] ?? null) !== $identifier || ($payload['format'] ?? null) !== self::FORMAT) {
+            throw HashiCorpException::backingObjectMismatch($identifier);
+        }
+
+        $version = $payload['encryption_version'] ?? null;
+        $fields  = [];
+        foreach (['encrypted_value', 'encrypted_dek', 'dek_nonce', 'value_nonce'] as $key) {
+            $decoded = is_string($payload[$key] ?? null) ? base64_decode($payload[$key], true) : false;
+            if ($decoded === false) {
+                throw HashiCorpException::backingObjectMismatch($identifier);
+            }
+
+            $fields[$key] = $decoded;
+        }
+
+        $checksum  = $payload['value_checksum'] ?? null;
+        $algorithm = $payload['encryption_algorithm'] ?? null;
+        if (!is_string($checksum) || !is_string($algorithm) || !is_int($version)) {
+            throw HashiCorpException::backingObjectMismatch($identifier);
+        }
+
+        return $row->withEnvelope(
+            $fields['encrypted_value'],
+            $fields['encrypted_dek'],
+            $fields['dek_nonce'],
+            $fields['value_nonce'],
+            $checksum,
+            $version,
+            $algorithm,
+        );
+    }
+
+    /**
+     * Binary fields are base64 so the JSON body is lossless.
+     *
+     * @return array<string, mixed>
+     */
+    private function toPayload(Secret $secret): array
+    {
+        return [
+            'format'               => self::FORMAT,
+            'identifier'           => $secret->getIdentifier(),
+            'encrypted_value'      => base64_encode($secret->getEncryptedValue() ?? ''),
+            'encrypted_dek'        => base64_encode($secret->getEncryptedDek()),
+            'dek_nonce'            => base64_encode($secret->getDekNonce()),
+            'value_nonce'          => base64_encode($secret->getValueNonce()),
+            'value_checksum'       => $secret->getValueChecksum(),
+            'encryption_version'   => $secret->getEncryptionVersion(),
+            'encryption_algorithm' => $secret->getEncryptionAlgorithm(),
+        ];
+    }
+
+    /**
+     * @return array{string, string, string, string, string, int, string}
+     */
+    private function envelopeOf(Secret $secret): array
+    {
+        return [
+            $secret->getEncryptedValue() ?? '',
+            $secret->getEncryptedDek(),
+            $secret->getDekNonce(),
+            $secret->getValueNonce(),
+            $secret->getValueChecksum(),
+            $secret->getEncryptionVersion(),
+            $secret->getEncryptionAlgorithm(),
+        ];
+    }
+}

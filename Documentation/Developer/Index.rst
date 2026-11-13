@@ -52,10 +52,10 @@ Custom storage adapters
 -----------------------
 
 .. note::
-   nr-vault currently includes only the **local database adapter**. External
-   vault adapters (HashiCorp Vault, AWS Secrets Manager, Azure Key Vault) are
-   planned for future releases. The adapter architecture below allows you to
-   implement your own custom adapters in the meantime.
+   nr-vault ships the **local database adapter** and the **HashiCorp Vault
+   adapter** (see :ref:`operations-hashicorp-adapter`). AWS Secrets Manager and
+   Azure Key Vault adapters are planned. The adapter architecture below allows
+   you to implement your own custom adapters in the meantime.
 
 Implement :php:`VaultAdapterInterface` to add new storage backends:
 
@@ -131,11 +131,13 @@ Implement :php:`VaultAdapterInterface` to add new storage backends:
        }
    }
 
-Register in :file:`Services.yaml` by overriding the interface alias. Adapter
+Register in :file:`Services.yaml` by overriding the interface binding. Adapter
 selection is **not** pluggable through a tag: nothing consumes a
-``nr_vault.adapter`` tag, and :php:`VaultAdapterInterface` is a plain alias to
-:php:`LocalEncryptionAdapter`. Repointing that alias is what swaps the
-adapter, and it swaps it for the whole installation.
+``nr_vault.adapter`` tag. By default :php:`VaultAdapterInterface` is built by
+:php:`StorageAdapterFactory`, which picks the built-in adapter named by the
+``storageAdapter`` setting. Binding the interface in your own
+:file:`Services.yaml` replaces that factory result and swaps the adapter for the
+whole installation, whatever ``storageAdapter`` says.
 
 .. code-block:: yaml
    :caption: EXT:my_extension/Configuration/Services.yaml

@@ -20,20 +20,27 @@ Configure nr-vault in :guilabel:`Admin Tools > Settings > Extension Configuratio
    :name: ext-nrvault-storageAdapter
    :type: string
    :Default: local
-   :Options: local
+   :Options: local, hashicorp, aws
 
-   Where secrets are stored.
+   Where the encryption envelope of new secrets is stored.
 
    local
       Store secrets in the TYPO3 database (default). Secrets are encrypted
       with envelope encryption before storage.
 
-   .. note::
-      **External vault adapters (HashiCorp Vault, AWS Secrets Manager) are
-      planned for future releases.** The adapter architecture is designed to
-      support external backends, but currently only the local database adapter
-      is implemented. See :ref:`developer-custom-adapters` for information on
-      implementing custom adapters.
+   hashicorp
+      Store the envelope in HashiCorp Vault (KV v2). The record in the TYPO3
+      database keeps owner, groups, metadata and a pointer. See
+      :ref:`operations-hashicorp-adapter`.
+
+   aws
+      Reserved for AWS Secrets Manager, which is not implemented. Until it is,
+      this value behaves like ``local``.
+
+   Secrets stored before you change the setting stay where they are; only new
+   secrets use the configured adapter. A value that names no adapter is
+   refused. See :ref:`developer-custom-adapters` for information on
+   implementing custom adapters.
 
 .. confval:: securityProfile
    :name: ext-nrvault-securityProfile
@@ -110,7 +117,11 @@ Configure nr-vault in :guilabel:`Admin Tools > Settings > Extension Configuratio
    :Default: (empty)
 
    Vault server base address, e.g. :samp:`https://vault.example.com:8200`.
-   Required by the ``transit`` master key provider.
+   Required by the ``transit`` master key provider and the ``hashicorp``
+   storage adapter. The storage adapter requires ``https`` (see
+   :confval:`hashicorp.allowInsecureHttp <ext-nrvault-hashicorp-allowInsecureHttp>`),
+   a bare origin without credentials, path, query or fragment, and a literal
+   ``allowed_hosts`` entry when the address is private or loopback.
 
 .. confval:: hashicorp.authMethod
    :name: ext-nrvault-hashicorp-authMethod
@@ -118,9 +129,10 @@ Configure nr-vault in :guilabel:`Admin Tools > Settings > Extension Configuratio
    :Default: token
    :Options: token, kubernetes, approle
 
-   Vault authentication method. The ``transit`` master key provider implements
-   ``token`` only and refuses to start on the other values rather than silently
-   downgrading. See :ref:`configuration-master-key-transit`.
+   Vault authentication method. The ``hashicorp`` storage adapter implements
+   all three. The ``transit`` master key provider implements ``token`` only and
+   refuses to start on the other values rather than silently downgrading. See
+   :ref:`configuration-master-key-transit`.
 
 .. confval:: hashicorp.tokenEnvVar
    :name: ext-nrvault-hashicorp-tokenEnvVar
@@ -168,9 +180,66 @@ Configure nr-vault in :guilabel:`Admin Tools > Settings > Extension Configuratio
    :type: string
    :Default: secret/data/typo3
 
-   Path prefix for secrets in Vault. **Reserved** — it belongs to the
-   not-yet-implemented HashiCorp storage adapter and has no effect on the
-   transit master-key provider, which uses the ``transit*`` settings above.
+   KV v2 location of the ``hashicorp`` storage adapter, written as
+   :samp:`{mount}/data/{prefix}`. The first path segment named ``data``
+   separates a nested mount from the prefix, and every segment is validated
+   before it reaches a URL. It has no effect on the transit master-key
+   provider, which uses the ``transit*`` settings above.
+
+.. confval:: hashicorp.approleMount
+   :name: ext-nrvault-hashicorp-approleMount
+   :type: string
+   :Default: approle
+
+   Mount path of the AppRole auth method, without ``/v1/auth/``. Storage
+   adapter only.
+
+.. confval:: hashicorp.roleId
+   :name: ext-nrvault-hashicorp-roleId
+   :type: string
+   :Default: (empty)
+
+   Role id for ``hashicorp.authMethod = approle``. An identifier, not a secret.
+
+.. confval:: hashicorp.secretIdEnvVar
+   :name: ext-nrvault-hashicorp-secretIdEnvVar
+   :type: string
+   :Default: VAULT_SECRET_ID
+
+   Name of the environment variable holding the AppRole secret id. The secret
+   id is read from the environment only and is never stored in the extension
+   configuration.
+
+.. confval:: hashicorp.kubernetesMount
+   :name: ext-nrvault-hashicorp-kubernetesMount
+   :type: string
+   :Default: kubernetes
+
+   Mount path of the Kubernetes auth method, without ``/v1/auth/``. Storage
+   adapter only.
+
+.. confval:: hashicorp.kubernetesRole
+   :name: ext-nrvault-hashicorp-kubernetesRole
+   :type: string
+   :Default: (empty)
+
+   Vault role to log in as for ``hashicorp.authMethod = kubernetes``.
+
+.. confval:: hashicorp.kubernetesJwtPath
+   :name: ext-nrvault-hashicorp-kubernetesJwtPath
+   :type: string
+   :Default: /var/run/secrets/kubernetes.io/serviceaccount/token
+
+   File holding the pod's service account token, read on every login.
+
+.. confval:: hashicorp.allowInsecureHttp
+   :name: ext-nrvault-hashicorp-allowInsecureHttp
+   :type: boolean
+   :Default: false
+
+   Allow an ``http://`` Vault address for the storage adapter. Off by default
+   because the token and every envelope would cross the network unencrypted.
+   For local development only.
 
 .. _configuration-aws:
 
@@ -857,9 +926,11 @@ through Vault and the local blob replaced:
 
 .. note::
 
-   Only ``token`` authentication is implemented. ``approle`` and ``kubernetes``
-   are rejected with a clear error instead of being treated as token auth;
-   AppRole login support is a planned follow-up.
+   The ``transit`` master key provider implements ``token`` authentication
+   only. ``approle`` and ``kubernetes`` are rejected with a clear error instead
+   of being treated as token auth. The ``hashicorp`` storage adapter implements
+   all three methods (:ref:`operations-hashicorp-adapter`); wiring the transit
+   provider to the same login code is a separate change.
 
 .. warning::
 

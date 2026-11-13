@@ -213,4 +213,56 @@ final class VaultServerConfigTest extends TestCase
 
         self::assertSame($original, $subject->toArray());
     }
+
+    #[Test]
+    public function newSettingsDefaultToTheDocumentedValues(): void
+    {
+        $subject = new VaultServerConfig();
+
+        self::assertSame('VAULT_TOKEN', $subject->tokenEnvVar);
+        self::assertSame('approle', $subject->approleMount);
+        self::assertSame('VAULT_SECRET_ID', $subject->secretIdEnvVar);
+        self::assertSame('kubernetes', $subject->kubernetesMount);
+        self::assertSame('/var/run/secrets/kubernetes.io/serviceaccount/token', $subject->kubernetesJwtPath);
+        self::assertFalse($subject->allowInsecureHttp);
+    }
+
+    #[Test]
+    public function fromArrayReadsTheAuthSettingsAndKeepsDefaultsForBlankValues(): void
+    {
+        $subject = VaultServerConfig::fromArray([
+            'authMethod'        => 'approle',
+            'roleId'            => ' role-1 ',
+            'approleMount'      => 'team/approle',
+            'secretIdEnvVar'    => '',
+            'kubernetesRole'    => 'typo3',
+            'allowInsecureHttp' => '1',
+        ]);
+
+        self::assertSame('role-1', $subject->roleId);
+        self::assertSame('team/approle', $subject->approleMount);
+        self::assertSame('VAULT_SECRET_ID', $subject->secretIdEnvVar, 'a blank value keeps the default');
+        self::assertSame('typo3', $subject->kubernetesRole);
+        self::assertTrue($subject->allowInsecureHttp);
+    }
+
+    #[Test]
+    public function allowInsecureHttpIsOffForEveryValueExceptAnExplicitYes(): void
+    {
+        foreach (['0', '', 'no', 'false', 0, false] as $value) {
+            self::assertFalse(VaultServerConfig::fromArray(['allowInsecureHttp' => $value])->allowInsecureHttp);
+        }
+
+        foreach (['1', 'true', 1, true] as $value) {
+            self::assertTrue(VaultServerConfig::fromArray(['allowInsecureHttp' => $value])->allowInsecureHttp);
+        }
+    }
+
+    #[Test]
+    public function theApproleSecretIdNeverAppearsInTheArrayForm(): void
+    {
+        $subject = VaultServerConfig::fromArray(['secretIdEnvVar' => 'MY_SECRET_ID', 'roleId' => 'r']);
+
+        self::assertStringNotContainsString('MY_SECRET_ID', (string) json_encode($subject->toArray()));
+    }
 }
