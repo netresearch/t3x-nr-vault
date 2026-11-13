@@ -242,6 +242,7 @@ final class VaultDevServer
         $stub = (new GenericContainer(self::STUB_IMAGE))
             ->withCommand(['python', '-c', (string) file_get_contents(__DIR__ . '/Fixtures/token-review-stub.py')])
             ->withExposedPorts(8080)
+            ->withPortGenerator(new FreePortGenerator())
             ->start();
         $this->reviewStub = $stub;
         self::waitUntilAnswering($stub, 8080, 'POST', '/ready');
@@ -270,6 +271,7 @@ final class VaultDevServer
                 'SKIP_SETCAP'              => '1',
             ])
             ->withExposedPorts(8200)
+            ->withPortGenerator(new FreePortGenerator())
             ->start();
 
         self::waitUntilAnswering($vault, 8200, 'GET', '/v1/sys/health');
