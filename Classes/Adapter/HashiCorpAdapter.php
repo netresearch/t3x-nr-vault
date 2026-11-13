@@ -101,9 +101,19 @@ final readonly class HashiCorpAdapter implements VaultAdapterInterface
             return $this->registry->store($secret, $persistGroupRelations);
         }
 
-        $previous = $existing instanceof Secret && $existing->getAdapter() === self::IDENTIFIER
-            ? $this->kv->read($identifier)
-            : null;
+        // A row bound to Vault owns its key. For any other row the path may
+        // hold somebody else's data: it is written only when empty, or when it
+        // is an earlier write of nr-vault for this very identifier (an
+        // unreferenced one left by a crash). Only a key this call created is
+        // destroyed again on failure; an adopted one is put back. The check
+        // and the write are two requests, so a writer that creates the key in
+        // between is not detected.
+        $previous = $this->kv->read($identifier);
+        if ($previous !== null && (!$existing instanceof Secret || $existing->getAdapter() !== self::IDENTIFIER)
+            && (($previous['identifier'] ?? null) !== $identifier || ($previous['format'] ?? null) !== self::FORMAT)
+        ) {
+            throw HashiCorpException::pathTaken($identifier);
+        }
 
         $this->kv->write($identifier, $this->toPayload($secret));
 
