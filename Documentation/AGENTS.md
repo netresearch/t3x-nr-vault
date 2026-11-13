@@ -33,6 +33,7 @@ Invoke skill **`typo3-docs`** for deeper guidance (rendering, directives, screen
 | `Documentation/Operations/BackupAndRestore.rst` | DB/key separation, restore verification, wrong-key symptoms |
 | `Documentation/Operations/KeyRotation.rst` | `vault:rotate-master-key` flow + transit key distinction |
 | `Documentation/Operations/HashiCorpAdapter.rst` | HashiCorp Vault (KV v2) storage adapter: Vault setup, auth methods, TLS, failure behaviour |
+| `Documentation/Operations/AwsSecretsManagerAdapter.rst` | AWS Secrets Manager storage adapter: SDK, credentials, IAM policy, endpoint and TLS, failure behaviour |
 | `Documentation/Operations/MonitoringAndAlerting.rst` | Scheduler tasks, events, SIEM wiring, what to page on |
 | `Documentation/Operations/IncidentResponse.rst` | Exposure / tampering / break-glass runbooks |
 | `Documentation/Operations/Decommissioning.rst` | Disposal, key destruction, retention vs deletion |

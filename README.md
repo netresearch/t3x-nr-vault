@@ -59,7 +59,7 @@ nr-vault provides:
 - **TCA integration** via custom `vaultSecret` field type
 - **Vault HTTP Client** - make authenticated API calls without exposing secrets
 - **CLI commands** for DevOps automation
-- **Pluggable adapter architecture** with a local database adapter and a HashiCorp Vault (KV v2) adapter; token, AppRole and Kubernetes authentication
+- **Pluggable adapter architecture** with a local database adapter, a HashiCorp Vault (KV v2) adapter (token, AppRole and Kubernetes authentication) and an AWS Secrets Manager adapter (explicit credentials, optional `aws/aws-sdk-php`)
 
 ## Architecture
 

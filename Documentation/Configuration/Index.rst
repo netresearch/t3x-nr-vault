@@ -34,12 +34,15 @@ Configure nr-vault in :guilabel:`Admin Tools > Settings > Extension Configuratio
       :ref:`operations-hashicorp-adapter`.
 
    aws
-      Reserved for AWS Secrets Manager, which is not implemented. Until it is,
-      this value behaves like ``local``.
+      Store the envelope in AWS Secrets Manager. The record in the TYPO3
+      database keeps owner, groups, metadata and a pointer. Needs the AWS SDK
+      for PHP (``composer require aws/aws-sdk-php``); without it the adapter
+      fails with a configuration error and never falls back to ``local``. See
+      :ref:`operations-aws-adapter`.
 
    Secrets stored before you change the setting stay where they are; only new
-   secrets use the configured adapter. A value that names no adapter is
-   refused. See :ref:`developer-custom-adapters` for information on
+   secrets use the configured adapter. A secret stored in one external adapter
+   is not usable under the other. A value that names no adapter is refused. See :ref:`developer-custom-adapters` for information on
    implementing custom adapters.
 
 .. confval:: securityProfile
@@ -246,26 +249,79 @@ Configure nr-vault in :guilabel:`Admin Tools > Settings > Extension Configuratio
 AWS Secrets Manager
 ===================
 
-..  note::
-
-    The AWS Secrets Manager adapter is **planned but not implemented**. Both
-    settings below are reserved; setting them changes nothing today. They are
-    documented so an operator who finds them in the Settings module knows they
-    are inert rather than misconfigured.
+These settings configure the ``aws`` storage adapter. Credentials are explicit:
+the SDK's default credential chain (environment, shared files, instance
+metadata) is never used. See :ref:`operations-aws-adapter`.
 
 .. confval:: aws.region
    :name: ext-nrvault-aws-region
    :type: string
    :Default: (empty)
 
-   AWS region for Secrets Manager, for example ``eu-central-1``.
+   AWS region for Secrets Manager, for example ``eu-central-1``. Required.
 
 .. confval:: aws.secretPrefix
    :name: ext-nrvault-aws-secretPrefix
    :type: string
    :Default: typo3/
 
-   Prefix for secret names in AWS Secrets Manager.
+   Prefix of every secret name in AWS Secrets Manager. Slashes at both ends are
+   ignored. The name of a secret is :samp:`{prefix}/{identifier}`, with ``:`` in
+   an identifier written as ``+`` because AWS does not accept a colon.
+
+.. confval:: aws.endpoint
+   :name: ext-nrvault-aws-endpoint
+   :type: string
+   :Default: (empty)
+
+   Optional custom endpoint (a VPC endpoint or a compatible service) as a bare
+   origin without credentials, path, query or fragment. Empty uses the regional
+   AWS endpoint. ``AWS_ENDPOINT_URL`` and ``AWS_ENDPOINT_URL_SECRETS_MANAGER``
+   are ignored; only this setting redirects the adapter.
+
+.. confval:: aws.allowInsecureHttp
+   :name: ext-nrvault-aws-allowInsecureHttp
+   :type: boolean
+   :Default: false
+
+   Allow an ``http://`` endpoint. Off by default because the signed requests and
+   every envelope would cross the network unencrypted. For local development
+   only.
+
+.. confval:: aws.accessKeyIdEnvVar
+   :name: ext-nrvault-aws-accessKeyIdEnvVar
+   :type: string
+   :Default: NR_VAULT_AWS_ACCESS_KEY_ID
+
+   Name of the environment variable holding the access key id. Read in
+   preference to :confval:`aws.accessKeyId <ext-nrvault-aws-accessKeyId>`. The
+   default is not ``AWS_ACCESS_KEY_ID``, so credentials that belong to something
+   else on the host are never picked up by accident.
+
+.. confval:: aws.accessKeyId
+   :name: ext-nrvault-aws-accessKeyId
+   :type: string
+   :Default: (empty)
+
+   Access key id, used when the environment variable is empty. An identifier,
+   not a secret.
+
+.. confval:: aws.secretAccessKeyEnvVar
+   :name: ext-nrvault-aws-secretAccessKeyEnvVar
+   :type: string
+   :Default: NR_VAULT_AWS_SECRET_ACCESS_KEY
+
+   Name of the environment variable holding the secret access key. The key is
+   read from the environment only and is never stored in the extension
+   configuration.
+
+.. confval:: aws.sessionTokenEnvVar
+   :name: ext-nrvault-aws-sessionTokenEnvVar
+   :type: string
+   :Default: NR_VAULT_AWS_SESSION_TOKEN
+
+   Name of the environment variable holding an optional session token, for
+   temporary credentials. Unset or empty means long-lived credentials.
 
 .. _configuration-cli:
 

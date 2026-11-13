@@ -25,6 +25,7 @@ in :ref:`configuration`; per-command reference in
    BackupAndRestore
    KeyRotation
    HashiCorpAdapter
+   AwsSecretsManagerAdapter
    MonitoringAndAlerting
    IncidentResponse
    Decommissioning
@@ -51,6 +52,9 @@ Start here
 
     *   -   storing secrets in HashiCorp Vault
         -   :ref:`operations-hashicorp-adapter`
+
+    *   -   storing secrets in AWS Secrets Manager
+        -   :ref:`operations-aws-adapter`
 
     *   -   setting up backups
         -   :ref:`operations-backup-and-restore`. The database alone is not a
