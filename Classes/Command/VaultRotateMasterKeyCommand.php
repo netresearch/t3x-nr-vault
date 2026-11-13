@@ -32,6 +32,7 @@ use Netresearch\NrVault\Domain\Repository\SecretRepositoryInterface;
 use Netresearch\NrVault\Event\MasterKeyRotatedEvent;
 use Netresearch\NrVault\Exception\ConfigurationException;
 use Netresearch\NrVault\Exception\EncryptionException;
+use Netresearch\NrVault\Exception\HashiCorpException;
 use Netresearch\NrVault\Exception\MasterKeyException;
 use Netresearch\NrVault\Security\AccessControlServiceInterface;
 use Netresearch\NrVault\Security\VaultPermission;
@@ -79,6 +80,9 @@ final class VaultRotateMasterKeyCommand extends Command
      * Not a real secret identifier; the audit query layer filters on the
      * `master_key_rotate_*` actions, not on this string.
      */
+    /** Adapter name of a secret whose envelope lives in the local database. */
+    private const LOCAL_ADAPTER = 'local';
+
     private const AUDIT_PSEUDO_IDENTIFIER = '__master_key__';
 
     private const AUDIT_LOG_TABLE = 'tx_nrvault_audit_log';
@@ -487,6 +491,17 @@ final class VaultRotateMasterKeyCommand extends Command
 
         if (!$firstSecret instanceof Secret) {
             $io->error('Failed to load first secret for verification.');
+
+            return false;
+        }
+
+        // An envelope held outside the local database cannot be re-wrapped
+        // inside this transaction; say so instead of reporting a wrong key.
+        if ($firstSecret->getAdapter() !== self::LOCAL_ADAPTER) {
+            $io->error(HashiCorpException::externalSecretsBlockMasterKeyRotation(
+                $firstSecret->getIdentifier(),
+                $firstSecret->getAdapter(),
+            )->getMessage());
 
             return false;
         }
@@ -935,6 +950,17 @@ final class VaultRotateMasterKeyCommand extends Command
         $secret = $this->secretRepository->findByIdentifierIncludingDisabled($identifier);
         if (!$secret instanceof Secret) {
             $failedSecrets[] = ['identifier' => $identifier, 'error' => 'Not found'];
+
+            return false;
+        }
+
+        // The rotation is one database transaction; an envelope in an external
+        // store cannot join it. Failing here rolls the whole batch back.
+        if ($secret->getAdapter() !== self::LOCAL_ADAPTER) {
+            $failedSecrets[] = [
+                'identifier' => $identifier,
+                'error'      => HashiCorpException::externalSecretsBlockMasterKeyRotation($identifier, $secret->getAdapter())->getMessage(),
+            ];
 
             return false;
         }

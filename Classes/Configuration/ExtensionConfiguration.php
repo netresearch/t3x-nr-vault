@@ -526,7 +526,7 @@ final class ExtensionConfiguration implements ExtensionConfigurationInterface, S
             return new VaultServerConfig();
         }
 
-        /** @var array{address?: string, path?: string, authMethod?: string, token?: string} $config */
+        /** @var array{address?: string, path?: string, authMethod?: string, token?: string, tokenEnvVar?: string, approleMount?: string, roleId?: string, secretIdEnvVar?: string, kubernetesMount?: string, kubernetesRole?: string, kubernetesJwtPath?: string, allowInsecureHttp?: string|bool|int} $config */
         return VaultServerConfig::fromArray($config);
     }
 

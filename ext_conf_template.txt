@@ -6,7 +6,7 @@
 ####################
 
 # cat=Storage; type=options[local,hashicorp,aws]; label=Storage Adapter: Backend storage for encrypted secrets (local = database, hashicorp = HashiCorp Vault, aws = AWS Secrets Manager)
-# NOTE: Only 'local' is currently implemented. 'hashicorp' and 'aws' are planned for a future release.
+# NOTE: 'local' and 'hashicorp' are implemented. 'aws' is planned; until then it behaves like 'local'. Secrets already stored locally stay local when you switch; only new secrets use the configured adapter. Master key rotation refuses to run while secrets live outside the local database.
 storageAdapter = local
 
 #################
@@ -102,16 +102,16 @@ auditSinkStaleDeliveryHours = 24
 ########################
 ### HASHICORP VAULT ###
 ########################
-# NOTE: The HashiCorp Vault STORAGE adapter (hashicorp.path) is planned but not yet implemented.
-# The settings below are live for the "transit" master key provider (masterKeyProvider = transit).
+# The settings below configure the HashiCorp Vault storage adapter (storageAdapter = hashicorp, KV v2) and the "transit" master key provider (masterKeyProvider = transit).
+# The storage adapter supports all three auth methods; the transit master key provider implements "token" only.
 
-# cat=HashiCorp Vault; type=string; label=Vault Address: HashiCorp Vault server address (e.g., https://vault.example.com:8200). Used by the transit master key provider.
+# cat=HashiCorp Vault; type=string; label=Vault Address: HashiCorp Vault server address (e.g., https://vault.example.com:8200). https is required unless hashicorp.allowInsecureHttp is on. A private or loopback address additionally needs a literal entry in $GLOBALS['TYPO3_CONF_VARS']['HTTP']['allowed_hosts'].
 hashicorp.address =
 
-# cat=HashiCorp Vault; type=string; label=Secret Path: Path prefix for secrets in Vault (e.g., secret/data/typo3). Reserved for the not-yet-implemented storage adapter.
+# cat=HashiCorp Vault; type=string; label=Secret Path: KV v2 location for the storage adapter, written as <mount>/data/<prefix> (e.g., secret/data/typo3). The first path segment named data separates a nested mount from the prefix.
 hashicorp.path = secret/data/typo3
 
-# cat=HashiCorp Vault; type=options[token,kubernetes,approle]; label=Auth Method: Authentication method for Vault. The transit master key provider implements "token" only and refuses to start on the others.
+# cat=HashiCorp Vault; type=options[token,kubernetes,approle]; label=Auth Method: Authentication method for Vault. The storage adapter implements token, approle and kubernetes. The transit master key provider implements "token" only and refuses to start on the others.
 hashicorp.authMethod = token
 
 # cat=HashiCorp Vault; type=string; label=Token: Vault token (only for token auth method). Prefer the environment variable named in hashicorp.tokenEnvVar — a token stored here is readable in the Install Tool and lands in configuration exports.
@@ -119,6 +119,27 @@ hashicorp.token =
 
 # cat=HashiCorp Vault; type=string; label=Token Environment Variable: Name of the environment variable holding the Vault token. Read in preference to hashicorp.token.
 hashicorp.tokenEnvVar = VAULT_TOKEN
+
+# cat=HashiCorp Vault; type=string; label=AppRole Mount: Mount path of the AppRole auth method (without /v1/auth/). Storage adapter only.
+hashicorp.approleMount = approle
+
+# cat=HashiCorp Vault; type=string; label=AppRole Role ID: Role id for the approle auth method. An identifier, not a secret. Storage adapter only.
+hashicorp.roleId =
+
+# cat=HashiCorp Vault; type=string; label=AppRole Secret ID Environment Variable: Name of the environment variable holding the AppRole secret id. The secret id is read from the environment only and is never stored in this configuration.
+hashicorp.secretIdEnvVar = VAULT_SECRET_ID
+
+# cat=HashiCorp Vault; type=string; label=Kubernetes Auth Mount: Mount path of the Kubernetes auth method (without /v1/auth/). Storage adapter only.
+hashicorp.kubernetesMount = kubernetes
+
+# cat=HashiCorp Vault; type=string; label=Kubernetes Role: Vault role to log in as with the kubernetes auth method. Storage adapter only.
+hashicorp.kubernetesRole =
+
+# cat=HashiCorp Vault; type=string; label=Kubernetes Service Account Token Path: File holding the pod's service account JWT.
+hashicorp.kubernetesJwtPath = /var/run/secrets/kubernetes.io/serviceaccount/token
+
+# cat=HashiCorp Vault; type=boolean; label=Allow Plain HTTP: Allow an http:// Vault address for the storage adapter. Off by default because the token and every secret envelope would cross the network unencrypted. Intended for local development only.
+hashicorp.allowInsecureHttp = 0
 
 # cat=HashiCorp Vault; type=string; label=Transit Mount: Mount path of the transit secrets engine (without /v1/). Nested mounts like "platform/transit" are supported.
 hashicorp.transitMount = transit

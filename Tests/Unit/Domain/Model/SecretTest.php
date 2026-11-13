@@ -1339,4 +1339,61 @@ final class SecretTest extends TestCase
         self::assertSame($expectedDeleted, $row['deleted']);
         self::assertSame($expectedHidden, $row['hidden']);
     }
+
+    #[Test]
+    public function withExternalStorageDropsTheEnvelopeAndRecordsTheReference(): void
+    {
+        $secret = new Secret(
+            identifier: 'ext',
+            encryptedValue: 'ct',
+            encryptedDek: 'dek',
+            dekNonce: 'dn',
+            valueNonce: 'vn',
+            encryptionVersion: 2,
+            encryptionAlgorithm: 'xchacha20poly1305',
+            valueChecksum: 'sum',
+        );
+
+        $external = $secret->withExternalStorage('hashicorp', 'secret/data/typo3/ext');
+
+        self::assertSame('hashicorp', $external->getAdapter());
+        self::assertSame('secret/data/typo3/ext', $external->getExternalReference());
+        self::assertNull($external->getEncryptedValue());
+        self::assertSame('', $external->getEncryptedDek());
+        self::assertSame('', $external->getDekNonce());
+        self::assertSame('', $external->getValueNonce());
+        self::assertSame('', $external->getValueChecksum());
+        self::assertSame(1, $external->getEncryptionVersion());
+        self::assertSame('', $external->getEncryptionAlgorithm());
+        self::assertSame('local', $secret->getAdapter(), 'the original is unchanged');
+    }
+
+    #[Test]
+    public function withEnvelopeAttachesACompleteEnvelope(): void
+    {
+        $row = (new Secret(identifier: 'ext'))->withExternalStorage('hashicorp', 'ref');
+
+        $secret = $row->withEnvelope('ct', 'dek', 'dn', 'vn', 'sum', 2, 'aes256gcm');
+
+        self::assertSame('ct', $secret->getEncryptedValue());
+        self::assertSame('dek', $secret->getEncryptedDek());
+        self::assertSame('aes256gcm', $secret->getEncryptionAlgorithm());
+        self::assertSame('hashicorp', $secret->getAdapter());
+    }
+
+    #[Test]
+    public function withEnvelopeRefusesAnIncompleteEnvelope(): void
+    {
+        $this->expectException(ValidationException::class);
+
+        (new Secret(identifier: 'ext'))->withEnvelope('ct', '', 'dn', 'vn', 'sum', 2, 'aes256gcm');
+    }
+
+    #[Test]
+    public function withEnvelopeRefusesAnUnknownAlgorithmMarker(): void
+    {
+        $this->expectException(ValidationException::class);
+
+        (new Secret(identifier: 'ext'))->withEnvelope('ct', 'dek', 'dn', 'vn', 'sum', 2, 'rot13');
+    }
 }
