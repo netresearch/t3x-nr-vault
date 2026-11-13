@@ -313,8 +313,15 @@ final class VaultDevServer
             usleep(500_000);
         }
 
+        try {
+            $state   = $container->getClient()->containerInspect($container->getId())?->getState();
+            $inspect = sprintf('status %s, exit code %s, error "%s", oom killed %s', $state?->getStatus(), $state?->getExitCode(), $state?->getError(), var_export($state?->getOOMKilled(), true));
+        } catch (Throwable $e) {
+            $inspect = 'inspect failed: ' . $e->getMessage();
+        }
+
         throw new RuntimeException(
-            sprintf("Container did not answer %s %s within 120 seconds. Last attempt: %s\nIts log:\n%s", $method, $path, $seen, substr($container->logs(), -2000)),
+            sprintf("Container did not answer %s %s within 120 seconds. Last attempt: %s\nState: %s\nIts log:\n%s", $method, $path, $seen, $inspect, substr($container->logs(), -2000)),
             1794400104,
         );
     }
