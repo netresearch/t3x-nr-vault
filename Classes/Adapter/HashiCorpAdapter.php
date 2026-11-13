@@ -20,9 +20,11 @@ use Netresearch\NrVault\Storage\HashiCorp\KvStoreInterface;
 use Netresearch\NrVault\Storage\HashiCorp\LegacyKvStoreNotice;
 use Netresearch\NrVault\Storage\InstallationMarker;
 use Psr\Log\LoggerInterface;
+use SensitiveParameter;
 use Throwable;
 
 use function array_key_exists;
+use function in_array;
 use function is_int;
 use function is_string;
 
@@ -95,8 +97,17 @@ final readonly class HashiCorpAdapter implements CreateCompensatingAdapterInterf
             $previous = null;
             if ($boundToVault) {
                 $this->assertOwnsLocation($existing instanceof Secret && $existing->getAdapter() === self::IDENTIFIER ? $existing : $secret);
-                $previous = $this->readOwned($identifier);
-                $this->kv->destroy($identifier);
+                // This is also the compensation of a failed audit write on the
+                // FormEngine completion path. A store recorded in this request is
+                // taken back exactly: a key it created is destroyed, one it took
+                // over is put back.
+                $entry = $this->journal->take(self::IDENTIFIER, $identifier);
+                if ($entry !== null) {
+                    $this->undoVaultWrite($identifier, $entry['previous'], is_int($entry['version']) ? $entry['version'] : null, true);
+                } else {
+                    $previous = $this->readOwned($identifier);
+                    $this->kv->destroy($identifier);
+                }
             }
 
             try {
@@ -145,6 +156,10 @@ final readonly class HashiCorpAdapter implements CreateCompensatingAdapterInterf
     {
         $entry = $this->journal->take(self::IDENTIFIER, $identifier);
         if ($entry === null) {
+            $this->logger->warning(
+                'nr-vault: no store of this secret was recorded in this request, so the create was compensated by deleting it.',
+                ['secret' => $identifier],
+            );
             $this->delete($identifier);
 
             return;
@@ -239,7 +254,7 @@ final readonly class HashiCorpAdapter implements CreateCompensatingAdapterInterf
      *
      * @param array<string, mixed>|null $previous
      */
-    private function undoVaultWrite(string $identifier, ?array $previous, ?int $version, bool $rowIsBeingRemoved = false): void
+    private function undoVaultWrite(string $identifier, #[SensitiveParameter] ?array $previous, ?int $version, bool $rowIsBeingRemoved = false): void
     {
         try {
             if ($version !== null && $this->kv instanceof AtomicKvStoreInterface) {
@@ -266,9 +281,18 @@ final readonly class HashiCorpAdapter implements CreateCompensatingAdapterInterf
             } elseif ($rowIsBeingRemoved || !$this->registry->exists($identifier)) {
                 $this->kv->destroy($identifier);
             }
-        } catch (Throwable) {
+        } catch (Throwable $e) {
             // The original failure is the one to report.
+            $this->warnRollbackFailed($identifier, $e);
         }
+    }
+
+    private function warnRollbackFailed(string $identifier, Throwable $e): void
+    {
+        $this->logger->warning(
+            'nr-vault: restoring a HashiCorp Vault write failed; check the key. ' . $e::class . ': ' . $e->getMessage(),
+            ['secret' => $identifier],
+        );
     }
 
     /**
@@ -311,12 +335,13 @@ final readonly class HashiCorpAdapter implements CreateCompensatingAdapterInterf
     /**
      * @param array<string, mixed> $payload
      */
-    private function restore(string $identifier, array $payload): void
+    private function restore(string $identifier, #[SensitiveParameter] array $payload): void
     {
         try {
             $this->kv->write($identifier, $payload);
-        } catch (Throwable) {
+        } catch (Throwable $e) {
             // The original failure is the one to report.
+            $this->warnRollbackFailed($identifier, $e);
         }
     }
 
@@ -325,7 +350,7 @@ final readonly class HashiCorpAdapter implements CreateCompensatingAdapterInterf
      *
      * @param array<string, mixed> $payload
      */
-    private function put(string $identifier, array $payload): ?int
+    private function put(string $identifier, #[SensitiveParameter] array $payload): ?int
     {
         if ($this->kv instanceof AtomicKvStoreInterface) {
             return $this->kv->writeVersioned($identifier, $payload);
@@ -346,7 +371,7 @@ final readonly class HashiCorpAdapter implements CreateCompensatingAdapterInterf
      *
      * @throws HashiCorpException When the path belongs to something else
      */
-    private function claimPath(string $identifier, array $payload): array
+    private function claimPath(string $identifier, #[SensitiveParameter] array $payload): array
     {
         if (!$this->kv instanceof AtomicKvStoreInterface) {
             LegacyKvStoreNotice::report();
@@ -384,7 +409,7 @@ final readonly class HashiCorpAdapter implements CreateCompensatingAdapterInterf
      *
      * @return array{0: array<string, mixed>|null, 1: int|null}
      */
-    private function adopt(string $identifier, array $payload, ?array $existing): array
+    private function adopt(string $identifier, #[SensitiveParameter] array $payload, #[SensitiveParameter] ?array $existing): array
     {
         if ($existing !== null && (($existing['identifier'] ?? null) !== $identifier || ($existing['format'] ?? null) !== self::FORMAT || ($existing['installation'] ?? null) !== $this->installation->value())) {
             throw HashiCorpException::pathTaken($identifier);
@@ -433,18 +458,39 @@ final readonly class HashiCorpAdapter implements CreateCompensatingAdapterInterf
             return $row;
         }
 
-        $payload = $this->kv->read($identifier);
-        if ($payload === null) {
-            if ($requireValue) {
-                throw HashiCorpException::backingObjectMissing($identifier);
+        try {
+            $payload = $this->kv->read($identifier);
+            if ($payload === null) {
+                if ($requireValue) {
+                    throw HashiCorpException::backingObjectMissing($identifier);
+                }
+
+                return $row;
+            }
+
+            if (($payload['identifier'] ?? null) !== $identifier || ($payload['format'] ?? null) !== self::FORMAT) {
+                throw HashiCorpException::backingObjectMismatch($identifier);
+            }
+
+            return $this->rowWithEnvelope($row, $payload);
+        } catch (HashiCorpException $e) {
+            // The administrative lookup must not fail on a broken or foreign
+            // object: the row comes back bare, and delete() or a rotation decides
+            // what may touch that key (they refuse a foreign identifier).
+            if ($requireValue || !in_array($e->getCode(), [1794400008, 1794400010], true)) {
+                throw $e;
             }
 
             return $row;
         }
+    }
 
-        if (($payload['identifier'] ?? null) !== $identifier || ($payload['format'] ?? null) !== self::FORMAT) {
-            throw HashiCorpException::backingObjectMismatch($identifier);
-        }
+    /**
+     * @param array<string, mixed> $payload
+     */
+    private function rowWithEnvelope(Secret $row, #[SensitiveParameter] array $payload): Secret
+    {
+        $identifier = $row->getIdentifier();
 
         $version = $payload['encryption_version'] ?? null;
         $fields  = [];

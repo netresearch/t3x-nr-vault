@@ -246,9 +246,26 @@ final class HashiCorpKvClientTest extends TestCase
     #[Test]
     public function destroyIfCurrentOfAMissingKeyIsFalse(): void
     {
-        $http = new RecordingHttpClient(new Response(404, [], '{"errors":[]}'));
+        $http = new RecordingHttpClient(
+            new Response(404, [], '{"errors":[]}'),
+            new Response(404, [], '{"errors":[]}'),
+            new Response(404, [], '{"errors":[]}'),
+        );
 
         self::assertFalse($this->client($http)->destroyIfCurrent('api_key', 1));
+        self::assertCount(3, $http->requests, 'not found is retried like a stale version');
+    }
+
+    #[Test]
+    public function destroyIfCurrentRetriesAKeyThatIsNotVisibleYet(): void
+    {
+        $http = new RecordingHttpClient(
+            new Response(404, [], '{"errors":[]}'),
+            RecordingHttpClient::json(200, ['data' => ['current_version' => 1]]),
+            new Response(204),
+        );
+
+        self::assertTrue($this->client($http)->destroyIfCurrent('api_key', 1));
     }
 
     #[Test]

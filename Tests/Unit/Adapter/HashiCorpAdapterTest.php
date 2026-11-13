@@ -59,6 +59,8 @@ final class HashiCorpAdapterTest extends TestCase
 
     private bool $readKeysSorted = false;
 
+    private ?int $vaultWritesAllowed = null;
+
     /** @var list<string> */
     private array $warnings = [];
 
@@ -88,6 +90,7 @@ final class HashiCorpAdapterTest extends TestCase
         $this->createScript                = [];
         $this->readScript                  = [];
         $this->warnings                    = [];
+        $this->vaultWritesAllowed          = null;
         $this->masterKey                   = 'unit-test-master-key-of-this-installation';
         $this->journal                     = new ExternalStoreJournal();
 
@@ -322,6 +325,7 @@ final class HashiCorpAdapterTest extends TestCase
     {
         $adapter = $this->adapter();
         $adapter->store($this->envelopeSecret('api_key'));
+        $adapter->releaseStore('api_key');
 
         $before             = $this->vault['api_key'];
         $this->failRowWrite = true;
@@ -755,7 +759,60 @@ final class HashiCorpAdapterTest extends TestCase
     }
 
     #[Test]
-    public function aCompensationWithoutARecordedStoreDeletesLikeBefore(): void
+    public function theValuelessCompensationOfACompletionPutsAnAdoptedKeyBack(): void
+    {
+        $adapter = $this->adapter();
+        $adapter->store($this->envelopeSecret('api_key'));
+        $adapter->releaseStore('api_key');
+
+        $orphan = $this->vault['api_key'];
+        // The FormEngine path: the row exists without a value and the key is an
+        // unreferenced earlier write of this installation.
+        $this->rows['api_key'] = new Secret(identifier: 'api_key', uid: 1);
+
+        $adapter->store($this->envelopeSecret('api_key', 'adopted')->withUid(1));
+        // VaultService compensates a failed audit write with the prior row.
+        $adapter->store(new Secret(identifier: 'api_key', uid: 1));
+
+        self::assertEquals($orphan, $this->vault['api_key'], 'the adopted key is back, not destroyed');
+    }
+
+    #[Test]
+    public function theValuelessCompensationOfACompletionDestroysAKeyItCreated(): void
+    {
+        $adapter               = $this->adapter();
+        $this->rows['api_key'] = new Secret(identifier: 'api_key', uid: 1);
+
+        $adapter->store($this->envelopeSecret('api_key')->withUid(1));
+        $adapter->store(new Secret(identifier: 'api_key', uid: 1));
+
+        self::assertArrayNotHasKey('api_key', $this->vault);
+    }
+
+    #[Test]
+    public function aFailedRestoreOfAWriteIsReportedWithoutASecret(): void
+    {
+        $adapter = $this->adapter();
+        $adapter->store($this->envelopeSecret('api_key'));
+        $adapter->releaseStore('api_key');
+
+        $this->failRowWrite       = true;
+        $this->vaultWritesAllowed = 1;
+
+        try {
+            $adapter->store($this->envelopeSecret('api_key', 'newer')->withUid(1));
+            self::fail('The row failure must propagate.');
+        } catch (RuntimeException $e) {
+            self::assertSame(4778462882, $e->getCode());
+        }
+
+        self::assertCount(1, $this->warnings);
+        self::assertStringContainsString('RuntimeException', $this->warnings[0]);
+        self::assertStringNotContainsString('newer', $this->warnings[0]);
+    }
+
+    #[Test]
+    public function aCompensationWithoutARecordedStoreWarnsAndDeletes(): void
     {
         $adapter = $this->adapter();
         $adapter->store($this->envelopeSecret('api_key'));
@@ -763,6 +820,8 @@ final class HashiCorpAdapterTest extends TestCase
         $this->journal->forget('hashicorp', 'api_key');
 
         $adapter->compensateCreate('api_key');
+
+        self::assertCount(1, $this->warnings);
 
         self::assertArrayNotHasKey('api_key', $this->vault);
         self::assertArrayNotHasKey('api_key', $this->rows);
@@ -956,7 +1015,11 @@ final class HashiCorpAdapterTest extends TestCase
      */
     public function vaultWrite(string $identifier, array $data): void
     {
-        $this->vaultCalls[]          = 'write:' . $identifier;
+        $this->vaultCalls[] = 'write:' . $identifier;
+        if ($this->vaultWritesAllowed !== null && $this->vaultWritesAllowed-- <= 0) {
+            throw new RuntimeException('vault write refused', 4778462884);
+        }
+
         $this->vault[$identifier]    = $data;
         $this->versions[$identifier] = ($this->versions[$identifier] ?? 0) + 1;
     }

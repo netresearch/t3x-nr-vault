@@ -111,17 +111,17 @@ final readonly class HashiCorpKvClient implements AtomicKvStoreInterface
         // real concurrent write, which keeps showing another version.
         for ($attempt = 1; $attempt <= self::VERSION_READ_ATTEMPTS; ++$attempt) {
             $result = $this->send('GET', $this->endpoint()->metadataUrl($identifier), null, 'read');
-            if ($result['status'] === 404) {
-                return false;
-            }
+            // Not found is retried too: a read that has not caught up with the
+            // create looks like a missing key for a moment.
+            if ($result['status'] !== 404) {
+                $this->assertSuccess($result['status'], 'read');
 
-            $this->assertSuccess($result['status'], 'read');
+                $metadata = $result['json']['data'] ?? null;
+                if (is_array($metadata) && ($metadata['current_version'] ?? null) === $version) {
+                    $this->destroy($identifier);
 
-            $metadata = $result['json']['data'] ?? null;
-            if (is_array($metadata) && ($metadata['current_version'] ?? null) === $version) {
-                $this->destroy($identifier);
-
-                return true;
+                    return true;
+                }
             }
 
             if ($attempt < self::VERSION_READ_ATTEMPTS) {
