@@ -412,6 +412,64 @@ final class HashiCorpAdapterTest extends TestCase
     }
 
     #[Test]
+    public function dataOfSomebodyElseAtTheKvPathIsNeitherOverwrittenNorDestroyed(): void
+    {
+        $this->vault['api_key'] = ['unrelated' => 'value'];
+        $adapter                = $this->adapter();
+
+        try {
+            $adapter->store($this->envelopeSecret('api_key'));
+            self::fail('Foreign data at the path must refuse the store.');
+        } catch (HashiCorpException $e) {
+            self::assertSame(1794400012, $e->getCode());
+        }
+
+        self::assertSame(['unrelated' => 'value'], $this->vaultRead('api_key'));
+        self::assertNotContains('write:api_key', $this->vaultCalls);
+        self::assertNotContains('destroy:api_key', $this->vaultCalls);
+        self::assertArrayNotHasKey('api_key', $this->rows);
+    }
+
+    #[Test]
+    public function anObjectThatBelongsToAnotherIdentifierIsNotAdopted(): void
+    {
+        $adapter = $this->adapter();
+        $adapter->store($this->envelopeSecret('other_key'));
+        $this->vault['api_key'] = $this->vault['other_key'];
+        unset($this->rows['other_key']);
+
+        $this->expectException(HashiCorpException::class);
+        $this->expectExceptionCode(1794400012);
+
+        $adapter->store($this->envelopeSecret('api_key'));
+    }
+
+    #[Test]
+    public function anUnreferencedEarlierWriteOfTheSameIdentifierIsAdoptedAndPutBackOnFailure(): void
+    {
+        $adapter = $this->adapter();
+        $adapter->store($this->envelopeSecret('api_key'));
+
+        $orphan = $this->vault['api_key'];
+        unset($this->rows['api_key']);
+
+        $adapter->store($this->envelopeSecret('api_key', 'adopted'));
+        self::assertSame('adopted', $adapter->retrieve('api_key')?->getEncryptedValue());
+
+        unset($this->rows['api_key']);
+        $this->vault['api_key'] = $orphan;
+        $this->failRowWrite     = true;
+
+        try {
+            $adapter->store($this->envelopeSecret('api_key', 'adopted-again'));
+            self::fail('The row failure must propagate.');
+        } catch (RuntimeException) {
+        }
+
+        self::assertSame($orphan, $this->vaultRead('api_key'), 'the adopted object is put back, not destroyed');
+    }
+
+    #[Test]
     public function registryOperationsNeverCallVault(): void
     {
         $adapter = $this->adapter();

@@ -100,6 +100,18 @@ final class HashiCorpException extends VaultException
         );
     }
 
+    public static function pathTaken(string $identifier): self
+    {
+        return new self(
+            sprintf(
+                'The HashiCorp Vault path nr-vault would use for "%s" already holds data that is not an nr-vault secret for that identifier. '
+                . 'It was not changed. Choose another hashicorp.path or remove that data.',
+                $identifier,
+            ),
+            1794400012,
+        );
+    }
+
     public static function externalSecretsBlockMasterKeyRotation(string $identifier, string $adapter): self
     {
         return new self(

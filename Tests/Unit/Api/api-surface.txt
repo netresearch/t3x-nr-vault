@@ -706,6 +706,7 @@ Netresearch\NrVault\Exception\HashiCorpException (class)
   method static loginRejected(string $method, int $status): self
   method static malformedResponse(string $operation, string $detail): self
   method static notConfigured(string $detail): self
+  method static pathTaken(string $identifier): self
   method static requestRejected(string $operation, int $status): self
   method static transportFailure(string $operation, string $detail): self
   method static unsafePath(string $what): self
