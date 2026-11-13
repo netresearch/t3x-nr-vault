@@ -10,6 +10,7 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Service;
 
 use DateTimeInterface;
+use Netresearch\NrVault\Adapter\CreateCompensatingAdapterInterface;
 use Netresearch\NrVault\Adapter\LocalEncryptionAdapter;
 use Netresearch\NrVault\Adapter\VaultAdapterInterface;
 use Netresearch\NrVault\Audit\AuditAction;
@@ -994,8 +995,14 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
                             // Update: restore the prior encrypted envelope/version.
                             $this->adapter->store($existing);
                         } else {
-                            // Create: remove the just-inserted record.
-                            $this->adapter->delete($identifier);
+                            // Create: remove the just-inserted record. An adapter
+                            // that took an unreferenced earlier write over puts
+                            // it back instead of destroying it.
+                            if ($this->adapter instanceof CreateCompensatingAdapterInterface) {
+                                $this->adapter->compensateCreate($identifier);
+                            } else {
+                                $this->adapter->delete($identifier);
+                            }
                         }
                     },
                     $auditException,

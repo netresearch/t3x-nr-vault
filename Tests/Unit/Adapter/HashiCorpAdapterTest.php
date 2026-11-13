@@ -13,17 +13,22 @@ use Netresearch\NrVault\Adapter\HashiCorpAdapter;
 use Netresearch\NrVault\Adapter\LocalEncryptionAdapter;
 use Netresearch\NrVault\Configuration\Dto\VaultServerConfig;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
+use Netresearch\NrVault\Crypto\MasterKeyProviderInterface;
 use Netresearch\NrVault\Domain\Model\Secret;
 use Netresearch\NrVault\Domain\Repository\SecretRepositoryInterface;
 use Netresearch\NrVault\Exception\HashiCorpException;
+use Netresearch\NrVault\Storage\ExternalStoreJournal;
 use Netresearch\NrVault\Storage\HashiCorp\AtomicKvStoreInterface;
 use Netresearch\NrVault\Storage\HashiCorp\KvStoreInterface;
 use Netresearch\NrVault\Storage\HashiCorp\LegacyKvStoreNotice;
+use Netresearch\NrVault\Storage\InstallationMarker;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
+use Psr\Log\AbstractLogger;
 use RuntimeException;
+use Stringable;
 
 #[CoversClass(HashiCorpAdapter::class)]
 #[AllowMockObjectsWithoutExpectations]
@@ -54,6 +59,13 @@ final class HashiCorpAdapterTest extends TestCase
 
     private bool $readKeysSorted = false;
 
+    /** @var list<string> */
+    private array $warnings = [];
+
+    private string $masterKey = 'unit-test-master-key-of-this-installation';
+
+    private ExternalStoreJournal $journal;
+
     /** @var list<callable(): mixed> */
     private array $createScript = [];
 
@@ -73,6 +85,11 @@ final class HashiCorpAdapterTest extends TestCase
         $this->versions                    = [];
         $this->concurrentWriterReplacesKey = null;
         $this->readKeysSorted              = false;
+        $this->createScript                = [];
+        $this->readScript                  = [];
+        $this->warnings                    = [];
+        $this->masterKey                   = 'unit-test-master-key-of-this-installation';
+        $this->journal                     = new ExternalStoreJournal();
 
         LegacyKvStoreNotice::reset();
     }
@@ -563,6 +580,154 @@ final class HashiCorpAdapterTest extends TestCase
     }
 
     #[Test]
+    public function aRowWhoseStoredLocationIsNotTheConfiguredOneIsNeitherOverwrittenNorDestroyed(): void
+    {
+        $adapter = $this->adapter();
+        $adapter->store($this->envelopeSecret('api_key'));
+        // The operator changed hashicorp.path (or a database copy runs with
+        // another one): the key the same identifier names now is somebody else's.
+        $this->rows['api_key']  = $this->rows['api_key']->withExternalStorage('hashicorp', 'secret/data/elsewhere/api_key');
+        $this->vault['api_key'] = ['unrelated' => 'value'];
+        $this->vaultCalls       = [];
+
+        foreach (['rotate', 'delete', 'restore', 'retrieve'] as $operation) {
+            try {
+                match ($operation) {
+                    'rotate'  => $adapter->store($this->envelopeSecret('api_key', 'newer')->withUid(1)),
+                    'delete'  => $adapter->delete('api_key'),
+                    'restore' => $adapter->store((new Secret(identifier: 'api_key', uid: 1))->withExternalStorage('hashicorp', 'secret/data/elsewhere/api_key')),
+                    default   => $adapter->retrieve('api_key'),
+                };
+                self::fail($operation . ' must be refused.');
+            } catch (HashiCorpException $e) {
+                self::assertSame(1794400015, $e->getCode(), $operation);
+            }
+        }
+
+        self::assertSame(['unrelated' => 'value'], $this->vault['api_key']);
+        self::assertSame([], $this->vaultCalls, 'Vault is not touched at the wrong location');
+        self::assertArrayHasKey('api_key', $this->rows);
+        self::assertSame('hashicorp', $adapter->retrieveIncludingDisabled('api_key')?->getAdapter(), 'the administrative lookup still returns the row');
+    }
+
+    #[Test]
+    public function aBoundRowWhoseKeyHoldsAnotherIdentifiersPayloadIsNeitherOverwrittenNorDestroyed(): void
+    {
+        $adapter = $this->adapter();
+        $adapter->store($this->envelopeSecret('api_key'));
+        $adapter->store($this->envelopeSecret('other_key'));
+        $this->vault['api_key'] = $this->vault['other_key'];
+
+        foreach (['rotate', 'delete'] as $operation) {
+            try {
+                $operation === 'rotate'
+                    ? $adapter->store($this->envelopeSecret('api_key', 'newer')->withUid(1))
+                    : $adapter->delete('api_key');
+                self::fail($operation . ' must be refused.');
+            } catch (HashiCorpException $e) {
+                self::assertSame(1794400012, $e->getCode(), $operation);
+            }
+        }
+
+        self::assertSame($this->vault['other_key'], $this->vault['api_key']);
+    }
+
+    #[Test]
+    public function anUnreferencedWriteOfAnotherInstallationIsNotAdopted(): void
+    {
+        $adapter = $this->adapter();
+        $adapter->store($this->envelopeSecret('api_key'));
+
+        $theirs = $this->vault['api_key'];
+        unset($this->rows['api_key']);
+        $this->masterKey = 'the-master-key-of-installation-b';
+
+        try {
+            $this->adapter()->store($this->envelopeSecret('api_key', 'mine'));
+            self::fail("Another installation's key must not be adopted.");
+        } catch (HashiCorpException $e) {
+            self::assertSame(1794400012, $e->getCode());
+        }
+
+        self::assertSame($theirs, $this->vault['api_key']);
+    }
+
+    #[Test]
+    public function aFailedCreateAuditPutsAnAdoptedKeyBackInsteadOfDestroyingIt(): void
+    {
+        $adapter = $this->adapter();
+        $adapter->store($this->envelopeSecret('api_key'));
+
+        $orphan = $this->vault['api_key'];
+        unset($this->rows['api_key']);
+
+        $adapter->store($this->envelopeSecret('api_key', 'adopted'));
+        $adapter->compensateCreate('api_key');
+
+        self::assertEquals($orphan, $this->vault['api_key'], 'the adopted key is back');
+        self::assertArrayNotHasKey('api_key', $this->rows, 'the row is removed');
+    }
+
+    #[Test]
+    public function aFailedCreateAuditDestroysAKeyThisCallCreated(): void
+    {
+        $adapter = $this->adapter();
+        $adapter->store($this->envelopeSecret('api_key'));
+
+        $adapter->compensateCreate('api_key');
+
+        self::assertArrayNotHasKey('api_key', $this->vault);
+        self::assertArrayNotHasKey('api_key', $this->rows);
+    }
+
+    #[Test]
+    public function aFailedCreateAuditDoesNotDestroyAKeyAConcurrentWriterWroteSince(): void
+    {
+        $adapter = $this->adapter();
+        $adapter->store($this->envelopeSecret('api_key'));
+        $this->vaultWrite('api_key', ['somebody' => 'else']);
+
+        $adapter->compensateCreate('api_key');
+
+        self::assertSame(['somebody' => 'else'], $this->vault['api_key']);
+        self::assertNotSame([], $this->warnings, 'the skipped rollback is reported');
+        self::assertStringNotContainsString('else', implode(' ', $this->warnings));
+    }
+
+    #[Test]
+    public function aCompensationWithoutARecordedStoreDeletesLikeBefore(): void
+    {
+        $adapter = $this->adapter();
+        $adapter->store($this->envelopeSecret('api_key'));
+
+        $this->journal->forget('hashicorp', 'api_key');
+
+        $adapter->compensateCreate('api_key');
+
+        self::assertArrayNotHasKey('api_key', $this->vault);
+        self::assertArrayNotHasKey('api_key', $this->rows);
+    }
+
+    #[Test]
+    public function aRollbackThatIsSkippedBecauseSomebodyWroteSinceIsReportedWithoutASecret(): void
+    {
+        $adapter = $this->adapter();
+        $adapter->store($this->envelopeSecret('api_key'));
+
+        $this->failRowWrite                = true;
+        $this->concurrentWriterReplacesKey = ['identifier' => 'api_key', 'format' => 1, 'winner' => true];
+
+        try {
+            $adapter->store($this->envelopeSecret('api_key', 'newer')->withUid(1));
+            self::fail('The row failure must propagate.');
+        } catch (RuntimeException) {
+        }
+
+        self::assertCount(1, $this->warnings);
+        self::assertStringNotContainsString('newer', $this->warnings[0]);
+    }
+
+    #[Test]
     public function aRollbackNeverOverwritesAConcurrentWritersVersion(): void
     {
         $adapter = $this->adapter();
@@ -760,6 +925,11 @@ final class HashiCorpAdapterTest extends TestCase
         return $this->versions[$identifier] ?? 0;
     }
 
+    public function recordWarning(string $message): void
+    {
+        $this->warnings[] = $message;
+    }
+
     public function vaultDestroy(string $identifier): void
     {
         $this->vaultCalls[] = 'destroy:' . $identifier;
@@ -937,6 +1107,20 @@ final class HashiCorpAdapterTest extends TestCase
             }
         };
 
-        return new HashiCorpAdapter(new LocalEncryptionAdapter($repository), $kv, $configuration);
+        $masterKey = $this->createMock(MasterKeyProviderInterface::class);
+        $masterKey->method('getMasterKey')->willReturnCallback(fn (): string => $this->masterKey);
+
+        $logger = new class ($this) extends AbstractLogger {
+            public function __construct(private readonly HashiCorpAdapterTest $test) {}
+
+            public function log($level, string|Stringable $message, array $context = []): void
+            {
+                if ($level === 'warning') {
+                    $this->test->recordWarning((string) $message);
+                }
+            }
+        };
+
+        return new HashiCorpAdapter(new LocalEncryptionAdapter($repository), $kv, $configuration, new InstallationMarker($masterKey), $this->journal, $logger);
     }
 }

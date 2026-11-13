@@ -10,6 +10,7 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Tests\Unit\Service;
 
 use DateTimeImmutable;
+use Netresearch\NrVault\Adapter\CreateCompensatingAdapterInterface;
 use Netresearch\NrVault\Adapter\VaultAdapterInterface;
 use Netresearch\NrVault\Audit\AuditAction;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
@@ -1918,6 +1919,39 @@ final class VaultServiceTest extends TestCase
         $this->expectException(AuditWriteException::class);
 
         $this->subject->store('rollback_create', 'plaintext');
+    }
+
+    #[Test]
+    public function storeCompensatesACreateThroughAnAdapterThatKnowsHowToUndoIt(): void
+    {
+        $adapter = $this->createMockForIntersectionOfInterfaces([VaultAdapterInterface::class, CreateCompensatingAdapterInterface::class]);
+        $adapter->method('store')->willReturnArgument(0);
+        $adapter->method('retrieve')->willReturn(null);
+        $adapter->method('retrieveIncludingDisabled')->willReturn(null);
+        $this->encryptionService
+            ->method('encrypt')
+            ->willReturn(new EncryptedData('enc', 'dek', 'n1', 'n2', 'cs'));
+        $this->auditLogService
+            ->method('log')
+            ->willThrowException(new AuditWriteException(self::AUDIT_WRITE_ERROR, 1747825331));
+
+        // An adapter that took an unreferenced earlier write over puts it back;
+        // a plain delete would destroy what the create adopted.
+        $adapter->expects(self::once())->method('compensateCreate')->with('rollback_create');
+        $adapter->expects(self::never())->method('delete');
+
+        $subject = new VaultService(
+            $adapter,
+            $this->encryptionService,
+            $this->accessControlService,
+            $this->auditLogService,
+            $this->configuration,
+            $this->httpClientFactory,
+        );
+
+        $this->expectException(AuditWriteException::class);
+
+        $subject->store('rollback_create', 'plaintext');
     }
 
     #[Test]

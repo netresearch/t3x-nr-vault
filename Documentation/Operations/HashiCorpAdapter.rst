@@ -194,7 +194,13 @@ Paths that already hold data
    the same way. Use a dedicated ``hashicorp.path`` so paths cannot collide with
    other users of the mount. The policy needs ``create`` on the data path (the
    one above has it). An unreferenced key that an interrupted nr-vault write
-   left behind is recognised and reused.
+   of this installation left behind is recognised and reused; a key written by
+   another installation is not, so give each installation its own
+   ``hashicorp.path``. A row whose stored location differs from the one the
+   current ``hashicorp.path`` resolves to is refused (code ``1794400015``).
+   If the audit write of a create then fails, a reused key is put back as it
+   was; a key the call created is removed. A rollback that is skipped because
+   somebody wrote to the key since is logged as a warning.
 
 Half-finished writes
    A crash between the Vault write and the row write leaves an unreferenced key

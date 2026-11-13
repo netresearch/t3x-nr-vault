@@ -15,9 +15,12 @@ use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Crypto\EncryptionServiceInterface;
 use Netresearch\NrVault\Domain\Model\Secret;
 use Netresearch\NrVault\Exception\HashiCorpException;
+use Netresearch\NrVault\Storage\ExternalStoreJournal;
 use Netresearch\NrVault\Storage\HashiCorp\AtomicKvStoreInterface;
 use Netresearch\NrVault\Storage\HashiCorp\HashiCorpKvClient;
+use Netresearch\NrVault\Storage\InstallationMarker;
 use PHPUnit\Framework\Attributes\Test;
+use Psr\Log\NullLogger;
 
 /**
  * A key that somebody else creates in the window between "the path is empty"
@@ -79,7 +82,14 @@ final class HashiCorpCreateRaceTest extends AbstractHashiCorpContainerTestCase
             }
         };
 
-        $adapter   = new HashiCorpAdapter($this->get(LocalEncryptionAdapter::class), $racing, $this->get(ExtensionConfigurationInterface::class));
+        $adapter = new HashiCorpAdapter(
+            $this->get(LocalEncryptionAdapter::class),
+            $racing,
+            $this->get(ExtensionConfigurationInterface::class),
+            $this->get(InstallationMarker::class),
+            $this->get(ExternalStoreJournal::class),
+            new NullLogger(),
+        );
         $encrypted = $this->get(EncryptionServiceInterface::class)->encrypt('new-value', $identifier);
         $secret    = (new Secret(identifier: $identifier, ownerUid: 1))->withValueRotation($encrypted, time());
 

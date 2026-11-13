@@ -12,15 +12,19 @@ namespace Netresearch\NrVault\Tests\Unit\Storage;
 use Netresearch\NrVault\Adapter\HashiCorpAdapter;
 use Netresearch\NrVault\Adapter\LocalEncryptionAdapter;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
+use Netresearch\NrVault\Crypto\MasterKeyProviderInterface;
 use Netresearch\NrVault\Domain\Repository\SecretRepositoryInterface;
 use Netresearch\NrVault\Exception\ConfigurationException;
+use Netresearch\NrVault\Storage\ExternalStoreJournal;
 use Netresearch\NrVault\Storage\HashiCorp\KvStoreInterface;
+use Netresearch\NrVault\Storage\InstallationMarker;
 use Netresearch\NrVault\Storage\StorageAdapterFactory;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
+use Psr\Log\NullLogger;
 
 #[CoversClass(StorageAdapterFactory::class)]
 #[AllowMockObjectsWithoutExpectations]
@@ -65,7 +69,14 @@ final class StorageAdapterFactoryTest extends TestCase
         return new StorageAdapterFactory(
             $configuration,
             $local,
-            new HashiCorpAdapter($local, $this->createMock(KvStoreInterface::class), $configuration),
+            new HashiCorpAdapter(
+                $local,
+                $this->createMock(KvStoreInterface::class),
+                $configuration,
+                new InstallationMarker($this->createMock(MasterKeyProviderInterface::class)),
+                new ExternalStoreJournal(),
+                new NullLogger(),
+            ),
         );
     }
 }

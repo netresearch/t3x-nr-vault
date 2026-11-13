@@ -25,6 +25,10 @@ use function is_int;
  */
 final readonly class HashiCorpKvClient implements AtomicKvStoreInterface
 {
+    private const VERSION_READ_ATTEMPTS = 3;
+
+    private const VERSION_READ_DELAY_MICROSECONDS = 150_000;
+
     public function __construct(
         private ExtensionConfigurationInterface $configuration,
         private HashiCorpHttp $http,
@@ -102,21 +106,30 @@ final readonly class HashiCorpKvClient implements AtomicKvStoreInterface
 
     public function destroyIfCurrent(string $identifier, int $version): bool
     {
-        $result = $this->send('GET', $this->endpoint()->metadataUrl($identifier), null, 'read');
-        if ($result['status'] === 404) {
-            return false;
+        // A read that has not caught up with our own write shows an older
+        // version for a moment; a few short retries tell that apart from a
+        // real concurrent write, which keeps showing another version.
+        for ($attempt = 1; $attempt <= self::VERSION_READ_ATTEMPTS; ++$attempt) {
+            $result = $this->send('GET', $this->endpoint()->metadataUrl($identifier), null, 'read');
+            if ($result['status'] === 404) {
+                return false;
+            }
+
+            $this->assertSuccess($result['status'], 'read');
+
+            $metadata = $result['json']['data'] ?? null;
+            if (is_array($metadata) && ($metadata['current_version'] ?? null) === $version) {
+                $this->destroy($identifier);
+
+                return true;
+            }
+
+            if ($attempt < self::VERSION_READ_ATTEMPTS) {
+                usleep(self::VERSION_READ_DELAY_MICROSECONDS);
+            }
         }
 
-        $this->assertSuccess($result['status'], 'read');
-
-        $metadata = $result['json']['data'] ?? null;
-        if (!is_array($metadata) || ($metadata['current_version'] ?? null) !== $version) {
-            return false;
-        }
-
-        $this->destroy($identifier);
-
-        return true;
+        return false;
     }
 
     public function destroy(string $identifier): void

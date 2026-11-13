@@ -216,6 +216,8 @@ final class HashiCorpKvClientTest extends TestCase
     {
         $http = new RecordingHttpClient(
             RecordingHttpClient::json(200, ['data' => ['current_version' => 2]]),
+            RecordingHttpClient::json(200, ['data' => ['current_version' => 2]]),
+            RecordingHttpClient::json(200, ['data' => ['current_version' => 2]]),
             RecordingHttpClient::json(200, ['data' => ['current_version' => 3]]),
             new Response(204),
         );
@@ -225,7 +227,20 @@ final class HashiCorpKvClientTest extends TestCase
 
         self::assertTrue($client->destroyIfCurrent('api_key', 3));
         $methods = array_map(static fn (RequestInterface $request): string => $request->getMethod(), $http->requests);
-        self::assertSame(['GET', 'GET', 'DELETE'], $methods, 'only the second call deleted');
+        self::assertSame(['GET', 'GET', 'GET', 'GET', 'DELETE'], $methods, 'only the second call deleted');
+    }
+
+    #[Test]
+    public function destroyIfCurrentRetriesAReadThatHasNotCaughtUpWithTheWrite(): void
+    {
+        $http = new RecordingHttpClient(
+            RecordingHttpClient::json(200, ['data' => ['current_version' => 2]]),
+            RecordingHttpClient::json(200, ['data' => ['current_version' => 3]]),
+            new Response(204),
+        );
+
+        self::assertTrue($this->client($http)->destroyIfCurrent('api_key', 3));
+        self::assertCount(3, $http->requests);
     }
 
     #[Test]

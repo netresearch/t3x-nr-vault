@@ -1,3 +1,6 @@
+Netresearch\NrVault\Adapter\CreateCompensatingAdapterInterface (interface)
+  method compensateCreate(string $identifier): void
+
 Netresearch\NrVault\Adapter\VaultAdapterInterface (interface, extension point)
   method delete(string $identifier): void
   method exists(string $identifier): bool
@@ -708,6 +711,7 @@ Netresearch\NrVault\Exception\HashiCorpException (class)
   method static loginRejected(string $method, int $status): self
   method static malformedResponse(string $operation, string $detail): self
   method static notConfigured(string $detail): self
+  method static pathMismatch(string $identifier): self
   method static pathTaken(string $identifier): self
   method static requestRejected(string $operation, int $status): self
   method static transportFailure(string $operation, string $detail): self

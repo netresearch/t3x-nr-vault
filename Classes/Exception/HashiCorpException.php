@@ -120,6 +120,18 @@ final class HashiCorpException extends VaultException
         );
     }
 
+    public static function pathMismatch(string $identifier): self
+    {
+        return new self(
+            sprintf(
+                'The registry row for secret "%s" points at a different HashiCorp Vault path than the one hashicorp.path resolves to now. '
+                . 'Nothing was changed. Restore the previous hashicorp.path (or move the key and update the row) before touching this secret.',
+                $identifier,
+            ),
+            1794400015,
+        );
+    }
+
     public static function keyExists(string $identifier): self
     {
         return new self(

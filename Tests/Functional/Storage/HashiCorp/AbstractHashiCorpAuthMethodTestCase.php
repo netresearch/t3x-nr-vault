@@ -199,6 +199,34 @@ abstract class AbstractHashiCorpAuthMethodTestCase extends AbstractHashiCorpCont
     }
 
     #[Test]
+    public function anAuditFailureOfACreateThatAdoptedAnOrphanPutsTheOrphanBack(): void
+    {
+        $identifier = $this->newIdentifier();
+        $service    = $this->get(VaultServiceInterface::class);
+        $service->store($identifier, 'orphaned-value');
+
+        $orphan = $this->server->storedData($identifier);
+
+        // The row is gone, the Vault key written by this installation stays.
+        $connection = $this->get(ConnectionPool::class)->getConnectionForTable('tx_nrvault_secret');
+        $connection->delete('tx_nrvault_secret', ['identifier' => $identifier]);
+
+        $schema = $connection->createSchemaManager();
+        $table  = $schema->introspectSchema()->getTable('tx_nrvault_audit_log');
+        $schema->dropTable('tx_nrvault_audit_log');
+
+        try {
+            $failure = $this->thrownBy(static fn () => $service->store($identifier, 'new-value'));
+        } finally {
+            $schema->createTable($table);
+        }
+
+        self::assertInstanceOf(AuditWriteException::class, $failure);
+        self::assertFalse($service->exists($identifier));
+        self::assertSame($orphan, $this->server->storedData($identifier), 'the adopted key is back, not destroyed');
+    }
+
+    #[Test]
     public function aRowWhoseVaultKeyWasRemovedIsReportedAndCanBeRepaired(): void
     {
         $identifier = $this->newIdentifier();

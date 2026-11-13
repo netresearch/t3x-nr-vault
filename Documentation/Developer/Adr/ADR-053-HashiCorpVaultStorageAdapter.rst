@@ -71,7 +71,9 @@ envelope to Vault.
 *   **A path that is not ours.** A KV path may hold somebody else's data. A new
     secret claims its path with a create-only write (KV v2 check-and-set with
     ``cas=0``), in one request: a key that exists is read, and only an nr-vault
-    write for the same identifier (an unreferenced leftover of a crash) is taken
+    write of this installation for the same identifier (an unreferenced leftover
+    of a crash; the write carries an HMAC of the master key, so a key written by
+    another installation is not taken over) is taken
     over; anything else is refused with code ``1794400012`` and left untouched,
     including by the compensation, which destroys only a key this call created
     and puts a taken-over one back. There is no window between the check and the
@@ -82,13 +84,23 @@ envelope to Vault.
     payload is compared. The one exception is the delete that takes back a
     create: KV v2 has no conditional delete, so the version is read immediately
     before the delete and a write landing in that gap is not detected. A failed
-    audit write is compensated by :php:`VaultService` through ``delete()``, which
-    removes the key with the row. The interface for it is
+    audit write is compensated by :php:`VaultService`. An adapter that
+    implements :php:`CreateCompensatingAdapterInterface` undoes exactly what the
+    create did: it destroys a key the call created and puts back one it took
+    over (a plain ``delete()`` would destroy the leftover that was adopted); the
+    row is removed in both cases. A rollback that is skipped because the key is
+    no longer at the version this call wrote is logged as a warning, and the
+    version read is retried a few times so a read that has not caught up with
+    the write is not mistaken for a concurrent writer. The interface for it is
     :php:`AtomicKvStoreInterface`, which the shipped store implements. A store
     that implements only :php:`KvStoreInterface` is deprecated: the adapter
     reads, then writes, which leaves that window open, and reports a
     deprecation once; version 2.0 will require the atomic interface. A row
-    already bound to Vault owns its key and is updated as before.
+    already bound to Vault owns its key, but only at the location it recorded:
+    when the row's stored reference differs from the key the current
+    ``hashicorp.path`` resolves to, store, delete and read are refused (code
+    ``1794400015``) instead of touching an unrelated key, and the key's payload
+    must carry the row's identifier before it is overwritten or destroyed.
 *   **Authentication.** One authenticator for ``token``, ``approle`` and
     ``kubernetes``. The token comes from an environment variable (stored
     fallback for ``token`` only), the AppRole secret id from the environment
