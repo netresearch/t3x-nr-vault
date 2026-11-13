@@ -31,7 +31,7 @@ services:
   # Traefik router for mock-oauth
   mock-oauth-router:
     container_name: ddev-${DDEV_SITENAME}-mock-oauth-router
-    image: traefik:v3.7@sha256:321153f6f732f912cf5c6f0597fe38743fc7895d482d7d8804a479ae0403e151
+    image: traefik:v3.7@sha256:b7b1b31e6440de0b1f7c4e0f6cf0a0f3f004866761d30c025fe00c80daaf7d9c
     restart: "no"
     networks: !reset
       - default
