@@ -16,6 +16,7 @@ use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Crypto\MasterKeyProviderInterface;
 use Netresearch\NrVault\Domain\Model\Secret;
 use Netresearch\NrVault\Domain\Repository\SecretRepositoryInterface;
+use Netresearch\NrVault\Exception\ConfigurationException;
 use Netresearch\NrVault\Exception\HashiCorpException;
 use Netresearch\NrVault\Storage\ExternalStoreJournal;
 use Netresearch\NrVault\Storage\HashiCorp\AtomicKvStoreInterface;
@@ -25,6 +26,7 @@ use Netresearch\NrVault\Storage\InstallationMarker;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use Psr\Log\AbstractLogger;
 use RuntimeException;
@@ -451,6 +453,42 @@ final class HashiCorpAdapterTest extends TestCase
         $this->expectExceptionCode(1794400010);
 
         $adapter->retrieve('api_key');
+    }
+
+    /**
+     * @return iterable<string, array{string}>
+     */
+    public static function operationsOnARowOfAnotherAdapter(): iterable
+    {
+        yield 'store with a value' => ['store'];
+        yield 'store without a value' => ['restore'];
+        yield 'retrieve' => ['retrieve'];
+        yield 'delete' => ['delete'];
+    }
+
+    #[Test]
+    #[DataProvider('operationsOnARowOfAnotherAdapter')]
+    public function aRowBoundToAnotherExternalAdapterIsNotRebuiltReboundOrDeletedHere(string $operation): void
+    {
+        $this->rows['api_key'] = $this->envelopeSecret('api_key')->withUid(3)->withExternalStorage('aws', 'eu-central-1:typo3/api_key');
+        $adapter               = $this->adapter();
+
+        try {
+            match ($operation) {
+                'store'    => $adapter->store($this->envelopeSecret('api_key')->withUid(3)),
+                'restore'  => $adapter->store(new Secret(identifier: 'api_key', uid: 3)),
+                'retrieve' => $adapter->retrieve('api_key'),
+                default    => $adapter->delete('api_key'),
+            };
+            self::fail('A row of another external adapter must be refused.');
+        } catch (ConfigurationException $e) {
+            self::assertSame(1794500020, $e->getCode());
+            self::assertStringContainsString('"aws"', $e->getMessage());
+        }
+
+        self::assertSame([], $this->vaultCalls, 'Vault is never touched for it');
+        self::assertSame('aws', $this->rows['api_key']->getAdapter(), 'the row stays as it was');
+        self::assertSame('aws', $adapter->retrieveIncludingDisabled('api_key')?->getAdapter(), 'the administrative lookup still lists it');
     }
 
     #[Test]

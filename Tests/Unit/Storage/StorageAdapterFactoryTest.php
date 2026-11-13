@@ -9,12 +9,14 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Unit\Storage;
 
+use Netresearch\NrVault\Adapter\AwsSecretsManagerAdapter;
 use Netresearch\NrVault\Adapter\HashiCorpAdapter;
 use Netresearch\NrVault\Adapter\LocalEncryptionAdapter;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Crypto\MasterKeyProviderInterface;
 use Netresearch\NrVault\Domain\Repository\SecretRepositoryInterface;
 use Netresearch\NrVault\Exception\ConfigurationException;
+use Netresearch\NrVault\Storage\Aws\AwsSecretStoreInterface;
 use Netresearch\NrVault\Storage\ExternalStoreJournal;
 use Netresearch\NrVault\Storage\HashiCorp\KvStoreInterface;
 use Netresearch\NrVault\Storage\InstallationMarker;
@@ -37,7 +39,7 @@ final class StorageAdapterFactoryTest extends TestCase
     {
         yield 'local' => ['local', LocalEncryptionAdapter::class];
         yield 'hashicorp' => ['hashicorp', HashiCorpAdapter::class];
-        yield 'aws behaves like local until it is implemented' => ['aws', LocalEncryptionAdapter::class];
+        yield 'aws' => ['aws', AwsSecretsManagerAdapter::class];
     }
 
     /**
@@ -48,6 +50,12 @@ final class StorageAdapterFactoryTest extends TestCase
     public function selectsTheAdapterNamedInTheConfiguration(string $setting, string $expected): void
     {
         self::assertInstanceOf($expected, $this->factory($setting)->create());
+    }
+
+    #[Test]
+    public function awsNeverFallsBackToLocal(): void
+    {
+        self::assertNotInstanceOf(LocalEncryptionAdapter::class, $this->factory('aws')->create());
     }
 
     #[Test]
@@ -77,6 +85,7 @@ final class StorageAdapterFactoryTest extends TestCase
                 new ExternalStoreJournal(),
                 new NullLogger(),
             ),
+            new AwsSecretsManagerAdapter($local, $this->createMock(AwsSecretStoreInterface::class), $configuration),
         );
     }
 }
