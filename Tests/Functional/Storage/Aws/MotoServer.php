@@ -143,6 +143,31 @@ final class MotoServer
     }
 
     /**
+     * A secret of somebody else under the name nr-vault would use.
+     */
+    public function createForeign(string $identifier, string $value): void
+    {
+        $this->admin()->createSecret(['Name' => $this->name($identifier), 'SecretString' => $value]);
+    }
+
+    public function rawValue(string $identifier): ?string
+    {
+        try {
+            $result = $this->admin()->getSecretValue(['SecretId' => $this->name($identifier)]);
+        } catch (AwsException $e) {
+            if ($e->getAwsErrorCode() === 'ResourceNotFoundException') {
+                return null;
+            }
+
+            throw $e;
+        }
+
+        $value = $result['SecretString'] ?? null;
+
+        return is_string($value) ? $value : null;
+    }
+
+    /**
      * Remove the secret behind the adapter's back, with every version.
      */
     public function removeBehindTheAdapter(string $identifier): void

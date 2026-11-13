@@ -34,8 +34,23 @@ interface AwsSecretStoreInterface
     public function read(string $identifier): ?array;
 
     /**
+     * Create the secret with the fields, but only when no secret of that name
+     * exists. When one does, nothing is written and its fields are returned
+     * (an empty array when the existing value is not a JSON object), so the
+     * caller can tell an earlier nr-vault write of its own from a secret that
+     * belongs to somebody else.
+     *
+     * @param array<string, mixed> $data
+     *
+     * @return array<string, mixed>|null Null when the secret was created
+     *
+     * @throws AwsSecretsManagerException
+     */
+    public function createIfAbsent(string $identifier, array $data): ?array;
+
+    /**
      * Store the fields as a new current version, creating the secret when it
-     * does not exist.
+     * does not exist. Only for a secret nr-vault owns: it overwrites.
      *
      * @param array<string, mixed> $data
      *

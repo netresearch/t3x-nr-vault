@@ -161,6 +161,45 @@ final class AwsSecretsManagerAdapterTest extends AbstractAwsContainerTestCase
     }
 
     #[Test]
+    #[DataProvider('failureModes')]
+    public function aSecretOfSomebodyElseUnderTheNameIsNeitherOverwrittenNorDestroyed(bool $auditFails): void
+    {
+        $identifier = $this->newIdentifier();
+        $this->server->createForeign($identifier, 'somebody-elses-value');
+        $service = $this->get(VaultServiceInterface::class);
+
+        $connection = $this->get(ConnectionPool::class)->getConnectionForTable('tx_nrvault_secret');
+        $schema     = $connection->createSchemaManager();
+        $table      = $schema->introspectSchema()->getTable('tx_nrvault_audit_log');
+        if ($auditFails) {
+            $schema->dropTable('tx_nrvault_audit_log');
+        }
+
+        try {
+            $failure = $this->thrownBy(static fn () => $service->store($identifier, 'new-value'));
+        } finally {
+            if ($auditFails) {
+                $schema->createTable($table);
+            }
+        }
+
+        self::assertInstanceOf(AwsSecretsManagerException::class, $failure);
+        self::assertSame(1794500011, $failure->getCode());
+        self::assertSame('somebody-elses-value', $this->server->rawValue($identifier), 'the foreign secret is untouched');
+        self::assertSame(1, $this->server->versionCount($identifier), 'no version was added to it');
+        self::assertSame(0, $this->countRows($identifier));
+    }
+
+    /**
+     * @return iterable<string, array{bool}>
+     */
+    public static function failureModes(): iterable
+    {
+        yield 'without an audit failure' => [false];
+        yield 'with an audit failure' => [true];
+    }
+
+    #[Test]
     public function aRowWhoseAwsSecretWasRemovedIsReportedAndCanBeRepaired(): void
     {
         $identifier = $this->newIdentifier();

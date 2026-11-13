@@ -112,11 +112,20 @@ final readonly class AwsSecretsManagerAdapter implements VaultAdapterInterface
             return $this->registry->store($secret, $persistGroupRelations);
         }
 
-        $previous = $existing instanceof Secret && $existing->getAdapter() === self::IDENTIFIER
-            ? $this->store->read($identifier)
-            : null;
+        $payload = $this->toPayload($secret);
+        $bound   = $existing instanceof Secret && $existing->getAdapter() === self::IDENTIFIER;
 
-        $this->store->write($identifier, $this->toPayload($secret));
+        // A row bound to AWS owns its secret. For any other row the name may
+        // belong to somebody else: the secret is created, never overwritten,
+        // unless it is an earlier write of nr-vault for this very identifier
+        // (an unreferenced one left by a crash). Only a secret this call
+        // created is destroyed again on failure; an adopted one is put back.
+        $previous = $bound ? $this->store->read($identifier) : null;
+        if ($previous !== null) {
+            $this->store->write($identifier, $payload);
+        } else {
+            $previous = $this->createOrAdopt($identifier, $payload);
+        }
 
         $row = $secret->withExternalStorage(self::IDENTIFIER, $this->store->reference($identifier));
 
@@ -231,6 +240,29 @@ final readonly class AwsSecretsManagerAdapter implements VaultAdapterInterface
         } catch (Throwable) {
             // The original failure is the one to report.
         }
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     *
+     * @return array<string, mixed>|null The adopted earlier write, null when the secret was created now
+     *
+     * @throws AwsSecretsManagerException When the name belongs to something else
+     */
+    private function createOrAdopt(string $identifier, array $payload): ?array
+    {
+        $existing = $this->store->createIfAbsent($identifier, $payload);
+        if ($existing === null) {
+            return null;
+        }
+
+        if (($existing['identifier'] ?? null) !== $identifier || ($existing['format'] ?? null) !== self::FORMAT) {
+            throw AwsSecretsManagerException::nameTaken($identifier);
+        }
+
+        $this->store->write($identifier, $payload);
+
+        return $existing;
     }
 
     /**

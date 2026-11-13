@@ -202,6 +202,14 @@ Failure
    unreadable and new secrets unwritable; secrets stored locally are unaffected.
    On store, AWS is written first: a failure leaves no row behind.
 
+Names that already exist
+   A new secret is created, never written over an existing AWS secret. If the
+   name is taken by something that is not an nr-vault secret for that
+   identifier, the store is refused (code ``1794500011``), the AWS secret is left
+   unchanged and no row is written. Use a dedicated ``aws.secretPrefix`` so
+   names cannot collide with other users of the account. An unreferenced secret
+   that an interrupted nr-vault write left behind is recognised and reused.
+
 Half-finished writes
    A crash between the AWS write and the row write leaves an unreferenced secret
    in AWS, which the next store of that identifier overwrites. A row whose AWS
@@ -291,6 +299,10 @@ Troubleshooting
         -   The name is taken, or the secret is scheduled for deletion by
             something other than nr-vault. nr-vault always deletes without a
             recovery window.
+
+    *   -   ``already exists under the name nr-vault would use``
+        -   Another user of the AWS account owns that name. Choose another
+            ``aws.secretPrefix`` or remove the secret.
 
     *   -   ``holds no value for it``
         -   The AWS secret was deleted outside nr-vault, or the region or

@@ -92,6 +92,18 @@ final class AwsSecretsManagerException extends VaultException
         );
     }
 
+    public static function nameTaken(string $identifier): self
+    {
+        return new self(
+            sprintf(
+                'An AWS secret already exists under the name nr-vault would use for "%s", and it is not an nr-vault secret for that identifier. '
+                . 'It was not changed. Choose another aws.secretPrefix or remove that secret.',
+                $identifier,
+            ),
+            1794500011,
+        );
+    }
+
     public static function backingObjectMismatch(string $identifier): self
     {
         return new self(

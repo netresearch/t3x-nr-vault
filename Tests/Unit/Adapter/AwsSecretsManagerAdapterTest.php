@@ -450,6 +450,79 @@ final class AwsSecretsManagerAdapterTest extends TestCase
     }
 
     #[Test]
+    public function aSecretOfSomebodyElseUnderTheNameIsNeitherOverwrittenNorDestroyed(): void
+    {
+        $this->aws['api_key'] = ['unrelated' => 'value'];
+        $adapter              = $this->adapter();
+
+        try {
+            $adapter->store($this->envelopeSecret('api_key'));
+            self::fail('A foreign secret under the name must refuse the store.');
+        } catch (AwsSecretsManagerException $e) {
+            self::assertSame(1794500011, $e->getCode());
+        }
+
+        self::assertSame(['unrelated' => 'value'], $this->awsRead('api_key'));
+        self::assertNotContains('write:api_key', $this->awsCalls);
+        self::assertNotContains('destroy:api_key', $this->awsCalls);
+        self::assertArrayNotHasKey('api_key', $this->rows);
+    }
+
+    #[Test]
+    public function aSecretThatBelongsToAnotherIdentifierIsNotAdopted(): void
+    {
+        $adapter = $this->adapter();
+        $adapter->store($this->envelopeSecret('other_key'));
+        $this->aws['api_key'] = $this->aws['other_key'];
+        unset($this->rows['other_key']);
+
+        $this->expectException(AwsSecretsManagerException::class);
+        $this->expectExceptionCode(1794500011);
+
+        $adapter->store($this->envelopeSecret('api_key'));
+    }
+
+    #[Test]
+    public function anUnreferencedEarlierWriteOfTheSameIdentifierIsAdoptedAndPutBackOnFailure(): void
+    {
+        $adapter = $this->adapter();
+        $adapter->store($this->envelopeSecret('api_key'));
+
+        $orphan = $this->aws['api_key'];
+        unset($this->rows['api_key']);
+
+        $adapter->store($this->envelopeSecret('api_key', 'adopted'));
+        self::assertSame('adopted', $adapter->retrieve('api_key')?->getEncryptedValue());
+
+        unset($this->rows['api_key']);
+        $this->aws['api_key'] = $orphan;
+        $this->failRowWrite   = true;
+
+        try {
+            $adapter->store($this->envelopeSecret('api_key', 'adopted-again'));
+            self::fail('The row failure must propagate.');
+        } catch (RuntimeException) {
+        }
+
+        self::assertSame($orphan, $this->aws['api_key'], 'the adopted secret is put back, not destroyed');
+    }
+
+    #[Test]
+    public function aFailedCreateDestroysOnlyTheSecretItCreated(): void
+    {
+        $this->failRowWrite = true;
+
+        try {
+            $this->adapter()->store($this->envelopeSecret('api_key'));
+            self::fail('The row failure must propagate.');
+        } catch (RuntimeException) {
+        }
+
+        self::assertContains('create:api_key', $this->awsCalls);
+        self::assertArrayNotHasKey('api_key', $this->aws);
+    }
+
+    #[Test]
     public function registryOperationsNeverCallAws(): void
     {
         $adapter = $this->adapter();
@@ -496,6 +569,23 @@ final class AwsSecretsManagerAdapterTest extends TestCase
     {
         $this->awsCalls[]       = 'write:' . $identifier;
         $this->aws[$identifier] = $data;
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     *
+     * @return array<string, mixed>|null
+     */
+    public function awsCreateIfAbsent(string $identifier, array $data): ?array
+    {
+        $this->awsCalls[] = 'create:' . $identifier;
+        if (array_key_exists($identifier, $this->aws)) {
+            return $this->aws[$identifier];
+        }
+
+        $this->aws[$identifier] = $data;
+
+        return null;
     }
 
     public function awsDestroy(string $identifier): void
@@ -576,6 +666,11 @@ final class AwsSecretsManagerAdapterTest extends TestCase
             public function read(string $identifier): ?array
             {
                 return $this->test->awsRead($identifier);
+            }
+
+            public function createIfAbsent(string $identifier, array $data): ?array
+            {
+                return $this->test->awsCreateIfAbsent($identifier, $data);
             }
 
             public function write(string $identifier, array $data): void

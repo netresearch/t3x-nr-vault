@@ -156,6 +156,21 @@ chained to the SDK exception, which holds the signed request and the command
 parameters, and those include the encrypted envelope. Transport failures carry a
 redacted client message.
 
+A secret of somebody else is never overwritten or deleted
+---------------------------------------------------------
+
+AWS secret names are shared with everything else in the account. For a new secret
+(or a row without a value) the adapter therefore creates the AWS secret with
+``CreateSecret``, which fails when the name exists, instead of writing a version.
+When it exists, the adapter reads it: only a document that is an nr-vault write
+for this very identifier (format marker and identifier match), an unreferenced
+leftover of an earlier crash, is adopted and overwritten. Anything else is
+refused with code ``1794500011`` and left untouched. Compensation follows the
+same rule: a failed row write or a failed audit write destroys only a secret
+this call created, and puts an adopted one back. An existing AWS-bound row owns
+its secret and is updated as before. The prefix ``typo3/`` stays the default; a
+dedicated prefix keeps the names apart from other users of the account.
+
 A row bound to another external adapter is refused
 --------------------------------------------------
 

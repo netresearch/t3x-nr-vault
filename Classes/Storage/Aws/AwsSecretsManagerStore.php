@@ -83,6 +83,39 @@ final class AwsSecretsManagerStore implements AwsSecretStoreInterface
         return $decoded;
     }
 
+    public function createIfAbsent(string $identifier, #[SensitiveParameter] array $data): ?array
+    {
+        $name   = $this->endpoint()->name($identifier);
+        $client = $this->client();
+
+        try {
+            $encoded = json_encode($data, JSON_THROW_ON_ERROR);
+        } catch (JsonException) {
+            throw AwsSecretsManagerException::malformedResponse('create', 'payload is not encodable');
+        }
+
+        try {
+            $client->createSecret(['Name' => $name, 'SecretString' => $encoded]);
+
+            return null;
+        } catch (Throwable $e) {
+            if (!$e instanceof AwsException || $e->getAwsErrorCode() !== 'ResourceExistsException') {
+                throw $this->translate($e, 'create');
+            }
+        }
+
+        try {
+            return $this->read($identifier) ?? throw AwsSecretsManagerException::requestRejected('create', 400, 'ResourceExistsException');
+        } catch (AwsSecretsManagerException $e) {
+            // Present, but not a JSON object: not ours either.
+            if ($e->getCode() === 1794500008) {
+                return [];
+            }
+
+            throw $e;
+        }
+    }
+
     public function write(string $identifier, #[SensitiveParameter] array $data): void
     {
         $name   = $this->endpoint()->name($identifier);

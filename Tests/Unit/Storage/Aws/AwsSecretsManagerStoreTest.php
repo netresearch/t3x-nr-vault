@@ -203,6 +203,55 @@ final class AwsSecretsManagerStoreTest extends TestCase
     }
 
     #[Test]
+    public function createIfAbsentCreatesAndReturnsNull(): void
+    {
+        $store = $this->store(self::json(200, ['Name' => 'typo3/api_key', 'VersionId' => 'v1']));
+
+        self::assertNull($store->createIfAbsent('api_key', ['k' => 'v']));
+
+        self::assertCount(1, $this->requests);
+        self::assertSame('secretsmanager.CreateSecret', $this->requests[0]->getHeaderLine('X-Amz-Target'));
+    }
+
+    #[Test]
+    public function createIfAbsentReturnsTheFieldsOfAnExistingSecretAndWritesNothing(): void
+    {
+        $store = $this->store(
+            self::awsError(400, 'ResourceExistsException'),
+            self::json(200, ['Name' => 'typo3/api_key', 'SecretString' => '{"theirs":"1"}']),
+        );
+
+        self::assertSame(['theirs' => '1'], $store->createIfAbsent('api_key', ['k' => 'v']));
+
+        self::assertSame(
+            ['CreateSecret', 'GetSecretValue'],
+            array_map(static fn (RequestInterface $request): string => substr($request->getHeaderLine('X-Amz-Target'), strlen('secretsmanager.')), $this->requests),
+        );
+    }
+
+    #[Test]
+    public function createIfAbsentTreatsAnExistingValueThatIsNotJsonAsSomebodyElses(): void
+    {
+        $store = $this->store(
+            self::awsError(400, 'ResourceExistsException'),
+            self::json(200, ['Name' => 'typo3/api_key', 'SecretString' => 'plain-password']),
+        );
+
+        self::assertSame([], $store->createIfAbsent('api_key', ['k' => 'v']));
+    }
+
+    #[Test]
+    public function createIfAbsentReportsAnotherRejection(): void
+    {
+        $store = $this->store(self::awsError(400, 'AccessDeniedException'));
+
+        $this->expectException(AwsSecretsManagerException::class);
+        $this->expectExceptionCode(1794500006);
+
+        $store->createIfAbsent('api_key', ['k' => 'v']);
+    }
+
+    #[Test]
     public function destroyDeletesWithoutARecoveryWindowSoNoVersionSurvives(): void
     {
         $store = $this->store($this->json(200, ['Name' => 'typo3/api_key', 'DeletionDate' => 1_700_000_000]));
