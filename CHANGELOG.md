@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- The HashiCorp Vault storage adapter no longer overwrites or deletes data it does not own. For a new secret it reads the KV path first and refuses (code `1794400012`, nothing changed) when the path holds anything other than an nr-vault write for the same identifier. An unreferenced earlier write of the same identifier is taken over; a failed row write puts its previous payload back, and a key this call created is destroyed only while no row exists. Before, a path that already held foreign data received a new version, and a failed audit or row write then deleted the key with all its versions. The check and the write are two requests, so a key created by someone else in between is not detected.
+- The HashiCorp Vault storage adapter no longer overwrites or deletes data it does not own. An existing Vault-bound registry row is treated as owning its path and is updated without checking the current payload. For a new secret it reads the KV path first and refuses (code `1794400012`, nothing changed) when the path holds anything other than an nr-vault write for the same identifier. An unreferenced earlier write of the same identifier is taken over; a failed row write puts its previous payload back on a best-effort basis (if that restore also fails, the new payload stays in Vault, so check the value after a failed store), and a key this call created is destroyed only while no row exists. Before, a path that already held foreign data received a new version, and a failed audit or row write then deleted the key with all its versions. The check and the write are two requests, so a key created by someone else in between is not detected.
 
 ## [1.6.0] - 2026-11-13
 
