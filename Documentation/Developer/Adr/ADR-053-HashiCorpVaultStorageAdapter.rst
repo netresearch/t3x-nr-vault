@@ -100,7 +100,12 @@ envelope to Vault.
     when the row's stored reference differs from the key the current
     ``hashicorp.path`` resolves to, store, delete and read are refused (code
     ``1794400015``) instead of touching an unrelated key, and the key's payload
-    must carry the row's identifier before it is overwritten or destroyed.
+    must carry the row's identifier, and no other installation's marker, before
+    it is overwritten or destroyed. A payload without a marker (written by 1.6.x)
+    is accepted for a row bound to it, because such a row holds no envelope to
+    compare, and the next write stamps the marker. The marker is derived from the
+    master key, so a master-key rotation that supports external secrets must
+    re-stamp it on every payload; until then rotation refuses while any exist.
 *   **Authentication.** One authenticator for ``token``, ``approle`` and
     ``kubernetes``. The token comes from an environment variable (stored
     fallback for ``token`` only), the AppRole secret id from the environment

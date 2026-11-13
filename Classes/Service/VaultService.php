@@ -1009,6 +1009,10 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
                 );
             }
 
+            if ($this->adapter instanceof CreateCompensatingAdapterInterface) {
+                $this->adapter->releaseStore($identifier);
+            }
+
             $this->dispatchStoreEvent($identifier, $secretEntity, $isCreation);
         } finally {
             // Securely wipe the plaintext even if an exception occurred

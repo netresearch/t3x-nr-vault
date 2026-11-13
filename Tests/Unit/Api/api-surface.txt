@@ -1,5 +1,6 @@
 Netresearch\NrVault\Adapter\CreateCompensatingAdapterInterface (interface)
   method compensateCreate(string $identifier): void
+  method releaseStore(string $identifier): void
 
 Netresearch\NrVault\Adapter\VaultAdapterInterface (interface, extension point)
   method delete(string $identifier): void

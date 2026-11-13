@@ -744,6 +744,17 @@ final class HashiCorpAdapterTest extends TestCase
     }
 
     #[Test]
+    public function releasingAStoreDropsItsCompensationRecord(): void
+    {
+        $adapter = $this->adapter();
+        $adapter->store($this->envelopeSecret('api_key'));
+
+        $adapter->releaseStore('api_key');
+
+        self::assertNull($this->journal->take('hashicorp', 'api_key'));
+    }
+
+    #[Test]
     public function aCompensationWithoutARecordedStoreDeletesLikeBefore(): void
     {
         $adapter = $this->adapter();

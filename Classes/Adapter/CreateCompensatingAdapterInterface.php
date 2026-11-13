@@ -25,4 +25,10 @@ interface CreateCompensatingAdapterInterface
      * row. Without a record of such a store it behaves like `delete()`.
      */
     public function compensateCreate(string $identifier): void;
+
+    /**
+     * The audit write of the last `store()` of this identifier succeeded: drop
+     * the record `compensateCreate()` would have used.
+     */
+    public function releaseStore(string $identifier): void;
 }

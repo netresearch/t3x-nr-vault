@@ -154,6 +154,11 @@ final readonly class HashiCorpAdapter implements CreateCompensatingAdapterInterf
         $this->registry->delete($identifier);
     }
 
+    public function releaseStore(string $identifier): void
+    {
+        $this->journal->forget(self::IDENTIFIER, $identifier);
+    }
+
     public function retrieve(string $identifier): ?Secret
     {
         return $this->withBackingEnvelope($this->registry->retrieve($identifier), true);
