@@ -327,9 +327,26 @@ final class AwsSecretsManagerStoreTest extends TestCase
     #[Test]
     public function destroyIfCurrentOfAMissingSecretIsFalse(): void
     {
-        $store = $this->store(self::awsError(400, 'ResourceNotFoundException'));
+        $store = $this->store(
+            self::awsError(400, 'ResourceNotFoundException'),
+            self::awsError(400, 'ResourceNotFoundException'),
+            self::awsError(400, 'ResourceNotFoundException'),
+        );
 
         self::assertFalse($store->destroyIfCurrent('api_key', 'v-ours'));
+        self::assertCount(3, $this->requests, 'not found is retried like a stale version');
+    }
+
+    #[Test]
+    public function destroyIfCurrentRetriesASecretThatIsNotVisibleYet(): void
+    {
+        $store = $this->store(
+            self::awsError(400, 'ResourceNotFoundException'),
+            self::json(200, ['Name' => 'typo3/api_key', 'VersionId' => 'v-ours', 'SecretString' => '{}']),
+            self::json(200, ['Name' => 'typo3/api_key', 'DeletionDate' => 1_700_000_000]),
+        );
+
+        self::assertTrue($store->destroyIfCurrent('api_key', 'v-ours'));
     }
 
     #[Test]

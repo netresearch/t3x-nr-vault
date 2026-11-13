@@ -19,6 +19,7 @@ use Netresearch\NrVault\Storage\Aws\AwsSecretStoreInterface;
 use Netresearch\NrVault\Storage\ExternalStoreJournal;
 use Netresearch\NrVault\Storage\InstallationMarker;
 use Psr\Log\LoggerInterface;
+use SensitiveParameter;
 use Throwable;
 
 use function array_key_exists;
@@ -104,8 +105,17 @@ final readonly class AwsSecretsManagerAdapter implements CreateCompensatingAdapt
             $previous = null;
             if ($boundToAws) {
                 $this->assertOwnsLocation($existing instanceof Secret && $existing->getAdapter() === self::IDENTIFIER ? $existing : $secret);
-                $previous = $this->readOwned($identifier);
-                $this->store->destroy($identifier);
+                // This is also the compensation of a failed audit write on the
+                // FormEngine completion path. A store recorded in this request is
+                // taken back exactly: a secret it created is destroyed, one it
+                // took over is put back.
+                $entry = $this->journal->take(self::IDENTIFIER, $identifier);
+                if ($entry !== null) {
+                    $this->undoAwsWrite($identifier, $entry['previous'], is_string($entry['version']) ? $entry['version'] : null, true);
+                } else {
+                    $previous = $this->readOwned($identifier);
+                    $this->store->destroy($identifier);
+                }
             }
 
             try {
@@ -162,6 +172,10 @@ final readonly class AwsSecretsManagerAdapter implements CreateCompensatingAdapt
     {
         $entry = $this->journal->take(self::IDENTIFIER, $identifier);
         if ($entry === null) {
+            $this->logger->warning(
+                'nr-vault: no store of this secret was recorded in this request, so the create was compensated by deleting it.',
+                ['secret' => $identifier],
+            );
             $this->delete($identifier);
 
             return;
@@ -169,6 +183,11 @@ final readonly class AwsSecretsManagerAdapter implements CreateCompensatingAdapt
 
         $this->undoAwsWrite($identifier, $entry['previous'], is_string($entry['version']) ? $entry['version'] : null, true);
         $this->registry->delete($identifier);
+    }
+
+    public function releaseStore(string $identifier): void
+    {
+        $this->journal->forget(self::IDENTIFIER, $identifier);
     }
 
     public function retrieve(string $identifier): ?Secret
@@ -262,7 +281,7 @@ final readonly class AwsSecretsManagerAdapter implements CreateCompensatingAdapt
      *
      * @param array<string, mixed>|null $previous
      */
-    private function undoAwsWrite(string $identifier, ?array $previous, ?string $version, bool $rowIsBeingRemoved = false): void
+    private function undoAwsWrite(string $identifier, #[SensitiveParameter] ?array $previous, ?string $version, bool $rowIsBeingRemoved = false): void
     {
         try {
             if ($version === null) {
@@ -283,20 +302,30 @@ final readonly class AwsSecretsManagerAdapter implements CreateCompensatingAdapt
                     ['secret' => $identifier],
                 );
             }
-        } catch (Throwable) {
+        } catch (Throwable $e) {
             // The original failure is the one to report.
+            $this->warnRollbackFailed($identifier, $e);
         }
+    }
+
+    private function warnRollbackFailed(string $identifier, Throwable $e): void
+    {
+        $this->logger->warning(
+            'nr-vault: restoring an AWS Secrets Manager write failed; check the secret. ' . $e::class . ': ' . $e->getMessage(),
+            ['secret' => $identifier],
+        );
     }
 
     /**
      * @param array<string, mixed> $payload
      */
-    private function restore(string $identifier, array $payload): void
+    private function restore(string $identifier, #[SensitiveParameter] array $payload): void
     {
         try {
             $this->store->write($identifier, $payload);
-        } catch (Throwable) {
+        } catch (Throwable $e) {
             // The original failure is the one to report.
+            $this->warnRollbackFailed($identifier, $e);
         }
     }
 
@@ -309,7 +338,7 @@ final readonly class AwsSecretsManagerAdapter implements CreateCompensatingAdapt
      *
      * @throws AwsSecretsManagerException When the name belongs to something else
      */
-    private function createOrAdopt(string $identifier, array $payload): array
+    private function createOrAdopt(string $identifier, #[SensitiveParameter] array $payload): array
     {
         // A secret that vanishes between the refused create and the read is
         // not written over: the create is tried again, so whoever creates it in
@@ -440,18 +469,39 @@ final readonly class AwsSecretsManagerAdapter implements CreateCompensatingAdapt
             return $row;
         }
 
-        $payload = $this->store->read($identifier);
-        if ($payload === null) {
-            if ($requireValue) {
-                throw AwsSecretsManagerException::backingObjectMissing($identifier);
+        try {
+            $payload = $this->store->read($identifier);
+            if ($payload === null) {
+                if ($requireValue) {
+                    throw AwsSecretsManagerException::backingObjectMissing($identifier);
+                }
+
+                return $row;
+            }
+
+            if (($payload['identifier'] ?? null) !== $identifier || ($payload['format'] ?? null) !== self::FORMAT) {
+                throw AwsSecretsManagerException::backingObjectMismatch($identifier);
+            }
+
+            return $this->rowWithEnvelope($row, $payload);
+        } catch (AwsSecretsManagerException $e) {
+            // The administrative lookup must not fail on an unreadable or foreign
+            // object: the row comes back bare, and delete() or a rotation decides
+            // what may touch that secret (they refuse a foreign identifier).
+            if ($requireValue || !in_array($e->getCode(), [1794500008, 1794500010], true)) {
+                throw $e;
             }
 
             return $row;
         }
+    }
 
-        if (($payload['identifier'] ?? null) !== $identifier || ($payload['format'] ?? null) !== self::FORMAT) {
-            throw AwsSecretsManagerException::backingObjectMismatch($identifier);
-        }
+    /**
+     * @param array<string, mixed> $payload
+     */
+    private function rowWithEnvelope(Secret $row, #[SensitiveParameter] array $payload): Secret
+    {
+        $identifier = $row->getIdentifier();
 
         $version = $payload['encryption_version'] ?? null;
         $fields  = [];

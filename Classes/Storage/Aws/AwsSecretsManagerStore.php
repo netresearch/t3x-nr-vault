@@ -219,11 +219,9 @@ final class AwsSecretsManagerStore implements AwsSecretStoreInterface
     private function isCurrent(string $identifier, string $versionId): bool
     {
         for ($attempt = 1; $attempt <= self::VERSION_READ_ATTEMPTS; ++$attempt) {
+            // Not found is retried too: a read that has not caught up with the
+            // create looks like a missing secret for a moment.
             $current = $this->currentVersion($identifier);
-            if ($current === null) {
-                return false;
-            }
-
             if ($current === $versionId) {
                 return true;
             }

@@ -168,6 +168,14 @@ final class MotoServer
     }
 
     /**
+     * Put a new current version behind the adapter's back.
+     */
+    public function overwriteBehindTheAdapter(string $identifier, string $value): void
+    {
+        $this->admin()->putSecretValue(['SecretId' => $this->name($identifier), 'SecretString' => $value]);
+    }
+
+    /**
      * Remove the secret behind the adapter's back, with every version.
      */
     public function removeBehindTheAdapter(string $identifier): void

@@ -161,6 +161,39 @@ final class AwsSecretsManagerAdapterTest extends AbstractAwsContainerTestCase
     }
 
     #[Test]
+    public function aRowWhoseSecretIsNotAJsonObjectCanStillBeDeleted(): void
+    {
+        $identifier = $this->newIdentifier();
+        $service    = $this->get(VaultServiceInterface::class);
+        $service->store($identifier, 'value');
+
+        $this->server->overwriteBehindTheAdapter($identifier, 'not json at all');
+
+        $service->delete($identifier);
+
+        self::assertFalse($service->exists($identifier));
+        self::assertNull($this->server->rawValue($identifier));
+    }
+
+    #[Test]
+    public function aRowWhoseSecretHoldsAnotherIdentifiersPayloadIsNotDeletedByDeletingTheRow(): void
+    {
+        $identifier = $this->newIdentifier();
+        $service    = $this->get(VaultServiceInterface::class);
+        $service->store($identifier, 'value');
+
+        $foreign = '{"identifier":"somebody_else","format":1,"theirs":"kept"}';
+        $this->server->overwriteBehindTheAdapter($identifier, $foreign);
+
+        $failure = $this->thrownBy(static fn () => $service->delete($identifier));
+
+        self::assertInstanceOf(AwsSecretsManagerException::class, $failure);
+        self::assertSame(1794500011, $failure->getCode());
+        self::assertSame($foreign, $this->server->rawValue($identifier), 'the foreign secret is untouched');
+        self::assertTrue($service->exists($identifier));
+    }
+
+    #[Test]
     public function anAuditFailureOfACreateThatAdoptedAnOrphanPutsTheOrphanBack(): void
     {
         $identifier = $this->newIdentifier();

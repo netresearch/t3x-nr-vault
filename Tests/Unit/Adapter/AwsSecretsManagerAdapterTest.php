@@ -59,6 +59,8 @@ final class AwsSecretsManagerAdapterTest extends TestCase
 
     private bool $readKeysSorted = false;
 
+    private ?int $awsWritesAllowed = null;
+
     /** @var list<callable(): mixed> */
     private array $createScript = [];
 
@@ -88,6 +90,7 @@ final class AwsSecretsManagerAdapterTest extends TestCase
         $this->createScript                   = [];
         $this->readScript                     = [];
         $this->warnings                       = [];
+        $this->awsWritesAllowed               = null;
         $this->masterKey                      = 'unit-test-master-key-of-this-installation';
         $this->journal                        = new ExternalStoreJournal();
     }
@@ -320,6 +323,7 @@ final class AwsSecretsManagerAdapterTest extends TestCase
     {
         $adapter = $this->adapter();
         $adapter->store($this->envelopeSecret('api_key'));
+        $adapter->releaseStore('api_key');
 
         $before             = $this->aws['api_key'];
         $this->failRowWrite = true;
@@ -720,7 +724,71 @@ final class AwsSecretsManagerAdapterTest extends TestCase
     }
 
     #[Test]
-    public function aCompensationWithoutARecordedStoreDeletesLikeBefore(): void
+    public function theValuelessCompensationOfACompletionPutsAnAdoptedSecretBack(): void
+    {
+        $adapter = $this->adapter();
+        $adapter->store($this->envelopeSecret('api_key'));
+        $adapter->releaseStore('api_key');
+
+        $orphan = $this->aws['api_key'];
+        // The FormEngine path: the row exists without a value and the secret is
+        // an unreferenced earlier write of this installation.
+        $this->rows['api_key'] = new Secret(identifier: 'api_key', uid: 1);
+
+        $adapter->store($this->envelopeSecret('api_key', 'adopted')->withUid(1));
+        // VaultService compensates a failed audit write with the prior row.
+        $adapter->store(new Secret(identifier: 'api_key', uid: 1));
+
+        self::assertEquals($orphan, $this->aws['api_key'], 'the adopted secret is back, not destroyed');
+    }
+
+    #[Test]
+    public function theValuelessCompensationOfACompletionDestroysASecretItCreated(): void
+    {
+        $adapter               = $this->adapter();
+        $this->rows['api_key'] = new Secret(identifier: 'api_key', uid: 1);
+
+        $adapter->store($this->envelopeSecret('api_key')->withUid(1));
+        $adapter->store(new Secret(identifier: 'api_key', uid: 1));
+
+        self::assertArrayNotHasKey('api_key', $this->aws);
+    }
+
+    #[Test]
+    public function aFailedRestoreOfAWriteIsReportedWithoutASecret(): void
+    {
+        $adapter = $this->adapter();
+        $adapter->store($this->envelopeSecret('api_key'));
+        $adapter->releaseStore('api_key');
+
+        $this->failRowWrite     = true;
+        $this->awsWritesAllowed = 1;
+
+        try {
+            $adapter->store($this->envelopeSecret('api_key', 'newer')->withUid(1));
+            self::fail('The row failure must propagate.');
+        } catch (RuntimeException $e) {
+            self::assertSame(4778462882, $e->getCode());
+        }
+
+        self::assertCount(1, $this->warnings);
+        self::assertStringContainsString('RuntimeException', $this->warnings[0]);
+        self::assertStringNotContainsString('newer', $this->warnings[0]);
+    }
+
+    #[Test]
+    public function releasingAStoreDropsItsCompensationRecord(): void
+    {
+        $adapter = $this->adapter();
+        $adapter->store($this->envelopeSecret('api_key'));
+
+        $adapter->releaseStore('api_key');
+
+        self::assertNull($this->journal->take('aws', 'api_key'));
+    }
+
+    #[Test]
+    public function aCompensationWithoutARecordedStoreWarnsAndDeletes(): void
     {
         $adapter = $this->adapter();
         $adapter->store($this->envelopeSecret('api_key'));
@@ -728,6 +796,8 @@ final class AwsSecretsManagerAdapterTest extends TestCase
         $this->journal->forget('aws', 'api_key');
 
         $adapter->compensateCreate('api_key');
+
+        self::assertCount(1, $this->warnings);
 
         self::assertArrayNotHasKey('api_key', $this->aws);
         self::assertArrayNotHasKey('api_key', $this->rows);
@@ -927,7 +997,11 @@ final class AwsSecretsManagerAdapterTest extends TestCase
      */
     public function awsWrite(string $identifier, array $data): string
     {
-        $this->awsCalls[]            = 'write:' . $identifier;
+        $this->awsCalls[] = 'write:' . $identifier;
+        if ($this->awsWritesAllowed !== null && $this->awsWritesAllowed-- <= 0) {
+            throw new RuntimeException('aws write refused', 4778462884);
+        }
+
         $this->aws[$identifier]      = $data;
         $this->versions[$identifier] = ($this->versions[$identifier] ?? 0) + 1;
 
