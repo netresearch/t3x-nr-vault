@@ -232,8 +232,7 @@ final class VaultDevServer
         $stubScript = (string) file_get_contents(__DIR__ . '/Fixtures/token-review-stub.py');
 
         $stub = (new GenericContainer(self::STUB_IMAGE))
-            ->withCopyContentToContainer([['content' => $stubScript, 'target' => '/stub.py']])
-            ->withCommand(['python', '/stub.py'])
+            ->withCommand(['python', '-c', $stubScript])
             ->withExposedPorts(8080)
             ->start();
 
@@ -263,12 +262,13 @@ final class VaultDevServer
      */
     private static function waitUntilAnswering(StartedGenericContainer $container, int $port, string $method, string $path): void
     {
-        $url      = sprintf('http://%s:%d%s', $container->getHost(), $container->getMappedPort($port), $path); // NOSONAR: test fixture without TLS by design
         $deadline = microtime(true) + 120;
         $client   = new Client(['http_errors' => false, 'timeout' => 3, 'connect_timeout' => 3]);
 
         while (microtime(true) < $deadline) {
             try {
+                // The port mapping can appear a moment after the container starts.
+                $url = sprintf('http://%s:%d%s', $container->getHost(), $container->getMappedPort($port), $path); // NOSONAR: test fixture without TLS by design
                 if ($client->request($method, $url)->getStatusCode() === 200) {
                     return;
                 }
