@@ -633,6 +633,55 @@ final class HashiCorpAdapterTest extends TestCase
     }
 
     #[Test]
+    public function aBoundRowWhoseKeyCarriesAnotherInstallationsMarkerIsNeitherOverwrittenNorDestroyed(): void
+    {
+        $adapter = $this->adapter();
+        $adapter->store($this->envelopeSecret('api_key'));
+        $this->vault['api_key']['installation'] = 'marker-of-installation-b';
+        $theirs                                 = $this->vault['api_key'];
+
+        foreach (['rotate', 'delete'] as $operation) {
+            try {
+                $operation === 'rotate'
+                    ? $adapter->store($this->envelopeSecret('api_key', 'newer')->withUid(1))
+                    : $adapter->delete('api_key');
+                self::fail($operation . ' must be refused.');
+            } catch (HashiCorpException $e) {
+                self::assertSame(1794400012, $e->getCode(), $operation);
+            }
+        }
+
+        self::assertSame($theirs, $this->vault['api_key']);
+    }
+
+    #[Test]
+    public function aBoundRowWhoseKeyHoldsALegacyWriteWithoutAMarkerIsUpdatedAndStamped(): void
+    {
+        $adapter = $this->adapter();
+        $adapter->store($this->envelopeSecret('api_key'));
+        unset($this->vault['api_key']['installation']);
+
+        $adapter->store($this->envelopeSecret('api_key', 'newer')->withUid(1));
+
+        self::assertSame(base64_encode('newer'), $this->vault['api_key']['encrypted_value']);
+        self::assertArrayHasKey('installation', $this->vault['api_key'], 'the next write stamps the marker');
+    }
+
+    #[Test]
+    public function aBoundRowWhoseKeyHoldsALegacyWriteOfAnotherIdentifierIsRefused(): void
+    {
+        $adapter = $this->adapter();
+        $adapter->store($this->envelopeSecret('api_key'));
+        unset($this->vault['api_key']['installation']);
+        $this->vault['api_key']['identifier'] = 'other_key';
+
+        $this->expectException(HashiCorpException::class);
+        $this->expectExceptionCode(1794400012);
+
+        $adapter->delete('api_key');
+    }
+
+    #[Test]
     public function anUnreferencedWriteOfAnotherInstallationIsNotAdopted(): void
     {
         $adapter = $this->adapter();

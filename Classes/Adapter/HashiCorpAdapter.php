@@ -22,6 +22,7 @@ use Netresearch\NrVault\Storage\InstallationMarker;
 use Psr\Log\LoggerInterface;
 use Throwable;
 
+use function array_key_exists;
 use function is_int;
 use function is_string;
 
@@ -282,7 +283,11 @@ final readonly class HashiCorpAdapter implements CreateCompensatingAdapterInterf
 
     /**
      * Read the key of a row that is bound to it. What is there must be an
-     * nr-vault write for this identifier; anything else is somebody else's.
+     * nr-vault write for this identifier; anything else is somebody else's. A
+     * write that carries another installation's marker is refused. One without
+     * a marker was written by 1.6.x: a row bound to Vault holds no envelope to
+     * compare it with, so it is accepted on identifier, format and the row's
+     * recorded location, and the next write stamps the marker.
      *
      * @return array<string, mixed>|null
      *
@@ -291,7 +296,7 @@ final readonly class HashiCorpAdapter implements CreateCompensatingAdapterInterf
     private function readOwned(string $identifier): ?array
     {
         $payload = $this->kv->read($identifier);
-        if ($payload !== null && (($payload['identifier'] ?? null) !== $identifier || ($payload['format'] ?? null) !== self::FORMAT)) {
+        if ($payload !== null && (($payload['identifier'] ?? null) !== $identifier || ($payload['format'] ?? null) !== self::FORMAT || (array_key_exists('installation', $payload) && $payload['installation'] !== $this->installation->value()))) {
             throw HashiCorpException::pathTaken($identifier);
         }
 
