@@ -9,6 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-11-14
+
+### Added
+
+- `AtomicKvStoreInterface` (extends `KvStoreInterface`) with a create-only `create()`, `writeVersioned()`, `restoreIfCurrent()` and `destroyIfCurrent()` (every write reports its KV version and the rollback is a check-and-set against it), implemented by the shipped HashiCorp KV client with a KV v2 check-and-set write (`cas=0`). The HashiCorp adapter claims the KV path of a new secret with it, so a key that somebody else creates between the check and the write is refused (code `1794400012`) instead of overwritten, and nothing is destroyed. New exception code `1794400013` for "key exists".
+
+- AWS Secrets Manager storage adapter (`storageAdapter = aws`). The encryption envelope of new secrets lives in Secrets Manager; the database row keeps owner, groups, metadata and a pointer. Needs `aws/aws-sdk-php`, which is only a `suggest`: without it the adapter fails with a configuration error and never falls back to local storage. Credentials are explicit (`NR_VAULT_AWS_ACCESS_KEY_ID`, `NR_VAULT_AWS_SECRET_ACCESS_KEY`, optional `NR_VAULT_AWS_SESSION_TOKEN`); the SDK's default credential chain, shared config files and `AWS_ENDPOINT_URL*` variables are not used. Requests go through the extension's hardened HTTP client, require `https` unless `aws.allowInsecureHttp` is set, and a private endpoint needs an `allowed_hosts` entry. A new secret is created, never written over an existing AWS secret that is not an earlier nr-vault write for the same identifier. Secrets stored locally before the switch stay local. See the new operations page and ADR-054.
+- Settings `aws.endpoint`, `aws.allowInsecureHttp`, `aws.accessKeyId`, `aws.accessKeyIdEnvVar`, `aws.secretAccessKeyEnvVar` and `aws.sessionTokenEnvVar`; `aws.region` is now required for the adapter and `aws.secretPrefix` takes effect.
+
+### Changed
+
+- A HashiCorp-backed secret is refused (code `1794400015`) when the location its row recorded differs from the one `hashicorp.path` resolves to, and an unreferenced key is taken over only when it is a write of this installation (an HMAC of the master key is stored in the payload). A failed audit write of a create puts a taken-over key back through the new `CreateCompensatingAdapterInterface`, and a skipped rollback is logged as a warning.
+
+- `storageAdapter = aws` no longer behaves like `local`: it selects the AWS Secrets Manager adapter. An installation that had set it while waiting for the adapter must install `aws/aws-sdk-php` and configure region and credentials, or switch the setting back to `local`; new secrets are not stored locally under `aws`.
+- The HashiCorp Vault and AWS Secrets Manager adapters refuse to store, read or delete a secret that is bound to the other external adapter, instead of treating its empty envelope as a new secret and rebinding it.
+- A failed audit write of a create puts a taken-over AWS secret back on a best-effort basis (`CreateCompensatingAdapterInterface`; a skipped or refused rollback is logged and needs a manual check, and the row stays when the secret changed since), a secret is adopted only when it is a write of this installation, a row whose stored location differs from the configured region and prefix is refused (code `1794500014`), a skipped rollback is logged, and a row whose secret is not a JSON object can still be deleted.
+
+### Deprecated
+
+- A key-value store behind the HashiCorp adapter that implements only `KvStoreInterface` is deprecated. The adapter keeps working with it (read, then write, which leaves a window for a key created in between) and triggers an `E_USER_DEPRECATED` once per process. Implement `AtomicKvStoreInterface`; version 2.0 will require it.
+
 ## [1.6.1] - 2026-11-14
 
 ### Fixed
@@ -2322,7 +2343,8 @@ upgrading.
 - Constructor property promotion
 - Modern PHP 8.x patterns (match, named arguments, attributes)
 
-[Unreleased]: https://github.com/netresearch/t3x-nr-vault/compare/v1.6.1...HEAD
+[Unreleased]: https://github.com/netresearch/t3x-nr-vault/compare/v1.7.0...HEAD
+[1.7.0]: https://github.com/netresearch/t3x-nr-vault/compare/v1.6.1...v1.7.0
 [1.6.1]: https://github.com/netresearch/t3x-nr-vault/compare/v1.6.0...v1.6.1
 [1.6.0]: https://github.com/netresearch/t3x-nr-vault/compare/v1.5.1...v1.6.0
 [1.5.1]: https://github.com/netresearch/t3x-nr-vault/compare/v1.5.0...v1.5.1
