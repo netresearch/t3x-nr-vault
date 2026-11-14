@@ -1287,6 +1287,9 @@
       <trans-unit id="audit.verify.ack_result.not_honoured">
         <source>The acknowledgement was written but is not in effect: another audit entry was written in between. The attempt is recorded; run it again.</source>
       </trans-unit>
+      <trans-unit id="audit.verify.ack_result.anchor_not_published">
+        <source>The acknowledgement was written, but no external sink accepted a fresh anchor. A mismatch with the external anchor is resolved by anchoring, so it stays open until an anchor is published (vault:audit-anchor).</source>
+      </trans-unit>
       <trans-unit id="audit.verify.findings.title">
         <source>Findings</source>
       </trans-unit>
@@ -1307,6 +1310,9 @@
       </trans-unit>
       <trans-unit id="audit.verify.open.title">
         <source>Affected rows</source>
+      </trans-unit>
+      <trans-unit id="audit.verify.open.more">
+        <source>%d more findings are not listed here; the evidence export contains all affected rows.</source>
       </trans-unit>
       <trans-unit id="audit.verify.acknowledged.title">
         <source>Acknowledged findings</source>

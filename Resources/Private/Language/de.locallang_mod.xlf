@@ -39,6 +39,10 @@
         <source>The acknowledgement was written but is not in effect: another audit entry was written in between. The attempt is recorded; run it again.</source>
         <target>Die Bestätigung wurde geschrieben, gilt aber nicht: Zwischenzeitlich wurde ein anderer Audit-Eintrag geschrieben. Der Versuch ist festgehalten; bitte erneut ausführen.</target>
       </trans-unit>
+      <trans-unit id="audit.verify.ack_result.anchor_not_published">
+        <source>The acknowledgement was written, but no external sink accepted a fresh anchor. A mismatch with the external anchor is resolved by anchoring, so it stays open until an anchor is published (vault:audit-anchor).</source>
+        <target>Die Bestätigung wurde geschrieben, aber keine externe Senke hat einen neuen Anker angenommen. Eine Abweichung vom externen Anker wird durch Verankern gelöst und bleibt offen, bis ein Anker veröffentlicht ist (vault:audit-anchor).</target>
+      </trans-unit>
       <trans-unit id="audit.verify.findings.title">
         <source>Findings</source>
         <target>Befunde</target>
@@ -66,6 +70,10 @@
       <trans-unit id="audit.verify.open.title">
         <source>Affected rows</source>
         <target>Betroffene Einträge</target>
+      </trans-unit>
+      <trans-unit id="audit.verify.open.more">
+        <source>%d more findings are not listed here; the evidence export contains all affected rows.</source>
+        <target>%d weitere Befunde sind hier nicht aufgeführt; der Belegexport enthält alle betroffenen Einträge.</target>
       </trans-unit>
       <trans-unit id="audit.verify.acknowledged.title">
         <source>Acknowledged findings</source>

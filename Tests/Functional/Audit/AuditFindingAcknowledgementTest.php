@@ -430,6 +430,109 @@ final class AuditFindingAcknowledgementTest extends AbstractVaultFunctionalTestC
         self::assertFalse($service->inspect()->isValid());
     }
 
+    /**
+     * An external-anchor finding is resolved by anchoring, not covered: when the
+     * old anchor is back in force (replayed, or no new anchor was kept), the same
+     * finding is open again instead of inheriting the earlier acknowledgement.
+     */
+    #[Test]
+    public function aReplayedOldAnchorReopensAnAcknowledgedTableReset(): void
+    {
+        $auditService = $this->get(AuditLogServiceInterface::class);
+        $service      = $this->get(ChainTipAnchorServiceInterface::class);
+
+        $this->writeEntries(5);
+        $service->publish($service->capture());
+        // The anchor as it was published some time ago, before the restore.
+        $oldAnchorFile = '';
+        foreach (explode("\n", trim((string) file_get_contents($this->auditSinkAnchorPath))) as $line) {
+            $record = json_decode($line, true);
+            if (is_array($record) && is_array($record['anchor'] ?? null)) {
+                $record['anchor']['timestamp'] = (int) $record['anchor']['timestamp'] - 3600;
+                $oldAnchorFile .= json_encode($record, JSON_THROW_ON_ERROR) . "\n";
+            }
+        }
+
+        self::assertNotSame('', $oldAnchorFile);
+        file_put_contents($this->auditSinkAnchorPath, $oldAnchorFile);
+
+        $this->truncateAuditTable();
+        $this->getConnectionPool()->getConnectionForTable('sys_registry')
+            ->delete('sys_registry', ['entry_namespace' => 'tx_nrvault_audit_anchor']);
+        $auditService->log('rebuilt', 'create', true);
+        self::assertTrue($this->acknowledge($service->inspect())->isAcknowledged());
+        self::assertTrue($service->inspect()->isValid(), 'precondition: resolved by the fresh anchor');
+
+        // Only the old anchor is left in force again, and the chain is as short as
+        // before: a second incident of the same kind against the same anchor.
+        file_put_contents($this->auditSinkAnchorPath, $oldAnchorFile);
+
+        $report = $service->inspect();
+        self::assertFalse($report->isValid());
+        self::assertContains('TABLE_RESET', $report->getReasonCodes());
+        self::assertSame([], $report->getAcknowledgedItems());
+    }
+
+    /**
+     * The acknowledgement is bound to the chain prefix it was written after:
+     * once the row at the tip it recorded is gone, the external-anchor finding is
+     * open again, although the acknowledgement row itself is still there.
+     */
+    #[Test]
+    public function aTableResetReopensWhenTheRecordedTipRowIsRemoved(): void
+    {
+        $auditService = $this->get(AuditLogServiceInterface::class);
+        $service      = $this->get(ChainTipAnchorServiceInterface::class);
+
+        $this->writeEntries(5);
+        $service->publish($service->capture());
+        $this->truncateAuditTable();
+        $this->getConnectionPool()->getConnectionForTable('sys_registry')
+            ->delete('sys_registry', ['entry_namespace' => 'tx_nrvault_audit_anchor']);
+        $auditService->log('rebuilt', 'create', true);
+        self::assertTrue($this->acknowledge($service->inspect())->isAcknowledged());
+        self::assertTrue($service->inspect()->isValid(), 'precondition');
+
+        // Row 1 was the tip the acknowledgement was chained after.
+        $this->getConnection()->delete(self::TABLE, ['uid' => 1]);
+
+        $open = array_map(
+            static fn (AuditFindingItem $item): string => $item->reason->value,
+            $service->inspect()->getOpenItems(),
+        );
+        self::assertContains('TABLE_RESET', $open);
+    }
+
+    /**
+     * The in-database anchor is re-armed by the acknowledgement; damaging it a
+     * second time, with the same symptom, is a new incident.
+     */
+    #[Test]
+    public function aSecondDamageToTheInDatabaseAnchorFailsAgain(): void
+    {
+        $this->writeEntries(6);
+        $this->damageInDatabaseAnchor();
+        $first = $this->inspect();
+        self::assertFalse($first->isValid());
+
+        self::assertTrue($this->acknowledge($first)->isAcknowledged());
+        self::assertTrue($this->inspect()->isValid(), 'precondition: re-armed and acknowledged');
+
+        $this->damageInDatabaseAnchor();
+
+        self::assertFalse($this->inspect()->isValid(), 'the same symptom a second time is a new incident');
+    }
+
+    private function damageInDatabaseAnchor(): void
+    {
+        $this->getConnectionPool()->getConnectionForTable('sys_registry')->update(
+            'sys_registry',
+            ['entry_value' => 'garbage'],
+            ['entry_namespace' => 'tx_nrvault_audit_anchor', 'entry_key' => 'auditChainTip'],
+            ['entry_value' => Connection::PARAM_LOB],
+        );
+    }
+
     private function inspect(): AuditIntegrityReport
     {
         return $this->get(ChainTipAnchorServiceInterface::class)->inspect();

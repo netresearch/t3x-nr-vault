@@ -95,6 +95,9 @@
                                 </li>
                             </f:for>
                         </ul>
+                        <f:if condition="{openItemsMore}">
+                            <p class="mt-2 mb-0"><f:translate key="LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:audit.verify.open.more" arguments="{0: openItemsMore}" /></p>
+                        </f:if>
                     </div>
                 </div>
             </f:if>

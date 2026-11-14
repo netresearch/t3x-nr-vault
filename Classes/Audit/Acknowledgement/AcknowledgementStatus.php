@@ -57,4 +57,12 @@ enum AcknowledgementStatus: string
      * verifier ignores it. The attempt stays in the log; running it again works.
      */
     case NotHonoured = 'not_honoured';
+
+    /**
+     * The row was written, but no external sink accepted a fresh anchor. A
+     * finding against the external anchor is resolved by anchoring, not covered
+     * by an acknowledgement, so it stays open until an anchor is published
+     * (`vault:audit-anchor`).
+     */
+    case AnchorNotPublished = 'anchor_not_published';
 }

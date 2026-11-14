@@ -73,28 +73,49 @@ append-only audit row, never a repair:
 What an acknowledgement covers
 ------------------------------
 
-Each finding is an item with a key, a hash over the reason code, its position
-and the complete stored content of the affected row (the stored-content digest
-of the whole row, not only the hashed columns). For an anchor finding the key
-covers the compared anchor and what the chain held at that point. The verifier
-treats an item as acknowledged only when all of this holds:
+Findings fall in three classes:
 
-#.  The acknowledgement row lists the item's key. The row digest in the key
-    means that editing the flagged row again, in any column, produces another
-    key and reopens the finding. A finding that appears later has another key
-    and fails.
-#.  The acknowledgement row is itself not reported as failing, so a tampered or
-    forged acknowledgement proves nothing.
-#.  The row was written at HMAC epoch 3 or higher, where the MAC covers
-    ``reason``, ``context`` and the actor columns. At epoch 2 or below a
-    database-write attacker could forge or edit an acknowledgement without the
-    key, so the backend refuses to write one.
-#.  The row was chained directly after the tip it recorded
-    (``previous_hash`` equals the recorded tip hash). A row from a concurrent
-    writer landing in between makes the acknowledgement inert, which cannot
-    cover rows written later. The flow reads the verdict back after writing
-    and reports "not in effect, run it again".
-#.  The row follows the flagged row in the chain.
+*   **Row and gap findings.** The item key is a hash over the reason code, the
+    position and the complete stored content of the affected row (the digest of
+    the whole row as stored, byte for byte). The verifier treats the item as
+    acknowledged only when all of this holds:
+
+    #.  The acknowledgement row lists the item's key. Editing the flagged row
+        again, in any column, produces another key and reopens the finding. A
+        finding that appears later has another key and fails.
+    #.  The acknowledgement row is itself not reported as failing, so a
+        tampered or forged acknowledgement proves nothing.
+    #.  The row was written at HMAC epoch 3 or higher, where the MAC covers
+        ``reason``, ``context`` and the actor columns. At epoch 2 or below a
+        database-write attacker could forge or edit an acknowledgement without
+        the key, so the backend refuses to write one.
+    #.  The row was chained directly after the tip it recorded
+        (``previous_hash`` equals the recorded tip hash). A row from a
+        concurrent writer landing in between makes the acknowledgement inert,
+        which cannot cover rows written later. The flow reads the verdict back
+        after writing and reports "not in effect, run it again".
+    #.  The row follows the flagged row in the chain.
+
+*   **Chain-level findings without a row**: the chain-wide epoch-floor error and
+    the comparison with the external anchor (``TABLE_RESET``, and the
+    anchored-epoch ``EPOCH_DOWNGRADE``). The key of an external-anchor finding
+    is the compared anchor, not how the chain differs from it: after a restore
+    the same anchor reads first as a shrunken and later as a substituted chain.
+    What stops a later incident from inheriting the acknowledgement is a binding
+    to the chain prefix the administrator saw. The acknowledgement records the
+    tip uid and hash it was chained after; the finding is covered only while the
+    row at that uid still carries that hash. Rewriting or truncating the chain
+    up to that tip uncovers it again. A finding against the external anchor is
+    additionally covered only once an anchor was published after the
+    acknowledgement row (the flow publishes one; without an external sink the
+    request is refused before anything is written, and a replayed old anchor
+    file reopens the finding). The reader keeps the anchor with the highest
+    sequence, which after a restore stays the old one, so anchoring alone never
+    clears such a finding.
+*   **The in-database anchor errors** are never covered. They carry no
+    per-incident state, so an acknowledgement would also hide a later incident
+    of the same kind. The flow resets and re-arms the in-database anchor in the
+    same transaction, the finding stops being reported, and a recurrence is new.
 
 The administrator is shown the findings and confirms a fingerprint over their
 keys. If the set of open findings differs when the request arrives, the request
@@ -137,6 +158,6 @@ Consequences
     reason; ``vault:audit-verify --format=json`` lists the acknowledged items
     next to the open ones.
 *   ``vault:audit-verify`` dispatches an alert event per open finding on every
-    run, like the backend view. The acknowledgement flow and the evidence export
-    use ``inspect()``, which does not dispatch, so one action does not alert
-    three times.
+    run. The backend view, the acknowledgement flow and the evidence export use
+    ``inspect()``, which does not dispatch, so a page load by any ``audit.view``
+    user does not alert the sinks and one action does not alert three times.

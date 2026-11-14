@@ -38,4 +38,13 @@ interface AnchorReaderInterface
      * worth reporting differently in operator output.
      */
     public function isAvailable(): bool;
+
+    /**
+     * Whether an anchor taken at or after `$timestamp` has been published.
+     *
+     * {@see self::readLatestAnchor()} returns the highest SEQUENCE, which after a
+     * restore is still the old anchor, so it cannot show that a fresh baseline
+     * exists. An acknowledged external-anchor finding counts only once one does.
+     */
+    public function hasAnchorSince(int $timestamp): bool;
 }

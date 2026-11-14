@@ -16,10 +16,12 @@ use Netresearch\NrVault\Audit\AuditChainAnchorStoreInterface;
 use Netresearch\NrVault\Audit\AuditLogService;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
 use Netresearch\NrVault\Audit\GenericContext;
+use Netresearch\NrVault\Audit\Sink\AuditSinkRegistryInterface;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Security\AccessControlServiceInterface;
 use Netresearch\NrVault\Security\VaultPermission;
 use Throwable;
+use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 
 use function count;
@@ -57,6 +59,7 @@ final readonly class AuditFindingAcknowledger implements AuditFindingAcknowledge
         private AccessControlServiceInterface $accessControlService,
         private ExtensionConfigurationInterface $extensionConfiguration,
         private ConnectionPool $connectionPool,
+        private AuditSinkRegistryInterface $sinkRegistry,
     ) {}
 
     public function acknowledge(
@@ -107,25 +110,41 @@ final readonly class AuditFindingAcknowledger implements AuditFindingAcknowledge
             AuditChainAnchorStatus::Unanchored,
         ], true);
 
-        $this->write($open, $reason, $ticket, $originalUserUid, $report->currentSequence, $resetAnchor);
+        // A finding against the external anchor counts as acknowledged only once a
+        // fresh anchor exists. Without a sink none can be published, so refuse
+        // before writing anything.
+        $needsFreshAnchor = array_filter($open, static fn (AuditFindingItem $item): bool => $item->requiresFreshAnchor) !== [];
+        if ($needsFreshAnchor && !$this->sinkRegistry->hasExternalAuditSink()) {
+            return AcknowledgementOutcome::refused(AcknowledgementStatus::AnchorNotPublished);
+        }
+
+        $this->write($open, $reason, $ticket, $originalUserUid, $resetAnchor);
+
+        // Start the new verified segment BEFORE reading the verdict back: an
+        // external-anchor finding is resolved by the fresh anchor, not covered.
+        $published = $this->publishAnchor();
 
         // The tip binding only holds when the row landed directly after the tip
         // it recorded. Read the verdict back instead of assuming it.
         $after = $this->anchorService->inspect();
         $keys  = array_map(static fn (AuditFindingItem $item): string => $item->key, $open);
         foreach ($after->items as $item) {
-            if (in_array($item->key, $keys, true) && !$item->isAcknowledged()) {
-                return AcknowledgementOutcome::refused(AcknowledgementStatus::NotHonoured);
+            if (!in_array($item->key, $keys, true) || $item->isAcknowledged()) {
+                continue;
             }
+
+            return AcknowledgementOutcome::refused(
+                $item->requiresFreshAnchor && $published === 0 ? AcknowledgementStatus::AnchorNotPublished : AcknowledgementStatus::NotHonoured,
+            );
         }
 
-        return new AcknowledgementOutcome(AcknowledgementStatus::Acknowledged, count($open), $this->publishAnchor());
+        return new AcknowledgementOutcome(AcknowledgementStatus::Acknowledged, count($open), $published);
     }
 
     /**
      * @param list<AuditFindingItem> $open
      */
-    private function write(array $open, string $reason, string $ticket, int $originalUserUid, int $tipUid, bool $resetAnchor): void
+    private function write(array $open, string $reason, string $ticket, int $originalUserUid, bool $resetAnchor): void
     {
         $connection  = $this->connectionPool->getConnectionForTable(AuditLogService::TABLE_NAME);
         $resetAnchor = $resetAnchor && $this->anchorStore->sharesConnection($connection);
@@ -144,6 +163,8 @@ final readonly class AuditFindingAcknowledger implements AuditFindingAcknowledge
                 $this->anchorStore->reset($connection);
             }
 
+            [$tipUid, $tipHash] = $this->readTip($connection);
+
             $this->auditLogService->log(
                 self::PSEUDO_IDENTIFIER,
                 AuditAction::AuditFindingsAcknowledged->value,
@@ -155,7 +176,7 @@ final readonly class AuditFindingAcknowledger implements AuditFindingAcknowledge
                 GenericContext::fromArray(
                     findings: implode(',', array_map(static fn (AuditFindingItem $item): string => $item->key, $open)),
                     // The old chain tip: this row is chained directly after it.
-                    tipHash: $this->auditLogService->getLatestHash() ?? '',
+                    tipHash: $tipHash,
                     tipUid: $tipUid,
                     codes: implode(',', array_keys($codes)),
                     ranges: mb_substr(implode(',', array_keys($ranges)), 0, 300),
@@ -176,6 +197,29 @@ final readonly class AuditFindingAcknowledger implements AuditFindingAcknowledge
 
             throw $e;
         }
+    }
+
+    /**
+     * Uid and entry hash of the newest row, read together so the pair is one
+     * observation of the chain tip.
+     *
+     * @return array{int, string}
+     */
+    private function readTip(Connection $connection): array
+    {
+        $row = $connection->createQueryBuilder()
+            ->select('uid', 'entry_hash')
+            ->from(AuditLogService::TABLE_NAME)
+            ->orderBy('uid', 'DESC')
+            ->setMaxResults(1)
+            ->executeQuery()
+            ->fetchAssociative();
+
+        if ($row === false || !is_numeric($row['uid'] ?? null)) {
+            return [0, ''];
+        }
+
+        return [(int) $row['uid'], is_string($row['entry_hash'] ?? null) ? $row['entry_hash'] : ''];
     }
 
     /**

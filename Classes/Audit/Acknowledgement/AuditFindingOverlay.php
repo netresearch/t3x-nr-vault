@@ -50,6 +50,9 @@ final readonly class AuditFindingOverlay implements AuditFindingOverlayInterface
 
     private const ROW_BATCH = 500;
 
+    /** Acknowledgement rows read per verification; a chain holds a handful. */
+    private const MAX_ACKNOWLEDGEMENT_ROWS = 1000;
+
     public function __construct(
         private ConnectionPool $connectionPool,
     ) {}
@@ -116,6 +119,12 @@ final readonly class AuditFindingOverlay implements AuditFindingOverlayInterface
                 $row,
                 $row,
                 $message,
+                null,
+                // The chain-wide epoch-floor error (pseudo uid 0) has no row; it may
+                // be covered while the chain up to the recorded tip is unchanged.
+                // The in-database anchor errors (negative pseudo uids) are resolved
+                // by re-arming the anchor and are never covered.
+                $uid === 0,
             );
         }
 
@@ -135,11 +144,9 @@ final readonly class AuditFindingOverlay implements AuditFindingOverlayInterface
 
         $result = [];
         foreach ($items as $item) {
-            $ackUid = $covered[$item->key] ?? null;
-            // A chain item is covered only by a row written AFTER it; chain-level
-            // items (anchor findings, range 0) have no row to follow.
-            if ($ackUid !== null && ($item->rangeEnd === 0 || $ackUid > $item->rangeEnd)) {
-                $item = $item->withAcknowledgement($ackUid);
+            $ack = $covered[$item->key] ?? null;
+            if ($ack !== null && $this->covers($item, $ack)) {
+                $item = $item->withAcknowledgement($ack['uid']);
             }
 
             $result[] = $item;
@@ -149,9 +156,46 @@ final readonly class AuditFindingOverlay implements AuditFindingOverlayInterface
     }
 
     /**
-     * Finding key => uid of the first valid acknowledgement row listing it.
+     * @param array{uid: int, tipUid: int, tipHash: string} $ack
+     */
+    private function covers(AuditFindingItem $item, array $ack): bool
+    {
+        // A row or gap finding is covered only by a row written AFTER it; the key
+        // already carries the stored content of the affected row.
+        if ($item->rangeStart > 0) {
+            return $ack['uid'] > $item->rangeEnd;
+        }
+
+        // A chain-level finding without a row is covered only when it is bound to
+        // the chain prefix the administrator saw: the row at the recorded tip must
+        // still carry the recorded hash. Anchor findings are never covered.
+        return $item->prefixBound && $this->tipStillHolds($ack['tipUid'], $ack['tipHash']);
+    }
+
+    private function tipStillHolds(int $tipUid, string $tipHash): bool
+    {
+        if ($tipUid <= 0 || $tipHash === '') {
+            return false;
+        }
+
+        $queryBuilder = $this->connectionPool
+            ->getConnectionForTable(AuditLogService::TABLE_NAME)
+            ->createQueryBuilder();
+        $stored = $queryBuilder
+            ->select('entry_hash')
+            ->from(AuditLogService::TABLE_NAME)
+            ->where($queryBuilder->expr()->eq('uid', $queryBuilder->createNamedParameter($tipUid, Connection::PARAM_INT)))
+            ->executeQuery()
+            ->fetchOne();
+
+        return is_string($stored) && hash_equals($tipHash, $stored);
+    }
+
+    /**
+     * Finding key => the first valid acknowledgement row listing it, with the
+     * tip it recorded.
      *
-     * @return array<string, int>
+     * @return array<string, array{uid: int, tipUid: int, tipHash: string}>
      */
     private function coveredKeys(HashChainVerificationResult $raw, int $fromUid): array
     {
@@ -168,6 +212,7 @@ final readonly class AuditFindingOverlay implements AuditFindingOverlayInterface
                 $queryBuilder->expr()->gte('uid', $queryBuilder->createNamedParameter($fromUid, Connection::PARAM_INT)),
             )
             ->orderBy('uid', 'ASC')
+            ->setMaxResults(self::MAX_ACKNOWLEDGEMENT_ROWS)
             ->executeQuery()
             ->fetchAllAssociative();
 
@@ -195,7 +240,11 @@ final readonly class AuditFindingOverlay implements AuditFindingOverlayInterface
 
             foreach (explode(',', $findings) as $key) {
                 if (preg_match('/^[0-9a-f]{64}$/', $key) === 1 && !array_key_exists($key, $covered)) {
-                    $covered[$key] = $uid;
+                    $covered[$key] = [
+                        'uid'     => $uid,
+                        'tipUid'  => is_numeric($context['tipUid'] ?? null) ? (int) $context['tipUid'] : 0,
+                        'tipHash' => $tipHash,
+                    ];
                 }
             }
         }
@@ -245,7 +294,7 @@ final readonly class AuditFindingOverlay implements AuditFindingOverlayInterface
                     continue;
                 }
 
-                $digests[(int) $rowUid] = hash('sha256', json_encode($row, JSON_THROW_ON_ERROR | JSON_INVALID_UTF8_SUBSTITUTE));
+                $digests[(int) $rowUid] = hash('sha256', serialize($row));
             }
         }
 

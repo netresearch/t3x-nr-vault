@@ -26,12 +26,19 @@ use Netresearch\NrVault\Audit\AuditIntegrityReason;
 final readonly class AuditFindingItem
 {
     /**
-     * @param string               $key            sha256 over reason, position and affected row content
-     * @param AuditIntegrityReason $reason         Machine-readable reason code
-     * @param int                  $rangeStart     First affected uid (0 = chain-level finding)
-     * @param int                  $rangeEnd       Last affected uid (equals `$rangeStart` for a single row)
-     * @param string               $detail         Human-readable, secret-free description
-     * @param int|null             $acknowledgedBy uid of the acknowledgement row that covers this item
+     * @param string               $key                 sha256 over reason, position and affected row content
+     * @param AuditIntegrityReason $reason              Machine-readable reason code
+     * @param int                  $rangeStart          First affected uid (0 = chain-level finding)
+     * @param int                  $rangeEnd            Last affected uid (equals `$rangeStart` for a single row)
+     * @param string               $detail              Human-readable, secret-free description
+     * @param int|null             $acknowledgedBy      uid of the acknowledgement row that covers this item
+     * @param bool                 $prefixBound         Chain-level item (no row) that an acknowledgement may cover, provided
+     *                                                  the chain up to the tip it recorded is unchanged. Chain-level items
+     *                                                  without this flag (the in-database anchor errors) are never covered:
+     *                                                  re-arming the anchor resolves them, so a later incident of the same
+     *                                                  kind cannot inherit an earlier acknowledgement.
+     * @param bool                 $requiresFreshAnchor a finding against the external anchor: covered only once an
+     *                                                  anchor was published after the acknowledgement
      */
     public function __construct(
         public string $key,
@@ -40,11 +47,18 @@ final readonly class AuditFindingItem
         public int $rangeEnd,
         public string $detail,
         public ?int $acknowledgedBy = null,
+        public bool $prefixBound = false,
+        public bool $requiresFreshAnchor = false,
     ) {}
 
     public function withAcknowledgement(int $acknowledgementUid): self
     {
-        return new self($this->key, $this->reason, $this->rangeStart, $this->rangeEnd, $this->detail, $acknowledgementUid);
+        return new self($this->key, $this->reason, $this->rangeStart, $this->rangeEnd, $this->detail, $acknowledgementUid, $this->prefixBound, $this->requiresFreshAnchor);
+    }
+
+    public function withoutAcknowledgement(): self
+    {
+        return new self($this->key, $this->reason, $this->rangeStart, $this->rangeEnd, $this->detail, null, $this->prefixBound, $this->requiresFreshAnchor);
     }
 
     public function isAcknowledged(): bool

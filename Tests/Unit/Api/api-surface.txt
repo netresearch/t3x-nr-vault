@@ -27,6 +27,7 @@ Netresearch\NrVault\Audit\Acknowledgement\AcknowledgementOutcome (class)
 
 Netresearch\NrVault\Audit\Acknowledgement\AcknowledgementStatus (enum)
   case Acknowledged = "acknowledged"
+  case AnchorNotPublished = "anchor_not_published"
   case EpochTooLow = "epoch_too_low"
   case NotHonoured = "not_honoured"
   case NotPermitted = "not_permitted"
@@ -48,6 +49,7 @@ Netresearch\NrVault\Audit\Acknowledgement\AuditFindingOverlayInterface (interfac
   method chainItems(Netresearch\NrVault\Audit\HashChainVerificationResult $raw): array
 
 Netresearch\NrVault\Audit\Anchor\AnchorReaderInterface (interface)
+  method hasAnchorSince(int $timestamp): bool
   method isAvailable(): bool
   method readLatestAnchor(): ?Netresearch\NrVault\Audit\Anchor\ChainTipAnchor
 

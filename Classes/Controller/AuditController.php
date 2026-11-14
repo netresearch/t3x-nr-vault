@@ -69,6 +69,9 @@ final readonly class AuditController
     /** Most rows one evidence export carries. */
     private const EVIDENCE_ROW_LIMIT = 2000;
 
+    /** Most findings the page lists; the fingerprint and the acknowledgement still cover all of them. */
+    private const ITEM_DISPLAY_LIMIT = 100;
+
     public function __construct(
         private ModuleTemplateFactory $moduleTemplateFactory,
         private IconFactory $iconFactory,
@@ -222,7 +225,9 @@ final readonly class AuditController
 
         $this->pageRenderer->addCssFile('EXT:nr_vault/Resources/Public/Css/backend.css');
 
-        $report = $this->anchorService->verify();
+        // inspect(), not verify(): alert events are dispatched by the CLI and the
+        // scheduler task, not once per page load of any audit.view user.
+        $report = $this->anchorService->inspect();
 
         $moduleTemplate->assignMultiple($this->buildVerificationView($report, $request));
 
@@ -399,7 +404,8 @@ final readonly class AuditController
             'tamperEvidence' => $report->hasTamperEvidence(),
             'reasonCodes'    => $report->getReasonCodes(),
             'findings'       => $reasons,
-            'openItems'      => array_map($this->itemView(...), $open),
+            'openItems'      => array_map($this->itemView(...), array_slice($open, 0, self::ITEM_DISPLAY_LIMIT)),
+            'openItemsMore'  => max(0, count($open) - self::ITEM_DISPLAY_LIMIT),
             'acknowledged'   => array_map($this->itemView(...), $report->getAcknowledgedItems()),
             'warnings'       => $report->warnings,
             'anchorStatus'   => ($report->anchorStatus ?? AuditChainAnchorStatus::NotChecked)->value,
