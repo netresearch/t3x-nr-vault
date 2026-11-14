@@ -501,6 +501,42 @@ final class AuditFindingAcknowledgementTest extends AbstractVaultFunctionalTestC
     }
 
     /**
+     * The fresh anchor is a new baseline: once the chain grows and is anchored
+     * again, truncating it below that anchor is a new incident even though the old
+     * anchor, which the reader still returns, reads exactly as before.
+     */
+    #[Test]
+    public function aTruncationBelowALaterAnchorFailsAgainAfterAnAcknowledgedTableReset(): void
+    {
+        $auditService = $this->get(AuditLogServiceInterface::class);
+        $service      = $this->get(ChainTipAnchorServiceInterface::class);
+
+        $this->writeEntries(5);
+        $service->publish($service->capture());
+        $this->truncateAuditTable();
+        $this->getConnectionPool()->getConnectionForTable('sys_registry')
+            ->delete('sys_registry', ['entry_namespace' => 'tx_nrvault_audit_anchor']);
+        $auditService->log('rebuilt', 'create', true);
+        self::assertTrue($this->acknowledge($service->inspect())->isAcknowledged());
+
+        // The rebuilt chain grows and is anchored again.
+        $this->writeEntries(3);
+        $service->publish($service->capture());
+        self::assertTrue($service->inspect()->isValid(), 'precondition: still acknowledged');
+
+        // A second truncation, to just after the acknowledgement row.
+        $this->getConnectionPool()->getConnectionForTable('sys_registry')
+            ->delete('sys_registry', ['entry_namespace' => 'tx_nrvault_audit_anchor']);
+        $this->getConnection()->executeStatement('DELETE FROM ' . self::TABLE . ' WHERE uid > 2');
+
+        $open = array_map(
+            static fn (AuditFindingItem $item): string => $item->reason->value,
+            $service->inspect()->getOpenItems(),
+        );
+        self::assertContains('TABLE_RESET', $open);
+    }
+
+    /**
      * The acknowledgement is bound to the chain prefix it was written after:
      * once the row at the tip it recorded is gone, the external-anchor finding is
      * open again, although the acknowledgement row itself is still there.

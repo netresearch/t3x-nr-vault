@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Audit\Acknowledgement;
 
+use Netresearch\NrVault\Audit\Anchor\AnchorReaderInterface;
 use Netresearch\NrVault\Audit\Anchor\ChainTipAnchorServiceInterface;
 use Netresearch\NrVault\Audit\AuditAction;
 use Netresearch\NrVault\Audit\AuditChainAnchorStatus;
@@ -60,6 +61,7 @@ final readonly class AuditFindingAcknowledger implements AuditFindingAcknowledge
         private ExtensionConfigurationInterface $extensionConfiguration,
         private ConnectionPool $connectionPool,
         private AuditSinkRegistryInterface $sinkRegistry,
+        private AnchorReaderInterface $anchorReader,
     ) {}
 
     public function acknowledge(
@@ -104,7 +106,14 @@ final readonly class AuditFindingAcknowledger implements AuditFindingAcknowledge
             return AcknowledgementOutcome::refused(AcknowledgementStatus::TooManyFindings);
         }
 
-        $resetAnchor = in_array($report->anchorStatus, [
+        // Only a finding about the in-database anchor itself calls for re-arming
+        // it: the items without a row that are neither bound to a prefix nor tied
+        // to the external anchor.
+        $anchorItems = array_filter(
+            $open,
+            static fn (AuditFindingItem $item): bool => $item->rangeStart === 0 && !$item->prefixBound && !$item->requiresFreshAnchor,
+        );
+        $resetAnchor = $anchorItems !== [] && in_array($report->anchorStatus, [
             AuditChainAnchorStatus::Violated,
             AuditChainAnchorStatus::Unreadable,
             AuditChainAnchorStatus::Unanchored,
@@ -183,6 +192,9 @@ final readonly class AuditFindingAcknowledger implements AuditFindingAcknowledge
                     count: count($open),
                     ticket: $ticket,
                     originalUserUid: $originalUserUid,
+                    // Anchor records that exist now: the ones after this position are
+                    // the anchors published after the acknowledgement.
+                    anchorRecords: count($this->anchorReader->readAnchors()),
                     anchorReset: $resetAnchor,
                 ),
             );

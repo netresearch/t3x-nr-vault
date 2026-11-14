@@ -31,6 +31,8 @@ use TYPO3\CMS\Core\Database\Query\QueryBuilder;
 
 use function array_slice;
 use function count;
+use function is_array;
+use function is_numeric;
 use function is_string;
 use function sprintf;
 
@@ -186,15 +188,18 @@ final readonly class ChainTipAnchorService implements ChainTipAnchorServiceInter
 
     /**
      * Withdraw the acknowledgement of an external-anchor finding unless a fresh
-     * anchor was published after the acknowledgement row.
+     * anchor was published after it, and none of those contradicts the chain.
      *
-     * The reader returns the anchor with the highest SEQUENCE, which after a
-     * restore is still the old one, so the finding keeps being raised. A fresh
-     * anchor must reach the acknowledgement row (sequence at or above its uid) and
-     * must name the chain as it is stored: its tip equals the stored entry hash
-     * of the row at that sequence. The timestamp a record carries is ignored;
-     * whoever can append to the anchor file could set it to anything. A replayed
-     * old anchor file, or an appended record with a wrong tip, does not count.
+     * The reader returns only the highest sequence, which after a restore stays
+     * the old anchor, so the finding keeps being raised. The acknowledgement row
+     * records how many anchor records existed when it was written; the records
+     * after that position are the anchors published since. Each of them that
+     * reaches the acknowledgement row (sequence at or above its uid) must name the
+     * chain as stored: its tip equals the stored entry hash of the row at that
+     * sequence. One that does not (a later truncation, an appended record with a
+     * wrong tip) is a new incident, and at least one that does must exist. A file
+     * that was replaced by a shorter one has no records after that position.
+     * Timestamps decide nothing: whoever can append to the file could set them to anything.
      *
      * @param list<AuditFindingItem> $items
      *
@@ -223,18 +228,45 @@ final readonly class ChainTipAnchorService implements ChainTipAnchorServiceInter
      */
     private function hasFreshAnchor(array $anchors, int $acknowledgementUid): bool
     {
-        foreach ($anchors as $anchor) {
+        $known = $this->fetchRecordedAnchorCount($acknowledgementUid);
+        if ($known === null) {
+            return false;
+        }
+
+        $fresh = false;
+        foreach (array_slice($anchors, $known) as $anchor) {
             if ($anchor->isEmpty() || $anchor->sequence < $acknowledgementUid) {
                 continue;
             }
 
             $row = $this->fetchRowAt($anchor->sequence);
-            if ($row !== null && hash_equals($anchor->chainTip, $row['entryHash'])) {
-                return true;
+            if ($row === null || !hash_equals($anchor->chainTip, $row['entryHash'])) {
+                return false;
             }
+
+            $fresh = true;
         }
 
-        return false;
+        return $fresh;
+    }
+
+    /**
+     * Anchor records that existed when the acknowledgement row was written, or
+     * null when the row does not say.
+     */
+    private function fetchRecordedAnchorCount(int $uid): ?int
+    {
+        $queryBuilder = $this->getQueryBuilder();
+        $context      = $queryBuilder
+            ->select('context')
+            ->from(AuditLogService::TABLE_NAME)
+            ->where($queryBuilder->expr()->eq('uid', $queryBuilder->createNamedParameter($uid, Connection::PARAM_INT)))
+            ->executeQuery()
+            ->fetchOne();
+
+        $decoded = json_decode(is_string($context) ? $context : '', true);
+
+        return is_array($decoded) && is_numeric($decoded['anchorRecords'] ?? null) ? (int) $decoded['anchorRecords'] : null;
     }
 
     /**

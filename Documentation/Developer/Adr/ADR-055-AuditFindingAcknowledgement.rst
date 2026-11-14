@@ -106,16 +106,18 @@ Findings fall in three classes:
     tip uid and hash it was chained after; the finding is covered only while the
     row at that uid still carries that hash. Rewriting or truncating the chain
     up to that tip uncovers it again. A finding against the external anchor is
-    additionally covered only once a fresh anchor exists: a record in the
-    anchor file whose sequence is at or above the uid of the acknowledgement row
-    and whose tip equals the stored entry hash of the row at that sequence. The
-    timestamp of a record is ignored, because whoever can append to the file
-    could set it to anything. The flow publishes such an anchor; without an
-    external sink the request is refused before anything is written, and a
-    replayed old anchor file, an appended record with a wrong tip, or one that
-    ends before the acknowledgement reopens the finding. The reader keeps the anchor with the highest
-    sequence, which after a restore stays the old one, so anchoring alone never
-    clears such a finding.
+    additionally covered only while the anchors published since stay
+    consistent with the chain. The acknowledgement records how many anchor
+    records the file held; of the records after that position, each one that
+    reaches the acknowledgement row (sequence at or above its uid) must carry the
+    stored entry hash of the row at its sequence, and at least one must exist.
+    A later truncation below such an anchor, an appended record with a wrong tip
+    and a replayed old anchor file all reopen the finding; the timestamp of a
+    record decides nothing, because whoever can append to the file could set it
+    to anything. The flow publishes the fresh anchor; without an external sink
+    the request is refused before anything is written. The reader keeps the
+    anchor with the highest sequence, which after a restore stays the old one, so
+    the later anchors are read from the file directly.
 *   **The in-database anchor errors** are never covered. They carry no
     per-incident state, so an acknowledgement would also hide a later incident
     of the same kind. The flow resets and re-arms the in-database anchor in the

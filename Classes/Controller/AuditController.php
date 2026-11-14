@@ -12,6 +12,7 @@ namespace Netresearch\NrVault\Controller;
 use DateTimeImmutable;
 use Exception;
 use Netresearch\NrVault\Audit\Acknowledgement\AcknowledgementStatus;
+use Netresearch\NrVault\Audit\Acknowledgement\AuditFindingAcknowledger;
 use Netresearch\NrVault\Audit\Acknowledgement\AuditFindingAcknowledgerInterface;
 use Netresearch\NrVault\Audit\Acknowledgement\AuditFindingItem;
 use Netresearch\NrVault\Audit\Acknowledgement\AuditFindingOverlay;
@@ -69,8 +70,8 @@ final readonly class AuditController
     /** Most rows one evidence export carries. */
     private const EVIDENCE_ROW_LIMIT = 2000;
 
-    /** Most findings the page lists; the fingerprint and the acknowledgement still cover all of them. */
-    private const ITEM_DISPLAY_LIMIT = 100;
+    /** Most findings the page lists: exactly as many as one acknowledgement can cover, so nothing acknowledged is hidden. */
+    private const ITEM_DISPLAY_LIMIT = AuditFindingAcknowledger::MAX_FINDINGS;
 
     public function __construct(
         private ModuleTemplateFactory $moduleTemplateFactory,

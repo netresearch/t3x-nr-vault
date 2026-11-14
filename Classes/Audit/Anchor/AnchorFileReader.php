@@ -13,7 +13,6 @@ use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Psr\Log\LoggerInterface;
 use Throwable;
 
-use function count;
 use function is_array;
 
 /**
@@ -39,9 +38,6 @@ use function is_array;
  */
 final readonly class AnchorFileReader implements AnchorReaderInterface
 {
-    /** Most anchor records {@see self::readAnchors()} returns. */
-    public const MAX_RECORDS = 10000;
-
     public function __construct(
         private ExtensionConfigurationInterface $extensionConfiguration,
         private LoggerInterface $logger,
@@ -120,7 +116,7 @@ final readonly class AnchorFileReader implements AnchorReaderInterface
         $anchors = [];
 
         try {
-            while (count($anchors) < self::MAX_RECORDS && ($line = fgets($handle)) !== false) {
+            while (($line = fgets($handle)) !== false) {
                 $anchor = $this->parseLine($line);
                 if ($anchor instanceof ChainTipAnchor) {
                     $anchors[] = $anchor;
