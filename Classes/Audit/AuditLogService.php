@@ -354,8 +354,13 @@ final readonly class AuditLogService implements AuditLogServiceInterface
         /** @var list<int> $missingUids */
         $missingUids     = [];
         $missingUidCount = 0;
-        $previousHash    = '';
-        $previousEpoch   = -1;
+        // A bounded range starts mid-chain: its first row links to the row
+        // BEFORE the range, not to the empty genesis hash. Seeding '' there made
+        // every range that does not start at uid 1 fail on its first row, which
+        // is how `audit.hash_chain` (newest 1000 rows) reported one failure on
+        // every installation past 1000 audit rows.
+        $previousHash  = $fromUid !== null && $fromUid > 1 ? $this->fetchEntryHashBefore($connection, $fromUid) : '';
+        $previousEpoch = -1;
         // Highest epoch observed across the chain (the "high-water mark"). Stays
         // -1 for an empty chain so the epoch-floor check below is skipped.
         $maxEpoch = -1;
@@ -1201,6 +1206,33 @@ final readonly class AuditLogService implements AuditLogServiceInterface
             ->fetchOne();
 
         return is_string($hash) ? $hash : null;
+    }
+
+    /**
+     * `entry_hash` of the newest row below `$uid`, or '' when there is none.
+     *
+     * The nearest row rather than `$uid - 1`: when the row just before a range
+     * was deleted, the range's first row still links to the last row that
+     * exists, and the gap itself is reported by the uid-sequence check.
+     */
+    private function fetchEntryHashBefore(Connection $connection, int $uid): string
+    {
+        $queryBuilder = $connection->createQueryBuilder();
+        $hash         = $queryBuilder
+            ->select('entry_hash')
+            ->from(self::TABLE_NAME)
+            ->where(
+                $queryBuilder->expr()->lt(
+                    'uid',
+                    $queryBuilder->createNamedParameter($uid, Connection::PARAM_INT),
+                ),
+            )
+            ->orderBy('uid', 'DESC')
+            ->setMaxResults(1)
+            ->executeQuery()
+            ->fetchOne();
+
+        return is_string($hash) ? $hash : '';
     }
 
     /**
