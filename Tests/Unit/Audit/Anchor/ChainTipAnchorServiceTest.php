@@ -21,6 +21,7 @@ use Netresearch\NrVault\Audit\Sink\AuditSinkRegistryInterface;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Configuration\SecurityProfile;
 use Netresearch\NrVault\Event\AuditIntegrityAlertEvent;
+use Netresearch\NrVault\Tests\Unit\Audit\Acknowledgement\PassthroughOverlay;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
@@ -938,6 +939,7 @@ final class ChainTipAnchorServiceTest extends TestCase
             $configuration,
             $eventDispatcher ?? self::createStub(EventDispatcherInterface::class),
             $logger ?? new NullLogger(),
+            new PassthroughOverlay(),
         );
     }
 

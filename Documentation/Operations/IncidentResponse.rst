@@ -243,6 +243,34 @@ Only when the investigation is closed: re-anchor, and record the incident
 alongside the frozen artefacts so the next verification run has a documented
 baseline.
 
+.. _operations-incident-response-acknowledge:
+
+Step 5 — acknowledge the closed finding in the backend
+------------------------------------------------------
+
+A finding about history that cannot be rewritten stays red until somebody
+records that it was investigated and accepted. Open
+:guilabel:`Vault > Audit Log > Verify chain` as an administrator. The page shows
+every finding with its reason code and the affected rows, the verified range and
+the comparison with the external anchor.
+
+#.  Download the evidence (JSON or CSV) from the same page. It holds the
+    affected rows with five neighbours on each side, the anchor and the report.
+    Store it with the frozen artefacts of Step 1.
+#.  Enter the reason, for example the restore or the incident that explains the
+    finding, and optionally a ticket reference. Tick the confirmation and submit.
+
+This writes one chained audit entry of the type ``audit_findings_acknowledged``
+with the reason, your account, the finding set and the old chain tip, and
+publishes a new external anchor. It repairs nothing: the flagged rows keep
+failing their own hash, ``vault:audit --verify`` still reports them, and every
+re-seal still refuses the chain. ``vault:audit-verify`` and the readiness check
+report the findings as acknowledged. A new finding, or another change to a
+flagged row, fails again. See :ref:`adr-055-audit-finding-acknowledgement`.
+
+An acknowledgement needs the audit HMAC epoch 3 or higher. The page says so when
+the epoch is lower.
+
 .. _operations-incident-response-breakglass:
 
 Break-glass usage policy and review

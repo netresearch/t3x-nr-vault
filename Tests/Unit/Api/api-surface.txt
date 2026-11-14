@@ -17,6 +17,36 @@ Netresearch\NrVault\Adapter\VaultAdapterInterface (interface, extension point)
   method store(Netresearch\NrVault\Domain\Model\Secret $secret, bool $persistGroupRelations = …): Netresearch\NrVault\Domain\Model\Secret
   method updateMetadata(string $identifier, array $metadata): void
 
+Netresearch\NrVault\Audit\Acknowledgement\AcknowledgementOutcome (class)
+  constructor(Netresearch\NrVault\Audit\Acknowledgement\AcknowledgementStatus $status, int $acknowledgedCount = …, int $anchorsPublished = …)
+  method isAcknowledged(): bool
+  method static refused(Netresearch\NrVault\Audit\Acknowledgement\AcknowledgementStatus $status): self
+  property readonly acknowledgedCount: int
+  property readonly anchorsPublished: int
+  property readonly status: Netresearch\NrVault\Audit\Acknowledgement\AcknowledgementStatus
+
+Netresearch\NrVault\Audit\Acknowledgement\AcknowledgementStatus (enum)
+  case Acknowledged = "acknowledged"
+  case EpochTooLow = "epoch_too_low"
+  case NotHonoured = "not_honoured"
+  case NotPermitted = "not_permitted"
+  case NothingToAcknowledge = "nothing_to_acknowledge"
+  case ReasonInvalid = "reason_invalid"
+  case Stale = "stale"
+  case TooManyFindings = "too_many_findings"
+  method static cases(): array
+  method static from(int|string $value): static
+  method static tryFrom(int|string $value): ?static
+  property readonly name: string
+  property readonly value: string
+
+Netresearch\NrVault\Audit\Acknowledgement\AuditFindingAcknowledgerInterface (interface)
+  method acknowledge(string $displayedFingerprint, string $reason, string $ticket, int $originalUserUid): Netresearch\NrVault\Audit\Acknowledgement\AcknowledgementOutcome
+
+Netresearch\NrVault\Audit\Acknowledgement\AuditFindingOverlayInterface (interface)
+  method apply(array $items, Netresearch\NrVault\Audit\HashChainVerificationResult $raw, int $fromUid = …): array
+  method chainItems(Netresearch\NrVault\Audit\HashChainVerificationResult $raw): array
+
 Netresearch\NrVault\Audit\Anchor\AnchorReaderInterface (interface)
   method isAvailable(): bool
   method readLatestAnchor(): ?Netresearch\NrVault\Audit\Anchor\ChainTipAnchor
@@ -34,6 +64,7 @@ Netresearch\NrVault\Audit\Anchor\ChainTipAnchor (class)
 
 Netresearch\NrVault\Audit\Anchor\ChainTipAnchorServiceInterface (interface)
   method capture(): Netresearch\NrVault\Audit\Anchor\ChainTipAnchor
+  method inspect(): Netresearch\NrVault\Audit\AuditIntegrityReport
   method publish(Netresearch\NrVault\Audit\Anchor\ChainTipAnchor $anchor): int
   method verify(): Netresearch\NrVault\Audit\AuditIntegrityReport
 
@@ -41,6 +72,7 @@ Netresearch\NrVault\Audit\AuditAction (enum)
   case AccessDenied = "access_denied"
   case AuditAnchorReset = "audit_anchor_reset"
   case AuditChainRekey = "audit_chain_rekey"
+  case AuditFindingsAcknowledged = "audit_findings_acknowledged"
   case AuditReadLoggingChanged = "audit_read_logging_changed"
   case BreakGlassActivated = "break_glass_activated"
   case BreakGlassDeactivated = "break_glass_deactivated"
@@ -135,19 +167,24 @@ Netresearch\NrVault\Audit\AuditIntegrityReason (enum)
   property readonly value: string
 
 Netresearch\NrVault\Audit\AuditIntegrityReport (class)
-  constructor(array $findings, bool $chainValid, int $currentSequence, ?Netresearch\NrVault\Audit\Anchor\ChainTipAnchor $anchor = …, array $warnings = …, array $epochCounts = …)
+  constructor(array $findings, bool $chainValid, int $currentSequence, ?Netresearch\NrVault\Audit\Anchor\ChainTipAnchor $anchor = …, array $warnings = …, array $epochCounts = …, array $items = …, string $tipHash = …, ?Netresearch\NrVault\Audit\AuditChainAnchorStatus $anchorStatus = …)
+  method getAcknowledgedItems(): array
   method getMaxEpoch(): ?int
   method getMinEpoch(): ?int
+  method getOpenItems(): array
   method getReasonCodes(): array
   method hasReason(Netresearch\NrVault\Audit\AuditIntegrityReason $reason): bool
   method hasTamperEvidence(): bool
   method isValid(): bool
   method toArray(): array
   property readonly anchor: ?Netresearch\NrVault\Audit\Anchor\ChainTipAnchor
+  property readonly anchorStatus: ?Netresearch\NrVault\Audit\AuditChainAnchorStatus
   property readonly chainValid: bool
   property readonly currentSequence: int
   property readonly epochCounts: array
   property readonly findings: array
+  property readonly items: array
+  property readonly tipHash: string
   property readonly warnings: array
 
 Netresearch\NrVault\Audit\AuditLogEntry (class)
@@ -204,7 +241,7 @@ Netresearch\NrVault\Audit\AuditLogServiceInterface (interface)
   method verifyHashChain(?int $fromUid = …, ?int $toUid = …, ?int $minEpoch = …): Netresearch\NrVault\Audit\HashChainVerificationResult
 
 Netresearch\NrVault\Audit\HashChainVerificationResult (class)
-  constructor(bool $valid, array $errors = …, array $warnings = …, array $missingUids = …, int $missingUidCount = …, Netresearch\NrVault\Audit\AuditChainAnchorStatus $anchorStatus = …, array $epochCounts = …)
+  constructor(bool $valid, array $errors = …, array $warnings = …, array $missingUids = …, int $missingUidCount = …, Netresearch\NrVault\Audit\AuditChainAnchorStatus $anchorStatus = …, array $epochCounts = …, array $gaps = …)
   method getErrorCount(): int
   method getMaxEpoch(): ?int
   method getMinEpoch(): ?int
@@ -212,12 +249,13 @@ Netresearch\NrVault\Audit\HashChainVerificationResult (class)
   method hasMissingUids(): bool
   method hasMixedEpochs(): bool
   method isValid(): bool
-  method static invalid(array $errors, array $warnings = …, array $missingUids = …, int $missingUidCount = …, Netresearch\NrVault\Audit\AuditChainAnchorStatus $anchorStatus = …, array $epochCounts = …): self
-  method static valid(array $warnings = …, array $missingUids = …, int $missingUidCount = …, Netresearch\NrVault\Audit\AuditChainAnchorStatus $anchorStatus = …, array $epochCounts = …): self
+  method static invalid(array $errors, array $warnings = …, array $missingUids = …, int $missingUidCount = …, Netresearch\NrVault\Audit\AuditChainAnchorStatus $anchorStatus = …, array $epochCounts = …, array $gaps = …): self
+  method static valid(array $warnings = …, array $missingUids = …, int $missingUidCount = …, Netresearch\NrVault\Audit\AuditChainAnchorStatus $anchorStatus = …, array $epochCounts = …, array $gaps = …): self
   method toArray(): array
   property readonly anchorStatus: Netresearch\NrVault\Audit\AuditChainAnchorStatus
   property readonly epochCounts: array
   property readonly errors: array
+  property readonly gaps: array
   property readonly missingUidCount: int
   property readonly missingUids: array
   property readonly valid: bool

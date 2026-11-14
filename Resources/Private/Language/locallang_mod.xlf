@@ -1262,6 +1262,133 @@
       <trans-unit id="accessDenied.secret.hint">
         <source>Ask the owner of the secret to add one of your backend user groups to its write access tier, or to carry out the change for you.</source>
       </trans-unit>
+      <!-- Audit chain verification and acknowledgement (ADR-055) -->
+      <trans-unit id="audit.verify.ack_result.acknowledged">
+        <source>The findings were acknowledged and recorded in the audit chain.</source>
+      </trans-unit>
+      <trans-unit id="audit.verify.ack_result.not_permitted">
+        <source>Refused: acknowledging findings requires an administrator with the audit.view permission.</source>
+      </trans-unit>
+      <trans-unit id="audit.verify.ack_result.epoch_too_low">
+        <source>Refused: acknowledgements need the audit HMAC epoch 3 or higher, below it the acknowledgement could be edited without the key.</source>
+      </trans-unit>
+      <trans-unit id="audit.verify.ack_result.reason_invalid">
+        <source>Refused: a reason (at most 1000 characters), an optional ticket (at most 100) and the confirmation are required.</source>
+      </trans-unit>
+      <trans-unit id="audit.verify.ack_result.nothing_to_acknowledge">
+        <source>Nothing to acknowledge: there is no open finding.</source>
+      </trans-unit>
+      <trans-unit id="audit.verify.ack_result.stale">
+        <source>Refused: the open findings changed since this page was rendered. Review them and confirm again.</source>
+      </trans-unit>
+      <trans-unit id="audit.verify.ack_result.too_many_findings">
+        <source>Refused: too many findings for one acknowledgement. Export the evidence and investigate before acknowledging anything.</source>
+      </trans-unit>
+      <trans-unit id="audit.verify.ack_result.not_honoured">
+        <source>The acknowledgement was written but is not in effect: another audit entry was written in between. The attempt is recorded; run it again.</source>
+      </trans-unit>
+      <trans-unit id="audit.verify.findings.title">
+        <source>Findings</source>
+      </trans-unit>
+      <trans-unit id="audit.verify.col.code">
+        <source>Reason code</source>
+      </trans-unit>
+      <trans-unit id="audit.verify.col.tamper">
+        <source>Tamper evidence</source>
+      </trans-unit>
+      <trans-unit id="audit.verify.col.detail">
+        <source>Detail</source>
+      </trans-unit>
+      <trans-unit id="audit.verify.tamper.yes">
+        <source>yes</source>
+      </trans-unit>
+      <trans-unit id="audit.verify.tamper.no">
+        <source>no</source>
+      </trans-unit>
+      <trans-unit id="audit.verify.open.title">
+        <source>Affected rows</source>
+      </trans-unit>
+      <trans-unit id="audit.verify.acknowledged.title">
+        <source>Acknowledged findings</source>
+      </trans-unit>
+      <trans-unit id="audit.verify.acknowledged.description">
+        <source>An administrator acknowledged these findings. The rows are unchanged and still fail their own hash; the acknowledgement entry records who accepted them and why.</source>
+      </trans-unit>
+      <trans-unit id="audit.verify.acknowledged.in_entry">
+        <source>acknowledged in audit entry</source>
+      </trans-unit>
+      <trans-unit id="audit.verify.range.title">
+        <source>Verified range</source>
+      </trans-unit>
+      <trans-unit id="audit.verify.range.verified">
+        <source>Entries verified</source>
+      </trans-unit>
+      <trans-unit id="audit.verify.range.rows">
+        <source>%d rows</source>
+      </trans-unit>
+      <trans-unit id="audit.verify.range.empty">
+        <source>The audit log is empty.</source>
+      </trans-unit>
+      <trans-unit id="audit.verify.range.epochs">
+        <source>HMAC epochs</source>
+      </trans-unit>
+      <trans-unit id="audit.verify.range.epoch">
+        <source>epoch %d: %d rows</source>
+      </trans-unit>
+      <trans-unit id="audit.verify.range.tip">
+        <source>Chain tip</source>
+      </trans-unit>
+      <trans-unit id="audit.verify.anchor.title">
+        <source>Chain tip anchors</source>
+      </trans-unit>
+      <trans-unit id="audit.verify.anchor.external">
+        <source>External anchor</source>
+      </trans-unit>
+      <trans-unit id="audit.verify.anchor.external.none">
+        <source>No external anchor available to compare against.</source>
+      </trans-unit>
+      <trans-unit id="audit.verify.anchor.external.consistent">
+        <source>Consistent: the chain still contains the anchored entry with the anchored hash.</source>
+      </trans-unit>
+      <trans-unit id="audit.verify.anchor.external.mismatch">
+        <source>Mismatch: the chain is not the chain that was anchored.</source>
+      </trans-unit>
+      <trans-unit id="audit.verify.anchor.external.acknowledged">
+        <source>Mismatch acknowledged by an administrator.</source>
+      </trans-unit>
+      <trans-unit id="audit.verify.anchor.details">
+        <source>Anchored entry #%d, HMAC epoch %d, taken %s</source>
+      </trans-unit>
+      <trans-unit id="audit.verify.ack.title">
+        <source>Acknowledge findings</source>
+      </trans-unit>
+      <trans-unit id="audit.verify.ack.intro">
+        <source>Acknowledging records the findings above, your reason and your account as a new audit entry. It repairs nothing: the affected rows stay as they are and keep failing their own hash, and any further change to them or any new finding fails the check again. Download the evidence first.</source>
+      </trans-unit>
+      <trans-unit id="audit.verify.ack.evidence_json">
+        <source>Download evidence (JSON)</source>
+      </trans-unit>
+      <trans-unit id="audit.verify.ack.evidence_csv">
+        <source>Download evidence (CSV)</source>
+      </trans-unit>
+      <trans-unit id="audit.verify.ack.reason">
+        <source>Reason (required)</source>
+      </trans-unit>
+      <trans-unit id="audit.verify.ack.reason_help">
+        <source>Why these findings are accepted, for example the incident or restore that explains them. Stored in the audit chain.</source>
+      </trans-unit>
+      <trans-unit id="audit.verify.ack.ticket">
+        <source>Ticket reference (optional)</source>
+      </trans-unit>
+      <trans-unit id="audit.verify.ack.confirm">
+        <source>I reviewed the findings and the evidence and accept them on the stated reason.</source>
+      </trans-unit>
+      <trans-unit id="audit.verify.ack.submit">
+        <source>Acknowledge these findings</source>
+      </trans-unit>
+      <trans-unit id="audit.verify.ack.blocked_epoch">
+        <source>Findings can only be acknowledged with the audit HMAC epoch set to 3 or higher. Below it an acknowledgement could be edited in the database without the key. Raise the epoch and migrate the chain first.</source>
+      </trans-unit>
     </body>
   </file>
 </xliff>

@@ -354,6 +354,8 @@ final readonly class AuditLogService implements AuditLogServiceInterface
         /** @var list<int> $missingUids */
         $missingUids     = [];
         $missingUidCount = 0;
+        /** @var list<array{start: int, end: int, uid: int}> $gaps */
+        $gaps = [];
         // A bounded range starts mid-chain: its first row links to the row
         // BEFORE the range, not to the empty genesis hash. Seeding '' there made
         // every range that does not start at uid 1 fail on its first row, which
@@ -414,6 +416,7 @@ final readonly class AuditLogService implements AuditLogServiceInterface
                     $gapEnd   = $uid - 1;
                     $gapSize  = $gapEnd - $gapStart + 1;
                     $missingUidCount += $gapSize;
+                    $gaps[] = ['start' => $gapStart, 'end' => $gapEnd, 'uid' => $uid];
 
                     $remaining = $missingUidCap - count($missingUids);
                     if ($remaining > 0) {
@@ -541,8 +544,8 @@ final readonly class AuditLogService implements AuditLogServiceInterface
         ksort($epochCounts);
 
         return $errors === []
-            ? HashChainVerificationResult::valid($warnings, $missingUids, $missingUidCount, $anchorStatus, $epochCounts)
-            : HashChainVerificationResult::invalid($errors, $warnings, $missingUids, $missingUidCount, $anchorStatus, $epochCounts);
+            ? HashChainVerificationResult::valid($warnings, $missingUids, $missingUidCount, $anchorStatus, $epochCounts, $gaps)
+            : HashChainVerificationResult::invalid($errors, $warnings, $missingUids, $missingUidCount, $anchorStatus, $epochCounts, $gaps);
     }
 
     public function verifyChainForReseal(): ?HashChainVerificationResult

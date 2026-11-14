@@ -9,6 +9,8 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Service\Doctor\Check;
 
+use Netresearch\NrVault\Audit\Acknowledgement\AuditFindingItem;
+use Netresearch\NrVault\Audit\Acknowledgement\AuditFindingOverlayInterface;
 use Netresearch\NrVault\Audit\Anchor\AnchorReaderInterface;
 use Netresearch\NrVault\Audit\Anchor\ChainTipAnchor;
 use Netresearch\NrVault\Audit\Anchor\ChainTipAnchorServiceInterface;
@@ -88,6 +90,12 @@ final readonly class AuditCheck implements ReadinessCheckInterface
          * findings are simply not emitted.
          */
         private ?SinkDeliveryStateRepositoryInterface $deliveryState = null,
+        /**
+         * Applies administrator acknowledgements (ADR-055) to the bounded pass.
+         * Optional like {@see $deliveryState}: absent means nothing is
+         * acknowledged, which is the strict reading.
+         */
+        private ?AuditFindingOverlayInterface $overlay = null,
     ) {}
 
     public function getId(): string
@@ -355,10 +363,19 @@ final readonly class AuditCheck implements ReadinessCheckInterface
         $fromUid = max(1, $currentSequence - self::CHAIN_TAIL_SIZE + 1);
         $result  = $this->auditLogService->verifyHashChain($fromUid);
 
+        // Findings an administrator acknowledged in the backend no longer fail
+        // the check. Acknowledged rows stay in the details: the check reports
+        // them, it does not hide them.
+        $items            = $this->overlay?->apply($this->overlay->chainItems($result), $result, $fromUid) ?? [];
+        $acknowledged     = count(array_filter($items, static fn (AuditFindingItem $item): bool => $item->isAcknowledged()));
+        $openCount        = count($items) - $acknowledged;
+        $effectivelyValid = $result->isValid() || ($items !== [] && $openCount === 0);
+
         $details = [
-            'fromUid'    => $fromUid,
-            'toUid'      => $currentSequence,
-            'errorCount' => $result->getErrorCount(),
+            'fromUid'           => $fromUid,
+            'toUid'             => $currentSequence,
+            'errorCount'        => $result->getErrorCount(),
+            'acknowledgedCount' => $acknowledged,
             // Computed by every verification pass and discarded until now. The
             // warnings are epoch boundaries — non-fatal by design, and the
             // signal that a migration touched part of this range, which is
@@ -367,12 +384,12 @@ final readonly class AuditCheck implements ReadinessCheckInterface
             'missingUidCount' => $result->missingUidCount,
         ];
 
-        if (!$result->isValid()) {
+        if (!$effectivelyValid) {
             return Finding::critical(
                 id: $id,
                 summary: sprintf(
                     'Hash chain verification failed on %d of the last %d audit entries (uid %d..%d)%s.',
-                    $result->getErrorCount(),
+                    $openCount > 0 ? $openCount : $result->getErrorCount(),
                     $currentSequence - $fromUid + 1,
                     $fromUid,
                     $currentSequence,
@@ -396,11 +413,14 @@ final readonly class AuditCheck implements ReadinessCheckInterface
         return Finding::pass(
             id: $id,
             summary: sprintf(
-                'The last %d audit entries (uid %d..%d) verify against the hash chain. Full-range '
+                'The last %d audit entries (uid %d..%d) verify against the hash chain%s. Full-range '
                 . 'verification is vault:audit-verify.',
                 $currentSequence - $fromUid + 1,
                 $fromUid,
                 $currentSequence,
+                $acknowledged > 0
+                    ? sprintf('; %d finding(s) in this range were acknowledged by an administrator', $acknowledged)
+                    : '',
             ),
             docsUrl: DocsLink::AUDIT_HASH_CHAIN,
             details: $details,

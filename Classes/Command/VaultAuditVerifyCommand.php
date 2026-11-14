@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Command;
 
+use Netresearch\NrVault\Audit\Acknowledgement\AuditFindingItem;
 use Netresearch\NrVault\Audit\Anchor\ChainTipAnchor;
 use Netresearch\NrVault\Audit\Anchor\ChainTipAnchorServiceInterface;
 use Netresearch\NrVault\Audit\AuditIntegrityAlert;
@@ -182,7 +183,9 @@ final class VaultAuditVerifyCommand extends Command
         $anchor = $report->anchor;
         $io->definitionList(
             ['Chain length (max uid)' => (string) $report->currentSequence],
-            ['Hash chain' => $report->chainValid ? 'valid' : 'INVALID'],
+            ['Hash chain' => $report->chainValid
+                ? 'valid'
+                : ($report->getOpenItems() === [] && $report->getAcknowledgedItems() !== [] ? 'INVALID (all findings acknowledged)' : 'INVALID')],
             ['Anchor' => $anchor instanceof ChainTipAnchor
                 ? sprintf(
                     'sequence %d, epoch %d, taken %s UTC',
@@ -203,6 +206,26 @@ final class VaultAuditVerifyCommand extends Command
                     static fn (int|string $uid, string $warning): array => [(string) $uid, $warning],
                     array_keys($report->warnings),
                     array_values($report->warnings),
+                ),
+            );
+        }
+
+        $acknowledged = $report->getAcknowledgedItems();
+        if ($acknowledged !== []) {
+            $io->note(sprintf(
+                '%d finding(s) acknowledged by an administrator. The rows are unchanged and still fail their own hash.',
+                count($acknowledged),
+            ));
+            $io->table(
+                ['Code', 'Rows', 'Acknowledged in entry', 'Detail'],
+                array_map(
+                    static fn (AuditFindingItem $item): array => [
+                        $item->reason->value,
+                        $item->rangeStart === 0 ? '-' : ($item->rangeStart === $item->rangeEnd ? (string) $item->rangeStart : $item->rangeStart . '-' . $item->rangeEnd),
+                        (string) $item->acknowledgedBy,
+                        $item->detail,
+                    ],
+                    $acknowledged,
                 ),
             );
         }

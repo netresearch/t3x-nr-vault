@@ -11,10 +11,23 @@ namespace Netresearch\NrVault\Controller;
 
 use DateTimeImmutable;
 use Exception;
+use Netresearch\NrVault\Audit\Acknowledgement\AcknowledgementStatus;
+use Netresearch\NrVault\Audit\Acknowledgement\AuditFindingAcknowledgerInterface;
+use Netresearch\NrVault\Audit\Acknowledgement\AuditFindingItem;
+use Netresearch\NrVault\Audit\Acknowledgement\AuditFindingOverlay;
+use Netresearch\NrVault\Audit\Anchor\ChainTipAnchor;
+use Netresearch\NrVault\Audit\Anchor\ChainTipAnchorServiceInterface;
 use Netresearch\NrVault\Audit\AuditAction;
+use Netresearch\NrVault\Audit\AuditChainAnchorStatus;
+use Netresearch\NrVault\Audit\AuditIntegrityAlert;
+use Netresearch\NrVault\Audit\AuditIntegrityReason;
+use Netresearch\NrVault\Audit\AuditIntegrityReport;
 use Netresearch\NrVault\Audit\AuditLogEntry;
 use Netresearch\NrVault\Audit\AuditLogFilter;
+use Netresearch\NrVault\Audit\AuditLogService;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
+use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
+use Netresearch\NrVault\Security\AccessControlServiceInterface;
 use Netresearch\NrVault\Security\VaultPermission;
 use Netresearch\NrVault\Utility\CsvFormulaSanitizer;
 use Psr\Http\Message\ResponseInterface;
@@ -24,7 +37,11 @@ use TYPO3\CMS\Backend\Routing\UriBuilder;
 use TYPO3\CMS\Backend\Template\Components\ButtonBar;
 use TYPO3\CMS\Backend\Template\ModuleTemplate;
 use TYPO3\CMS\Backend\Template\ModuleTemplateFactory;
+use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
+use TYPO3\CMS\Core\Database\Connection;
+use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Http\JsonResponse;
+use TYPO3\CMS\Core\Http\RedirectResponse;
 use TYPO3\CMS\Core\Http\Response;
 use TYPO3\CMS\Core\Imaging\IconFactory;
 use TYPO3\CMS\Core\Imaging\IconSize;
@@ -32,6 +49,7 @@ use TYPO3\CMS\Core\Localization\LanguageService;
 use TYPO3\CMS\Core\Page\PageRenderer;
 
 use function assert;
+use function count;
 use function is_array;
 use function is_int;
 use function is_string;
@@ -48,6 +66,9 @@ final readonly class AuditController
 
     private const LL_TABS_TAB = self::LL_PREFIX . 'mlang_tabs_tab';
 
+    /** Most rows one evidence export carries. */
+    private const EVIDENCE_ROW_LIMIT = 2000;
+
     public function __construct(
         private ModuleTemplateFactory $moduleTemplateFactory,
         private IconFactory $iconFactory,
@@ -55,6 +76,11 @@ final readonly class AuditController
         private AuditLogServiceInterface $auditLogService,
         private UriBuilder $uriBuilder,
         private ModuleAccessGuard $accessGuard,
+        private ChainTipAnchorServiceInterface $anchorService,
+        private AuditFindingAcknowledgerInterface $acknowledger,
+        private AccessControlServiceInterface $accessControlService,
+        private ExtensionConfigurationInterface $extensionConfiguration,
+        private ConnectionPool $connectionPool,
     ) {}
 
     /**
@@ -168,13 +194,18 @@ final readonly class AuditController
     }
 
     /**
-     * Verify hash chain integrity.
+     * Verify the audit chain: the same full verification as `vault:audit-verify`.
+     *
+     * Runs {@see ChainTipAnchorServiceInterface::verify()}, so the backend
+     * reports what the CLI reports: the hash chain over the whole range, the
+     * external chain-tip anchor, and a machine-readable reason code for every
+     * finding. Read-only; acknowledging a finding is the separate POST route.
      */
     public function verifyChainAction(ServerRequestInterface $request): ResponseInterface
     {
         // Verification is a read of the chain, so it shares `audit.view` with
-        // the listing. Replaces the previous silent redirect-on-non-admin with
-        // an explicit 403 that names the missing permission.
+        // the listing, the permission `vault:audit-verify` asserts as well. The
+        // CLI requires nothing stricter, so there is no stricter gate to keep.
         if (!$this->accessGuard->isGranted(VaultPermission::AuditView)) {
             return $this->accessGuard->deniedResponse($request, VaultPermission::AuditView);
         }
@@ -191,17 +222,9 @@ final readonly class AuditController
 
         $this->pageRenderer->addCssFile('EXT:nr_vault/Resources/Public/Css/backend.css');
 
-        $result = $this->auditLogService->verifyHashChain();
+        $report = $this->anchorService->verify();
 
-        $moduleTemplate->assignMultiple([
-            'valid'        => $result->valid,
-            'errors'       => $result->errors,
-            'warnings'     => $result->warnings,
-            'anchorStatus' => $result->anchorStatus->value,
-            'message'      => $result->isValid()
-                ? $this->getLanguageService()->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:audit.chain_valid')
-                : $this->getLanguageService()->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:audit.chain_invalid'),
-        ]);
+        $moduleTemplate->assignMultiple($this->buildVerificationView($report, $request));
 
         $moduleTemplate->setTitle(
             $this->getLanguageService()->sL(self::LL_TABS_TAB)
@@ -210,6 +233,89 @@ final readonly class AuditController
         );
 
         return $moduleTemplate->renderResponse('Audit/VerifyChain');
+    }
+
+    /**
+     * Acknowledge the open integrity findings (ADR-055). POST only.
+     *
+     * Append-only: writes one chained audit row and rewrites nothing. The route
+     * token that every backend module route carries is the CSRF protection; the
+     * administrator additionally has to tick the confirmation and state a reason.
+     * A repeated POST changes nothing: the findings are already acknowledged, so
+     * it is refused as "nothing to acknowledge".
+     */
+    public function acknowledgeFindingsAction(ServerRequestInterface $request): ResponseInterface
+    {
+        if ($request->getMethod() !== 'POST') {
+            /** @phpstan-ignore new.internalClass, method.internalClass */
+            return new JsonResponse(['success' => false, 'error' => 'POST required'], 405, ['Allow' => 'POST']);
+        }
+
+        if (!$this->accessControlService->isCurrentActorAdmin()
+            || !$this->accessGuard->isGranted(VaultPermission::AuditView)
+        ) {
+            return $this->accessGuard->deniedResponse($request, VaultPermission::AuditView);
+        }
+
+        $body = $request->getParsedBody();
+        $body = is_array($body) ? $body : [];
+
+        $text = static fn (string $name): string => is_string($body[$name] ?? null) ? $body[$name] : '';
+
+        if ($text('confirm') !== '1') {
+            return $this->redirectToVerification(AcknowledgementStatus::ReasonInvalid);
+        }
+
+        $backendUser = $GLOBALS['BE_USER'] ?? null;
+        // The administrator behind a switch-user session, 0 otherwise.
+        /** @phpstan-ignore method.internal */
+        $originalUserUid = $backendUser instanceof BackendUserAuthentication ? ($backendUser->getOriginalUserIdWhenInSwitchUserMode() ?? 0) : 0;
+
+        $outcome = $this->acknowledger->acknowledge(
+            $text('fingerprint'),
+            $text('reason'),
+            $text('ticket'),
+            $originalUserUid,
+        );
+
+        return $this->redirectToVerification($outcome->status);
+    }
+
+    /**
+     * Evidence export for the findings on screen: the affected rows with a few
+     * neighbours on each side, plus the anchor and the verification report.
+     * Read-only. Needs `audit.export`, like the full export, because the file
+     * leaves the tamper-evident storage.
+     */
+    public function evidenceAction(ServerRequestInterface $request): ResponseInterface
+    {
+        if (!$this->accessGuard->isGranted(VaultPermission::AuditExport)) {
+            /** @phpstan-ignore new.internalClass, method.internalClass */
+            return new JsonResponse(['success' => false, 'error' => 'Access denied'], 403);
+        }
+
+        $report  = $this->anchorService->inspect();
+        $entries = $this->fetchEvidenceEntries($report);
+
+        $formatVal = $request->getQueryParams()['format'] ?? 'json';
+        if ($formatVal === 'csv') {
+            return $this->exportAsCsv($entries)
+                ->withHeader('Content-Disposition', 'attachment; filename="vault-audit-evidence-' . date('Y-m-d') . '.csv"');
+        }
+
+        /** @phpstan-ignore new.internalClass, method.internalClass */
+        $response = new Response();
+        /** @phpstan-ignore method.internalClass */
+        $response->getBody()->write(json_encode([
+            'generatedAt' => gmdate('c'),
+            'report'      => $report->toArray(),
+            'rows'        => $entries,
+        ], JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR));
+
+        /** @phpstan-ignore-next-line method.internalClass */
+        return $response
+            ->withHeader('Content-Type', 'application/json')
+            ->withHeader('Content-Disposition', 'attachment; filename="vault-audit-evidence-' . date('Y-m-d') . '.json"');
     }
 
     /**
@@ -248,6 +354,191 @@ final readonly class AuditController
         return $response
             ->withHeader('Content-Type', 'application/json')
             ->withHeader('Content-Disposition', 'attachment; filename="vault-audit-' . date('Y-m-d') . '.json"');
+    }
+
+    private function redirectToVerification(AcknowledgementStatus $status): ResponseInterface
+    {
+        $url = $this->uriBuilder->buildUriFromRoute(self::MODULE_NAME . '.verifyChain', ['ackResult' => $status->value]);
+
+        /** @phpstan-ignore new.internalClass, method.internalClass */
+        return new RedirectResponse((string) $url, 303);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function buildVerificationView(AuditIntegrityReport $report, ServerRequestInterface $request): array
+    {
+        $open   = $report->getOpenItems();
+        $anchor = $report->anchor;
+
+        $epochs = [];
+        $rows   = 0;
+        foreach ($report->epochCounts as $epoch => $count) {
+            $epochs[] = ['epoch' => $epoch, 'rows' => $count];
+            $rows += $count;
+        }
+
+        $reasons = array_map(
+            static fn (AuditIntegrityAlert $alert): array => [
+                'code'    => $alert->reason->value,
+                'tamper'  => $alert->reason->isTamperEvidence(),
+                'detail'  => $alert->detail,
+                'context' => $alert->context,
+            ],
+            $report->findings,
+        );
+
+        $isAdmin = $this->accessControlService->isCurrentActorAdmin();
+
+        $ackResult = $request->getQueryParams()['ackResult'] ?? '';
+        $ackResult = is_string($ackResult) ? AcknowledgementStatus::tryFrom($ackResult) : null;
+
+        return [
+            'valid'          => $report->isValid(),
+            'tamperEvidence' => $report->hasTamperEvidence(),
+            'reasonCodes'    => $report->getReasonCodes(),
+            'findings'       => $reasons,
+            'openItems'      => array_map($this->itemView(...), $open),
+            'acknowledged'   => array_map($this->itemView(...), $report->getAcknowledgedItems()),
+            'warnings'       => $report->warnings,
+            'anchorStatus'   => ($report->anchorStatus ?? AuditChainAnchorStatus::NotChecked)->value,
+            'range'          => [
+                'from'    => $report->currentSequence > 0 ? 1 : 0,
+                'to'      => $report->currentSequence,
+                'rows'    => $rows,
+                'epochs'  => $epochs,
+                'tipHash' => $report->tipHash,
+            ],
+            'externalAnchor' => $anchor instanceof ChainTipAnchor ? [
+                'sequence' => $anchor->sequence,
+                'epoch'    => $anchor->hmacEpoch,
+                'takenAt'  => gmdate('Y-m-d H:i:s', $anchor->timestamp) . ' UTC',
+                'chainTip' => $anchor->chainTip,
+                'empty'    => $anchor->isEmpty(),
+            ] : null,
+            'externalAnchorState' => $this->externalAnchorState($report),
+            'canAcknowledge'      => $isAdmin
+                && $open !== []
+                && $this->extensionConfiguration->getAuditHmacEpoch() >= AuditFindingOverlay::MIN_ACKNOWLEDGEMENT_EPOCH,
+            'ackBlockedByEpoch' => $isAdmin && $open !== []
+                && $this->extensionConfiguration->getAuditHmacEpoch() < AuditFindingOverlay::MIN_ACKNOWLEDGEMENT_EPOCH,
+            'fingerprint'     => AuditFindingItem::fingerprint($open),
+            'acknowledgeUrl'  => (string) $this->uriBuilder->buildUriFromRoute(self::MODULE_NAME . '.acknowledgeFindings'),
+            'canExport'       => $this->accessGuard->isGranted(VaultPermission::AuditExport),
+            'evidenceJsonUrl' => (string) $this->uriBuilder->buildUriFromRoute(self::MODULE_NAME . '.evidence', ['format' => 'json']),
+            'evidenceCsvUrl'  => (string) $this->uriBuilder->buildUriFromRoute(self::MODULE_NAME . '.evidence', ['format' => 'csv']),
+            'ackResult'       => $ackResult?->value,
+            'ackResultOk'     => $ackResult === AcknowledgementStatus::Acknowledged,
+        ];
+    }
+
+    /**
+     * @return array{key: string, code: string, tamper: bool, range: string, detail: string, acknowledgedBy: int|null}
+     */
+    private function itemView(AuditFindingItem $item): array
+    {
+        return [
+            'key'    => $item->key,
+            'code'   => $item->reason->value,
+            'tamper' => $item->reason->isTamperEvidence(),
+            'range'  => match (true) {
+                $item->rangeStart === 0               => '',
+                $item->rangeStart === $item->rangeEnd => '#' . $item->rangeStart,
+                default                               => '#' . $item->rangeStart . ' - #' . $item->rangeEnd,
+            },
+            'detail'         => $item->detail,
+            'acknowledgedBy' => $item->acknowledgedBy,
+        ];
+    }
+
+    /**
+     * How the stored chain compares with the externally published anchor:
+     * none (nothing to compare), consistent, mismatch (an open TABLE_RESET or
+     * anchor-epoch finding) or acknowledged.
+     */
+    private function externalAnchorState(AuditIntegrityReport $report): string
+    {
+        if (!$report->anchor instanceof ChainTipAnchor || $report->anchor->isEmpty()) {
+            return 'none';
+        }
+
+        foreach ($report->findings as $finding) {
+            if (isset($finding->context['anchoredSequence'])) {
+                return 'mismatch';
+            }
+        }
+
+        foreach ($report->getAcknowledgedItems() as $item) {
+            if ($item->rangeStart === 0 && $item->reason === AuditIntegrityReason::TableReset) {
+                return 'acknowledged';
+            }
+        }
+
+        return 'consistent';
+    }
+
+    /**
+     * Rows around every finding, merged into ranges, bounded.
+     *
+     * @return list<AuditLogEntry>
+     */
+    private function fetchEvidenceEntries(AuditIntegrityReport $report): array
+    {
+        $ranges = [];
+        foreach ($report->items as $item) {
+            if ($item->rangeStart > 0) {
+                $ranges[] = [max(1, $item->rangeStart - 5), $item->rangeEnd + 5];
+            }
+        }
+
+        if ($report->anchor instanceof ChainTipAnchor && !$report->anchor->isEmpty()) {
+            $ranges[] = [max(1, $report->anchor->sequence - 5), $report->anchor->sequence + 5];
+        }
+
+        if ($ranges === []) {
+            return [];
+        }
+
+        usort($ranges, static fn (array $a, array $b): int => $a[0] <=> $b[0]);
+        $merged = [$ranges[0]];
+        foreach (array_slice($ranges, 1) as [$start, $end]) {
+            $last = count($merged) - 1;
+            if ($start <= $merged[$last][1] + 1) {
+                $merged[$last][1] = max($merged[$last][1], $end);
+
+                continue;
+            }
+
+            $merged[] = [$start, $end];
+        }
+
+        $connection = $this->connectionPool->getConnectionForTable(AuditLogService::TABLE_NAME);
+        $entries    = [];
+        foreach ($merged as [$start, $end]) {
+            $queryBuilder = $connection->createQueryBuilder();
+            $rows         = $queryBuilder
+                ->select('*')
+                ->from(AuditLogService::TABLE_NAME)
+                ->where(
+                    $queryBuilder->expr()->gte('uid', $queryBuilder->createNamedParameter($start, Connection::PARAM_INT)),
+                    $queryBuilder->expr()->lte('uid', $queryBuilder->createNamedParameter($end, Connection::PARAM_INT)),
+                )
+                ->orderBy('uid', 'ASC')
+                ->setMaxResults(self::EVIDENCE_ROW_LIMIT - count($entries))
+                ->executeQuery()
+                ->fetchAllAssociative();
+
+            foreach ($rows as $row) {
+                $entries[] = AuditLogEntry::fromDatabaseRow($row);
+            }
+
+            if (count($entries) >= self::EVIDENCE_ROW_LIMIT) {
+                break;
+            }
+        }
+
+        return $entries;
     }
 
     /**
