@@ -168,7 +168,7 @@ final readonly class AuditFindingOverlay implements AuditFindingOverlayInterface
 
         // A chain-level finding without a row is covered only when it is bound to
         // the chain prefix the administrator saw: the row at the recorded tip must
-        // still carry the recorded hash. Anchor findings are never covered.
+        // still carry the recorded hash. The in-database anchor errors are never covered.
         return $item->prefixBound && $this->tipStillHolds($ack['tipUid'], $ack['tipHash']);
     }
 

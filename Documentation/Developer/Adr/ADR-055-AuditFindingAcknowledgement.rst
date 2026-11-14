@@ -167,3 +167,13 @@ Consequences
     run. The backend view, the acknowledgement flow and the evidence export use
     ``inspect()``, which does not dispatch, so a page load by any ``audit.view``
     user does not alert the sinks and one action does not alert three times.
+*   Known limits of the external-anchor binding, all failing closed. A record
+    appended to the anchor file with a sequence at or above the acknowledgement
+    row and a wrong tip withdraws that acknowledgement, and the verifier keeps
+    the first acknowledgement row per finding, so a second acknowledgement of the
+    same finding does not replace it; clearing it needs an operator to remove the
+    bad record from the file. The anchors after the recorded position are read
+    from the whole file and checked one query each. The position is a count of
+    records, not a content hash, so rewriting the file before it shifts the
+    window; rewriting the anchor file already blinds the external anchor without
+    any acknowledgement involved.
