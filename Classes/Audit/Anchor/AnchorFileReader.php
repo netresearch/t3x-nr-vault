@@ -96,6 +96,39 @@ final readonly class AnchorFileReader implements AnchorReaderInterface
         return is_file($path) && is_readable($path);
     }
 
+    public function readAnchors(): array
+    {
+        $path = $this->extensionConfiguration->getAuditSinkAnchorPath();
+        if (!is_file($path) || !is_readable($path)) {
+            return [];
+        }
+
+        try {
+            $handle = fopen($path, 'rb');
+        } catch (Throwable) {
+            $handle = false;
+        }
+
+        if ($handle === false) {
+            return [];
+        }
+
+        $anchors = [];
+
+        try {
+            while (($line = fgets($handle)) !== false) {
+                $anchor = $this->parseLine($line);
+                if ($anchor instanceof ChainTipAnchor) {
+                    $anchors[] = $anchor;
+                }
+            }
+        } finally {
+            fclose($handle);
+        }
+
+        return $anchors;
+    }
+
     /**
      * Decode one NDJSON line into an anchor, or null when it is not an anchor
      * record.

@@ -155,6 +155,12 @@ return [
             'verifyChain' => [
                 'target' => AuditController::class . '::verifyChainAction',
             ],
+            'acknowledgeFindings' => [
+                'target' => AuditController::class . '::acknowledgeFindingsAction',
+            ],
+            'evidence' => [
+                'target' => AuditController::class . '::evidenceAction',
+            ],
         ],
     ],
 

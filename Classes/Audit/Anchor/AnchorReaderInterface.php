@@ -38,4 +38,19 @@ interface AnchorReaderInterface
      * worth reporting differently in operator output.
      */
     public function isAvailable(): bool;
+
+    /**
+     * Every anchor record the store holds, in the order they were appended.
+     *
+     * {@see self::readLatestAnchor()} returns the highest SEQUENCE, which after a
+     * restore is still the old anchor, so it cannot show that a fresh baseline
+     * exists. The position in this list is what separates the anchors that
+     * existed when an acknowledgement was written from the ones published after
+     * it; the timestamp a record carries decides nothing. The file grows by one
+     * line per anchoring run and {@see self::readLatestAnchor()} already scans it
+     * whole.
+     *
+     * @return list<ChainTipAnchor>
+     */
+    public function readAnchors(): array;
 }

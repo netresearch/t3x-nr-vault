@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Audit;
 
+use Netresearch\NrVault\Audit\Acknowledgement\AuditFindingItem;
 use Netresearch\NrVault\Audit\Anchor\ChainTipAnchor;
 
 use function in_array;
@@ -32,19 +33,24 @@ use function in_array;
 final readonly class AuditIntegrityReport
 {
     /**
-     * @param list<AuditIntegrityAlert> $findings        Empty = fully verified
-     * @param bool                      $chainValid      Result of the internal hash-chain pass alone
-     * @param int                       $currentSequence Highest audit uid at verification time
-     * @param ChainTipAnchor|null       $anchor          Anchor compared against (null = none available)
-     * @param array<int, string>        $warnings        Non-fatal chain notes, keyed by uid
-     * @param array<int, int>           $epochCounts     Rows per `hmac_key_epoch` across the full
-     *                                                   chain, keyed by epoch. Carried through from
-     *                                                   the chain pass, which counts them for free
-     *                                                   while walking. A valid chain whose lowest
-     *                                                   epoch is below the configured one is not a
-     *                                                   finding — nothing was tampered with — but it
-     *                                                   is the state a stalled HMAC migration leaves
-     *                                                   behind, so the verifier reports it.
+     * @param list<AuditIntegrityAlert>   $findings        Empty = fully verified
+     * @param bool                        $chainValid      Result of the internal hash-chain pass alone
+     * @param int                         $currentSequence Highest audit uid at verification time
+     * @param ChainTipAnchor|null         $anchor          Anchor compared against (null = none available)
+     * @param array<int, string>          $warnings        Non-fatal chain notes, keyed by uid
+     * @param array<int, int>             $epochCounts     Rows per `hmac_key_epoch` across the full
+     *                                                     chain, keyed by epoch. Carried through from
+     *                                                     the chain pass, which counts them for free
+     *                                                     while walking. A valid chain whose lowest
+     *                                                     epoch is below the configured one is not a
+     *                                                     finding — nothing was tampered with — but it
+     *                                                     is the state a stalled HMAC migration leaves
+     *                                                     behind, so the verifier reports it.
+     * @param list<AuditFindingItem>      $items           Every acknowledgeable piece of tamper evidence, with the
+     *                                                     acknowledging row where one applies. `$findings` holds only
+     *                                                     what is still open.
+     * @param string                      $tipHash         entry_hash of the newest row at verification time
+     * @param AuditChainAnchorStatus|null $anchorStatus    Outcome of the in-database tip-anchor check
      */
     public function __construct(
         public array $findings,
@@ -53,6 +59,9 @@ final readonly class AuditIntegrityReport
         public ?ChainTipAnchor $anchor = null,
         public array $warnings = [],
         public array $epochCounts = [],
+        public array $items = [],
+        public string $tipHash = '',
+        public ?AuditChainAnchorStatus $anchorStatus = null,
     ) {}
 
     /**
@@ -80,6 +89,30 @@ final readonly class AuditIntegrityReport
         }
 
         return false;
+    }
+
+    /**
+     * Items still open: what an acknowledgement can act on.
+     *
+     * @return list<AuditFindingItem>
+     */
+    public function getOpenItems(): array
+    {
+        return array_values(array_filter(
+            $this->items,
+            static fn (AuditFindingItem $item): bool => !$item->isAcknowledged(),
+        ));
+    }
+
+    /**
+     * @return list<AuditFindingItem>
+     */
+    public function getAcknowledgedItems(): array
+    {
+        return array_values(array_filter(
+            $this->items,
+            static fn (AuditFindingItem $item): bool => $item->isAcknowledged(),
+        ));
     }
 
     public function hasReason(AuditIntegrityReason $reason): bool
@@ -121,6 +154,9 @@ final readonly class AuditIntegrityReport
      *     reasonCodes: list<string>,
      *     findings: list<array{reason: string, tamperEvidence: bool, detail: string, timestamp: int, context: array<string, bool|int|string>}>,
      *     warnings: array<int, string>,
+     *     acknowledged: list<array{key: string, reason: string, rangeStart: int, rangeEnd: int, detail: string, acknowledgedBy: int|null}>,
+     *     tipHash: string,
+     *     anchorStatus: string|null,
      *     epochCounts: array<int, int>,
      *     minEpoch: int|null,
      *     maxEpoch: int|null,
@@ -139,10 +175,16 @@ final readonly class AuditIntegrityReport
                 static fn (AuditIntegrityAlert $finding): array => $finding->toArray(),
                 $this->findings,
             ),
-            'warnings'    => $this->warnings,
-            'epochCounts' => $this->epochCounts,
-            'minEpoch'    => $this->getMinEpoch(),
-            'maxEpoch'    => $this->getMaxEpoch(),
+            'warnings'     => $this->warnings,
+            'acknowledged' => array_map(
+                static fn (AuditFindingItem $item): array => $item->toArray(),
+                $this->getAcknowledgedItems(),
+            ),
+            'tipHash'      => $this->tipHash,
+            'anchorStatus' => $this->anchorStatus?->value,
+            'epochCounts'  => $this->epochCounts,
+            'minEpoch'     => $this->getMinEpoch(),
+            'maxEpoch'     => $this->getMaxEpoch(),
         ];
     }
 

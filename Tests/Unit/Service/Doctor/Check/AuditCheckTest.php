@@ -10,6 +10,7 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Tests\Unit\Service\Doctor\Check;
 
 use Doctrine\DBAL\Result;
+use Netresearch\NrVault\Audit\Acknowledgement\AuditFindingOverlayInterface;
 use Netresearch\NrVault\Audit\Anchor\AnchorReaderInterface;
 use Netresearch\NrVault\Audit\Anchor\ChainTipAnchor;
 use Netresearch\NrVault\Audit\Anchor\ChainTipAnchorServiceInterface;
@@ -27,6 +28,7 @@ use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Configuration\SecurityProfile;
 use Netresearch\NrVault\Service\Doctor\Check\AuditCheck;
 use Netresearch\NrVault\Service\Doctor\FindingSeverity;
+use Netresearch\NrVault\Tests\Unit\Audit\Acknowledgement\AcknowledgingOverlay;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use Netresearch\NrVault\Tests\Unit\Traits\DoctorFindingTrait;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -210,6 +212,38 @@ final class AuditCheckTest extends TestCase
         $finding = $this->assertFindingSeverity(FindingSeverity::Critical, $findings, 'audit.hash_chain');
         self::assertSame(1, $finding->details['errorCount']);
         self::assertStringContainsString('vault:audit-verify', $finding->remediation);
+    }
+
+    /**
+     * An administrator acknowledged the only failing row: the bounded pass stops
+     * failing, and says in its details and summary that it did not hide anything.
+     */
+    #[Test]
+    public function anAcknowledgedFindingInTheWindowNoLongerFailsTheCheckButIsStillReported(): void
+    {
+        $findings = $this->check(
+            chainResult: HashChainVerificationResult::invalid([17 => 'Entry hash mismatch - possible tampering']),
+            overlay: new AcknowledgingOverlay([17]),
+        )->run($this->doctorContext(SecurityProfile::Standard));
+
+        $finding = $this->assertFindingSeverity(FindingSeverity::Pass, $findings, 'audit.hash_chain');
+        self::assertSame(1, $finding->details['acknowledgedCount']);
+        self::assertStringContainsString('1 finding(s) in this range were acknowledged', $finding->summary);
+    }
+
+    #[Test]
+    public function aFindingNextToAnAcknowledgedOneStillFailsTheCheck(): void
+    {
+        $findings = $this->check(
+            chainResult: HashChainVerificationResult::invalid([
+                17 => 'Entry hash mismatch - possible tampering',
+                18 => 'Entry hash mismatch - possible tampering',
+            ]),
+            overlay: new AcknowledgingOverlay([17]),
+        )->run($this->doctorContext(SecurityProfile::Standard));
+
+        $finding = $this->assertFindingSeverity(FindingSeverity::Critical, $findings, 'audit.hash_chain');
+        self::assertStringContainsString('failed on 1 of', $finding->summary);
     }
 
     /**
@@ -1143,6 +1177,7 @@ final class AuditCheckTest extends TestCase
         ?int $storedMinEpoch = null,
         bool $emptyAuditLog = false,
         ?QueryBuilder $epochQueryBuilder = null,
+        ?AuditFindingOverlayInterface $overlay = null,
     ): AuditCheck {
         $configuration = self::createStub(ExtensionConfigurationInterface::class);
         $configuration->method('isAuditReadsEnabled')->willReturn($auditReads);
@@ -1194,6 +1229,7 @@ final class AuditCheckTest extends TestCase
             $this->anchorStore($epoch, $dbAnchorStatus, $sharesConnection),
             $this->connectionPool($emptyAuditLog ? null : ($storedMinEpoch ?? $epoch), $epochQueryBuilder),
             $deliveryState,
+            $overlay,
         );
     }
 

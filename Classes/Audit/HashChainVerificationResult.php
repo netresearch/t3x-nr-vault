@@ -19,32 +19,36 @@ use function count;
 final readonly class HashChainVerificationResult
 {
     /**
-     * @param bool                   $valid           Whether the hash chain is valid
-     * @param array<int, string>     $errors          Map of UID => error message for invalid entries
-     * @param array<int, string>     $warnings        Map of UID => warning message (e.g., epoch boundaries)
-     * @param list<int>              $missingUids     UID values missing from the stored chain
-     *                                                (detected via non-contiguous UID sequence). May be
-     *                                                legitimate (purged rows) or malicious deletions —
-     *                                                the verifier reports them so callers can decide.
-     *                                                Capped at 1000 entries (see `missingUidCount` for
-     *                                                the true total when the cap is exceeded).
-     * @param int                    $missingUidCount Total number of missing UIDs detected, before the
-     *                                                per-call cap applied to `$missingUids`. Equals
-     *                                                count($missingUids) when below the cap.
-     * @param AuditChainAnchorStatus $anchorStatus    Outcome of the tip-anchor check, which
-     *                                                detects tail truncation and full wipes
-     *                                                that the walk alone cannot see. Only
-     *                                                evaluated on a full-chain pass.
-     * @param array<int, int>        $epochCounts     How many rows in the verified range carry each
-     *                                                `hmac_key_epoch`, keyed by epoch and sorted
-     *                                                ascending. Free: the walk already visits every
-     *                                                row and already reads the epoch to pick the hash
-     *                                                algorithm. Empty for an empty range. Reported by
-     *                                                `vault:audit-verify`, where "the chain is valid"
-     *                                                and "every row is signed at the configured epoch"
-     *                                                are separate questions — a chain of epoch-1 rows
-     *                                                verifies perfectly and is still missing the MAC
-     *                                                over `success` and the attribution fields.
+     * @param bool                                        $valid           Whether the hash chain is valid
+     * @param array<int, string>                          $errors          Map of UID => error message for invalid entries
+     * @param array<int, string>                          $warnings        Map of UID => warning message (e.g., epoch boundaries)
+     * @param list<int>                                   $missingUids     UID values missing from the stored chain
+     *                                                                     (detected via non-contiguous UID sequence). May be
+     *                                                                     legitimate (purged rows) or malicious deletions —
+     *                                                                     the verifier reports them so callers can decide.
+     *                                                                     Capped at 1000 entries (see `missingUidCount` for
+     *                                                                     the true total when the cap is exceeded).
+     * @param int                                         $missingUidCount Total number of missing UIDs detected, before the
+     *                                                                     per-call cap applied to `$missingUids`. Equals
+     *                                                                     count($missingUids) when below the cap.
+     * @param AuditChainAnchorStatus                      $anchorStatus    Outcome of the tip-anchor check, which
+     *                                                                     detects tail truncation and full wipes
+     *                                                                     that the walk alone cannot see. Only
+     *                                                                     evaluated on a full-chain pass.
+     * @param array<int, int>                             $epochCounts     How many rows in the verified range carry each
+     *                                                                     `hmac_key_epoch`, keyed by epoch and sorted
+     *                                                                     ascending. Free: the walk already visits every
+     *                                                                     row and already reads the epoch to pick the hash
+     *                                                                     algorithm. Empty for an empty range. Reported by
+     *                                                                     `vault:audit-verify`, where "the chain is valid"
+     *                                                                     and "every row is signed at the configured epoch"
+     *                                                                     are separate questions — a chain of epoch-1 rows
+     *                                                                     verifies perfectly and is still missing the MAC
+     *                                                                     over `success` and the attribution fields.
+     * @param list<array{start: int, end: int, uid: int}> $gaps            Every uid gap as a range: the missing uids `start`..`end`
+     *                                                                     sit directly before the surviving row `uid`. Unlike
+     *                                                                     `$missingUids` it is not capped, so an acknowledgement
+     *                                                                     can be bound to the exact gap.
      */
     public function __construct(
         public bool $valid,
@@ -54,16 +58,18 @@ final readonly class HashChainVerificationResult
         public int $missingUidCount = 0,
         public AuditChainAnchorStatus $anchorStatus = AuditChainAnchorStatus::NotChecked,
         public array $epochCounts = [],
+        public array $gaps = [],
     ) {}
 
     /**
      * Create a successful verification result.
      *
-     * @param array<int, string>     $warnings        Map of UID => warning message
-     * @param list<int>              $missingUids     UID values missing from the chain (may be empty)
-     * @param int                    $missingUidCount Total number of missing UIDs detected
-     * @param AuditChainAnchorStatus $anchorStatus    Outcome of the tip-anchor check
-     * @param array<int, int>        $epochCounts     Row count per `hmac_key_epoch` in the range
+     * @param array<int, string>                          $warnings        Map of UID => warning message
+     * @param list<int>                                   $missingUids     UID values missing from the chain (may be empty)
+     * @param int                                         $missingUidCount Total number of missing UIDs detected
+     * @param AuditChainAnchorStatus                      $anchorStatus    Outcome of the tip-anchor check
+     * @param array<int, int>                             $epochCounts     Row count per `hmac_key_epoch` in the range
+     * @param list<array{start: int, end: int, uid: int}> $gaps            Uid gaps as ranges
      */
     public static function valid(
         array $warnings = [],
@@ -71,6 +77,7 @@ final readonly class HashChainVerificationResult
         int $missingUidCount = 0,
         AuditChainAnchorStatus $anchorStatus = AuditChainAnchorStatus::NotChecked,
         array $epochCounts = [],
+        array $gaps = [],
     ): self {
         return new self(
             valid: true,
@@ -80,18 +87,20 @@ final readonly class HashChainVerificationResult
             missingUidCount: $missingUidCount > 0 ? $missingUidCount : count($missingUids),
             anchorStatus: $anchorStatus,
             epochCounts: $epochCounts,
+            gaps: $gaps,
         );
     }
 
     /**
      * Create a failed verification result.
      *
-     * @param array<int, string>     $errors          Map of UID => error message
-     * @param array<int, string>     $warnings        Map of UID => warning message
-     * @param list<int>              $missingUids     UID values missing from the chain
-     * @param int                    $missingUidCount Total number of missing UIDs detected
-     * @param AuditChainAnchorStatus $anchorStatus    Outcome of the tip-anchor check
-     * @param array<int, int>        $epochCounts     Row count per `hmac_key_epoch` in the range
+     * @param array<int, string>                          $errors          Map of UID => error message
+     * @param array<int, string>                          $warnings        Map of UID => warning message
+     * @param list<int>                                   $missingUids     UID values missing from the chain
+     * @param int                                         $missingUidCount Total number of missing UIDs detected
+     * @param AuditChainAnchorStatus                      $anchorStatus    Outcome of the tip-anchor check
+     * @param array<int, int>                             $epochCounts     Row count per `hmac_key_epoch` in the range
+     * @param list<array{start: int, end: int, uid: int}> $gaps            Uid gaps as ranges
      */
     public static function invalid(
         array $errors,
@@ -100,6 +109,7 @@ final readonly class HashChainVerificationResult
         int $missingUidCount = 0,
         AuditChainAnchorStatus $anchorStatus = AuditChainAnchorStatus::NotChecked,
         array $epochCounts = [],
+        array $gaps = [],
     ): self {
         return new self(
             valid: false,
@@ -109,6 +119,7 @@ final readonly class HashChainVerificationResult
             missingUidCount: $missingUidCount > 0 ? $missingUidCount : count($missingUids),
             anchorStatus: $anchorStatus,
             epochCounts: $epochCounts,
+            gaps: $gaps,
         );
     }
 

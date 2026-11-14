@@ -1,0 +1,188 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    SPDX-License-Identifier: GPL-2.0-or-later
+    SPDX-FileCopyrightText: Netresearch DTT GmbH
+-->
+<xliff version="1.2" xmlns="urn:oasis:names:tc:xliff:document:1.2">
+  <file source-language="en" target-language="de" datatype="plaintext" original="EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf" date="2026-11-14T00:00:00Z" product-name="nr_vault">
+    <header/>
+    <body>
+      <trans-unit id="audit.verify.ack_result.acknowledged">
+        <source>The findings were acknowledged and recorded in the audit chain.</source>
+        <target>Die Befunde wurden bestätigt und in der Audit-Kette festgehalten.</target>
+      </trans-unit>
+      <trans-unit id="audit.verify.ack_result.not_permitted">
+        <source>Refused: acknowledging findings requires an administrator with the audit.view permission.</source>
+        <target>Abgelehnt: Befunde bestätigen darf nur ein Administrator mit der Berechtigung audit.view.</target>
+      </trans-unit>
+      <trans-unit id="audit.verify.ack_result.epoch_too_low">
+        <source>Refused: acknowledgements need the audit HMAC epoch 3 or higher, below it the acknowledgement could be edited without the key.</source>
+        <target>Abgelehnt: Bestätigungen setzen die Audit-HMAC-Epoche 3 oder höher voraus, darunter ließe sich die Bestätigung ohne Schlüssel ändern.</target>
+      </trans-unit>
+      <trans-unit id="audit.verify.ack_result.reason_invalid">
+        <source>Refused: a reason (at most 1000 characters), an optional ticket (at most 100) and the confirmation are required.</source>
+        <target>Abgelehnt: Erforderlich sind eine Begründung (höchstens 1000 Zeichen), optional ein Ticket (höchstens 100) und die Bestätigung.</target>
+      </trans-unit>
+      <trans-unit id="audit.verify.ack_result.nothing_to_acknowledge">
+        <source>Nothing to acknowledge: there is no open finding.</source>
+        <target>Nichts zu bestätigen: Es gibt keinen offenen Befund.</target>
+      </trans-unit>
+      <trans-unit id="audit.verify.ack_result.stale">
+        <source>Refused: the open findings changed since this page was rendered. Review them and confirm again.</source>
+        <target>Abgelehnt: Die offenen Befunde haben sich seit dem Aufbau dieser Seite geändert. Bitte prüfen und erneut bestätigen.</target>
+      </trans-unit>
+      <trans-unit id="audit.verify.ack_result.too_many_findings">
+        <source>Refused: too many findings for one acknowledgement. Export the evidence and investigate before acknowledging anything.</source>
+        <target>Abgelehnt: Zu viele Befunde für eine Bestätigung. Exportieren Sie die Belege und untersuchen Sie den Fall, bevor Sie etwas bestätigen.</target>
+      </trans-unit>
+      <trans-unit id="audit.verify.ack_result.not_honoured">
+        <source>The acknowledgement was written but is not in effect: another audit entry was written in between. The attempt is recorded; run it again.</source>
+        <target>Die Bestätigung wurde geschrieben, gilt aber nicht: Zwischenzeitlich wurde ein anderer Audit-Eintrag geschrieben. Der Versuch ist festgehalten; bitte erneut ausführen.</target>
+      </trans-unit>
+      <trans-unit id="audit.verify.ack_result.anchor_not_published">
+        <source>The acknowledgement was written, but no external sink accepted a fresh anchor. A mismatch with the external anchor is resolved by anchoring, so it stays open until an anchor is published (vault:audit-anchor).</source>
+        <target>Die Bestätigung wurde geschrieben, aber keine externe Senke hat einen neuen Anker angenommen. Eine Abweichung vom externen Anker wird durch Verankern gelöst und bleibt offen, bis ein Anker veröffentlicht ist (vault:audit-anchor).</target>
+      </trans-unit>
+      <trans-unit id="audit.verify.findings.title">
+        <source>Findings</source>
+        <target>Befunde</target>
+      </trans-unit>
+      <trans-unit id="audit.verify.col.code">
+        <source>Reason code</source>
+        <target>Ursachencode</target>
+      </trans-unit>
+      <trans-unit id="audit.verify.col.tamper">
+        <source>Tamper evidence</source>
+        <target>Manipulationshinweis</target>
+      </trans-unit>
+      <trans-unit id="audit.verify.col.detail">
+        <source>Detail</source>
+        <target>Detail</target>
+      </trans-unit>
+      <trans-unit id="audit.verify.tamper.yes">
+        <source>yes</source>
+        <target>ja</target>
+      </trans-unit>
+      <trans-unit id="audit.verify.tamper.no">
+        <source>no</source>
+        <target>nein</target>
+      </trans-unit>
+      <trans-unit id="audit.verify.open.title">
+        <source>Affected rows</source>
+        <target>Betroffene Einträge</target>
+      </trans-unit>
+      <trans-unit id="audit.verify.open.more">
+        <source>%d more findings are not listed here; the evidence export contains all affected rows.</source>
+        <target>%d weitere Befunde sind hier nicht aufgeführt; der Belegexport enthält alle betroffenen Einträge.</target>
+      </trans-unit>
+      <trans-unit id="audit.verify.acknowledged.title">
+        <source>Acknowledged findings</source>
+        <target>Bestätigte Befunde</target>
+      </trans-unit>
+      <trans-unit id="audit.verify.acknowledged.description">
+        <source>An administrator acknowledged these findings. The rows are unchanged and still fail their own hash; the acknowledgement entry records who accepted them and why.</source>
+        <target>Ein Administrator hat diese Befunde bestätigt. Die Einträge sind unverändert und bestehen ihre eigene Hash-Prüfung weiterhin nicht; der Bestätigungseintrag hält fest, wer sie mit welcher Begründung akzeptiert hat.</target>
+      </trans-unit>
+      <trans-unit id="audit.verify.acknowledged.in_entry">
+        <source>acknowledged in audit entry</source>
+        <target>bestätigt im Audit-Eintrag</target>
+      </trans-unit>
+      <trans-unit id="audit.verify.range.title">
+        <source>Verified range</source>
+        <target>Geprüfter Bereich</target>
+      </trans-unit>
+      <trans-unit id="audit.verify.range.verified">
+        <source>Entries verified</source>
+        <target>Geprüfte Einträge</target>
+      </trans-unit>
+      <trans-unit id="audit.verify.range.rows">
+        <source>%d rows</source>
+        <target>%d Einträge</target>
+      </trans-unit>
+      <trans-unit id="audit.verify.range.empty">
+        <source>The audit log is empty.</source>
+        <target>Das Audit-Log ist leer.</target>
+      </trans-unit>
+      <trans-unit id="audit.verify.range.epochs">
+        <source>HMAC epochs</source>
+        <target>HMAC-Epochen</target>
+      </trans-unit>
+      <trans-unit id="audit.verify.range.epoch">
+        <source>epoch %d: %d rows</source>
+        <target>Epoche %d: %d Einträge</target>
+      </trans-unit>
+      <trans-unit id="audit.verify.range.tip">
+        <source>Chain tip</source>
+        <target>Kettenspitze</target>
+      </trans-unit>
+      <trans-unit id="audit.verify.anchor.title">
+        <source>Chain tip anchors</source>
+        <target>Anker der Kettenspitze</target>
+      </trans-unit>
+      <trans-unit id="audit.verify.anchor.external">
+        <source>External anchor</source>
+        <target>Externer Anker</target>
+      </trans-unit>
+      <trans-unit id="audit.verify.anchor.external.none">
+        <source>No external anchor available to compare against.</source>
+        <target>Kein externer Anker zum Vergleich vorhanden.</target>
+      </trans-unit>
+      <trans-unit id="audit.verify.anchor.external.consistent">
+        <source>Consistent: the chain still contains the anchored entry with the anchored hash.</source>
+        <target>Stimmig: Die Kette enthält den verankerten Eintrag noch mit dem verankerten Hash.</target>
+      </trans-unit>
+      <trans-unit id="audit.verify.anchor.external.mismatch">
+        <source>Mismatch: the chain is not the chain that was anchored.</source>
+        <target>Abweichung: Die Kette ist nicht die Kette, die verankert wurde.</target>
+      </trans-unit>
+      <trans-unit id="audit.verify.anchor.external.acknowledged">
+        <source>Mismatch acknowledged by an administrator.</source>
+        <target>Abweichung von einem Administrator bestätigt.</target>
+      </trans-unit>
+      <trans-unit id="audit.verify.anchor.details">
+        <source>Anchored entry #%d, HMAC epoch %d, taken %s</source>
+        <target>Verankerter Eintrag #%d, HMAC-Epoche %d, erstellt %s</target>
+      </trans-unit>
+      <trans-unit id="audit.verify.ack.title">
+        <source>Acknowledge findings</source>
+        <target>Befunde bestätigen</target>
+      </trans-unit>
+      <trans-unit id="audit.verify.ack.intro">
+        <source>Acknowledging records the findings above, your reason and your account as a new audit entry. It repairs nothing: the affected rows stay as they are and keep failing their own hash, and any further change to them or any new finding fails the check again. Download the evidence first.</source>
+        <target>Das Bestätigen hält die obigen Befunde, Ihre Begründung und Ihr Konto als neuen Audit-Eintrag fest. Es repariert nichts: Die betroffenen Einträge bleiben unverändert und bestehen ihre Hash-Prüfung weiterhin nicht, und jede weitere Änderung daran oder jeder neue Befund lässt die Prüfung wieder fehlschlagen. Laden Sie zuerst die Belege herunter.</target>
+      </trans-unit>
+      <trans-unit id="audit.verify.ack.evidence_json">
+        <source>Download evidence (JSON)</source>
+        <target>Belege herunterladen (JSON)</target>
+      </trans-unit>
+      <trans-unit id="audit.verify.ack.evidence_csv">
+        <source>Download evidence (CSV)</source>
+        <target>Belege herunterladen (CSV)</target>
+      </trans-unit>
+      <trans-unit id="audit.verify.ack.reason">
+        <source>Reason (required)</source>
+        <target>Begründung (erforderlich)</target>
+      </trans-unit>
+      <trans-unit id="audit.verify.ack.reason_help">
+        <source>Why these findings are accepted, for example the incident or restore that explains them. Stored in the audit chain.</source>
+        <target>Warum diese Befunde akzeptiert werden, etwa der Vorfall oder die Wiederherstellung, die sie erklärt. Wird in der Audit-Kette gespeichert.</target>
+      </trans-unit>
+      <trans-unit id="audit.verify.ack.ticket">
+        <source>Ticket reference (optional)</source>
+        <target>Ticket-Referenz (optional)</target>
+      </trans-unit>
+      <trans-unit id="audit.verify.ack.confirm">
+        <source>I reviewed the findings and the evidence and accept them on the stated reason.</source>
+        <target>Ich habe die Befunde und Belege geprüft und akzeptiere sie mit der genannten Begründung.</target>
+      </trans-unit>
+      <trans-unit id="audit.verify.ack.submit">
+        <source>Acknowledge these findings</source>
+        <target>Diese Befunde bestätigen</target>
+      </trans-unit>
+      <trans-unit id="audit.verify.ack.blocked_epoch">
+        <source>Findings can only be acknowledged with the audit HMAC epoch set to 3 or higher. Below it an acknowledgement could be edited in the database without the key. Raise the epoch and migrate the chain first.</source>
+        <target>Befunde lassen sich nur bestätigen, wenn die Audit-HMAC-Epoche 3 oder höher ist. Darunter ließe sich eine Bestätigung ohne Schlüssel in der Datenbank ändern. Heben Sie zuerst die Epoche an und migrieren Sie die Kette.</target>
+      </trans-unit>
+    </body>
+  </file>
+</xliff>

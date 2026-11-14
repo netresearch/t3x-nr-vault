@@ -9,6 +9,9 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Audit\Anchor;
 
+use Netresearch\NrVault\Audit\Acknowledgement\AuditFindingItem;
+use Netresearch\NrVault\Audit\Acknowledgement\AuditFindingOverlay;
+use Netresearch\NrVault\Audit\Acknowledgement\AuditFindingOverlayInterface;
 use Netresearch\NrVault\Audit\AuditIntegrityAlert;
 use Netresearch\NrVault\Audit\AuditIntegrityReason;
 use Netresearch\NrVault\Audit\AuditIntegrityReport;
@@ -28,6 +31,8 @@ use TYPO3\CMS\Core\Database\Query\QueryBuilder;
 
 use function array_slice;
 use function count;
+use function is_array;
+use function is_numeric;
 use function is_string;
 use function sprintf;
 
@@ -64,18 +69,6 @@ use function sprintf;
  */
 final readonly class ChainTipAnchorService implements ChainTipAnchorServiceInterface
 {
-    /**
-     * Marker substring identifying an epoch-downgrade error emitted by
-     * {@see AuditLogService::verifyHashChain()}.
-     */
-    private const ERROR_MARKER_EPOCH_DOWNGRADE = 'epoch downgrade detected';
-
-    /**
-     * Marker substring identifying a uid-gap error emitted by
-     * {@see AuditLogService::verifyHashChain()}.
-     */
-    private const ERROR_MARKER_UID_GAP = 'uid gap detected';
-
     public function __construct(
         private ConnectionPool $connectionPool,
         private AuditLogServiceInterface $auditLogService,
@@ -84,6 +77,7 @@ final readonly class ChainTipAnchorService implements ChainTipAnchorServiceInter
         private ExtensionConfigurationInterface $extensionConfiguration,
         private EventDispatcherInterface $eventDispatcher,
         private LoggerInterface $logger,
+        private AuditFindingOverlayInterface $overlay,
     ) {}
 
     public function capture(): ChainTipAnchor
@@ -125,106 +119,243 @@ final readonly class ChainTipAnchorService implements ChainTipAnchorServiceInter
 
     public function verify(): AuditIntegrityReport
     {
-        $chainResult     = $this->auditLogService->verifyHashChain();
-        $currentSequence = $this->fetchMaxUid();
-        $anchor          = $this->anchorReader->readLatestAnchor();
-
-        $findings = [
-            ...$this->classifyChainErrors($chainResult),
-            ...$this->compareWithAnchor($anchor, $currentSequence),
-            ...$this->checkExternalSinkRequirement($anchor),
-        ];
-
-        $report = new AuditIntegrityReport(
-            findings: $findings,
-            chainValid: $chainResult->isValid(),
-            currentSequence: $currentSequence,
-            anchor: $anchor,
-            warnings: $chainResult->warnings,
-            epochCounts: $chainResult->epochCounts,
-        );
+        $report = $this->inspect();
 
         $this->dispatchFindings($report);
 
         return $report;
     }
 
+    public function inspect(): AuditIntegrityReport
+    {
+        $chainResult     = $this->auditLogService->verifyHashChain();
+        $currentSequence = $this->fetchMaxUid();
+        $anchor          = $this->anchorReader->readLatestAnchor();
+
+        $chainItems   = $this->overlay->chainItems($chainResult);
+        $anchorAlerts = $this->compareWithAnchor($anchor, $currentSequence);
+        $anchorItems  = [];
+        foreach ($anchorAlerts as $alert) {
+            // Bound to the chain prefix the administrator saw, and covered only
+            // once a fresh anchor exists (see requireFreshAnchor()).
+            $anchorItems[] = new AuditFindingItem(
+                (string) $alert->context['ackKey'],
+                $alert->reason,
+                0,
+                0,
+                $alert->detail,
+                null,
+                true,
+                true,
+            );
+        }
+
+        $items        = $this->requireFreshAnchor($this->overlay->apply([...$chainItems, ...$anchorItems], $chainResult));
+        $acknowledged = [];
+        foreach ($items as $item) {
+            if ($item->isAcknowledged()) {
+                $acknowledged[$item->key] = true;
+            }
+        }
+
+        $openChain = array_values(array_filter(
+            $chainItems,
+            static fn (AuditFindingItem $item): bool => !isset($acknowledged[$item->key]),
+        ));
+        $openAnchor = array_values(array_filter(
+            $anchorAlerts,
+            static fn (AuditIntegrityAlert $alert): bool => !isset($acknowledged[(string) $alert->context['ackKey']]),
+        ));
+
+        $findings = [
+            ...$this->classifyChainItems($openChain, $chainResult),
+            ...$openAnchor,
+            ...$this->checkExternalSinkRequirement($anchor),
+        ];
+
+        return new AuditIntegrityReport(
+            findings: $findings,
+            chainValid: $chainResult->isValid(),
+            currentSequence: $currentSequence,
+            anchor: $anchor,
+            warnings: $chainResult->warnings,
+            epochCounts: $chainResult->epochCounts,
+            items: $items,
+            tipHash: $currentSequence > 0 ? ($this->auditLogService->getLatestHash() ?? '') : '',
+            anchorStatus: $chainResult->anchorStatus,
+        );
+    }
+
     /**
-     * Map hash-chain errors onto reason codes.
+     * Withdraw the acknowledgement of an external-anchor finding unless a fresh
+     * anchor was published after it, and none of those contradicts the chain.
+     *
+     * The reader returns only the highest sequence, which after a restore stays
+     * the old anchor, so the finding keeps being raised. The acknowledgement row
+     * records how many anchor records existed when it was written; the records
+     * after that position are the anchors published since. Each of them that
+     * reaches the acknowledgement row (sequence at or above its uid) must name the
+     * chain as stored: its tip equals the stored entry hash of the row at that
+     * sequence. One that does not (a later truncation, an appended record with a
+     * wrong tip) is a new incident, and at least one that does must exist. A file
+     * that was replaced by a shorter one has no records after that position.
+     * Timestamps decide nothing: whoever can append to the file could set them to anything.
+     *
+     * @param list<AuditFindingItem> $items
+     *
+     * @return list<AuditFindingItem>
+     */
+    private function requireFreshAnchor(array $items): array
+    {
+        $anchors = null;
+        $result  = [];
+        foreach ($items as $item) {
+            if ($item->requiresFreshAnchor && $item->acknowledgedBy !== null) {
+                $anchors ??= $this->anchorReader->readAnchors();
+                if (!$this->hasFreshAnchor($anchors, $item->acknowledgedBy)) {
+                    $item = $item->withoutAcknowledgement();
+                }
+            }
+
+            $result[] = $item;
+        }
+
+        return $result;
+    }
+
+    /**
+     * @param list<ChainTipAnchor> $anchors
+     */
+    private function hasFreshAnchor(array $anchors, int $acknowledgementUid): bool
+    {
+        $known = $this->fetchRecordedAnchorCount($acknowledgementUid);
+        if ($known === null) {
+            return false;
+        }
+
+        $fresh = false;
+        foreach (array_slice($anchors, $known) as $anchor) {
+            if ($anchor->isEmpty() || $anchor->sequence < $acknowledgementUid) {
+                continue;
+            }
+
+            $row = $this->fetchRowAt($anchor->sequence);
+            if ($row === null || !hash_equals($anchor->chainTip, $row['entryHash'])) {
+                return false;
+            }
+
+            $fresh = true;
+        }
+
+        return $fresh;
+    }
+
+    /**
+     * Anchor records that existed when the acknowledgement row was written, or
+     * null when the row does not say.
+     */
+    private function fetchRecordedAnchorCount(int $uid): ?int
+    {
+        $queryBuilder = $this->getQueryBuilder();
+        $context      = $queryBuilder
+            ->select('context')
+            ->from(AuditLogService::TABLE_NAME)
+            ->where($queryBuilder->expr()->eq('uid', $queryBuilder->createNamedParameter($uid, Connection::PARAM_INT)))
+            ->executeQuery()
+            ->fetchOne();
+
+        $decoded = json_decode(is_string($context) ? $context : '', true);
+
+        return is_array($decoded) && is_numeric($decoded['anchorRecords'] ?? null) ? (int) $decoded['anchorRecords'] : null;
+    }
+
+    /**
+     * Map the open chain items onto reason codes.
      *
      * One finding per reason code, not per erroring row: a broken chain commonly
      * fails every row after the break, and 10 000 identical alerts would bury the
      * signal in any SIEM. The affected-row count travels in the finding context.
      *
+     * @param list<AuditFindingItem> $items
+     *
      * @return list<AuditIntegrityAlert>
      */
-    private function classifyChainErrors(HashChainVerificationResult $result): array
+    private function classifyChainItems(array $items, HashChainVerificationResult $result): array
     {
         $findings = [];
+        $gaps     = [];
+        $epoch    = [];
+        $hash     = [];
 
-        if ($result->hasMissingUids()) {
-            $findings[] = AuditIntegrityAlert::create(
-                AuditIntegrityReason::UidGap,
-                sprintf(
-                    'Audit chain has %d missing uid(s); rows were deleted from the chain.',
-                    $result->missingUidCount,
-                ),
-                [
-                    'missingUidCount' => $result->missingUidCount,
-                    // Bounded sample: the full list can be up to 1000 entries and
-                    // this value ends up in a syslog line and a webhook payload.
-                    'missingUidSample' => implode(',', array_slice($result->missingUids, 0, 20)),
-                ],
-            );
+        foreach ($items as $item) {
+            match ($item->reason) {
+                AuditIntegrityReason::UidGap         => $gaps[]  = $item,
+                AuditIntegrityReason::EpochDowngrade => $epoch[] = $item,
+                default                              => $hash[]  = $item,
+            };
         }
 
-        $epochDowngradeUids = [];
-        $hashMismatchUids   = [];
-
-        foreach ($result->errors as $uid => $message) {
-            $lower = strtolower($message);
-
-            if (str_contains($lower, self::ERROR_MARKER_UID_GAP)) {
-                // Already reported above from the structured missing-uid data.
-                continue;
+        if ($gaps !== []) {
+            $missing = 0;
+            $sample  = [];
+            foreach ($gaps as $gap) {
+                $missing += $gap->rangeEnd - $gap->rangeStart + 1;
+                for ($uid = $gap->rangeStart; $uid <= $gap->rangeEnd && count($sample) < 20; ++$uid) {
+                    $sample[] = $uid;
+                }
             }
 
-            if (str_contains($lower, self::ERROR_MARKER_EPOCH_DOWNGRADE)) {
-                $epochDowngradeUids[] = $uid;
-
-                continue;
-            }
-
-            $hashMismatchUids[] = $uid;
+            $findings[] = $this->uidGapAlert($missing, $sample);
+        } elseif ($result->gaps === [] && $result->hasMissingUids()) {
+            // A result built without structured gaps (older producers): fall
+            // back to the totals it carries. Not acknowledgeable.
+            $findings[] = $this->uidGapAlert($result->missingUidCount, array_slice($result->missingUids, 0, 20));
         }
 
-        if ($epochDowngradeUids !== []) {
+        if ($epoch !== []) {
             $findings[] = AuditIntegrityAlert::create(
                 AuditIntegrityReason::EpochDowngrade,
                 sprintf(
                     'Audit chain HMAC epoch was downgraded on %d row(s); a weaker or keyless '
                     . 'verification algorithm was selected.',
-                    count($epochDowngradeUids),
+                    count($epoch),
                 ),
                 [
-                    'affectedRows' => count($epochDowngradeUids),
-                    'firstUid'     => $epochDowngradeUids[0],
+                    'affectedRows' => count($epoch),
+                    'firstUid'     => $epoch[0]->rangeStart,
                 ],
             );
         }
 
-        if ($hashMismatchUids !== []) {
+        if ($hash !== []) {
             $findings[] = AuditIntegrityAlert::create(
                 AuditIntegrityReason::HashMismatch,
-                sprintf('Audit chain hash verification failed on %d row(s).', count($hashMismatchUids)),
+                sprintf('Audit chain hash verification failed on %d row(s).', count($hash)),
                 [
-                    'affectedRows' => count($hashMismatchUids),
-                    'firstUid'     => $hashMismatchUids[0],
+                    'affectedRows' => count($hash),
+                    'firstUid'     => $hash[0]->rangeStart,
                 ],
             );
         }
 
         return $findings;
+    }
+
+    /**
+     * @param list<int> $sample
+     */
+    private function uidGapAlert(int $missingUidCount, array $sample): AuditIntegrityAlert
+    {
+        return AuditIntegrityAlert::create(
+            AuditIntegrityReason::UidGap,
+            sprintf('Audit chain has %d missing uid(s); rows were deleted from the chain.', $missingUidCount),
+            [
+                'missingUidCount' => $missingUidCount,
+                // Bounded sample: the full list can be up to 1000 entries and
+                // this value ends up in a syslog line and a webhook payload.
+                'missingUidSample' => implode(',', $sample),
+            ],
+        );
     }
 
     /**
@@ -257,6 +388,7 @@ final readonly class ChainTipAnchorService implements ChainTipAnchorServiceInter
                         'currentSequence'  => $currentSequence,
                         'anchoredSequence' => $anchor->sequence,
                         'anchoredAt'       => $anchor->timestamp,
+                        'ackKey'           => $this->anchorKey(AuditIntegrityReason::TableReset, $anchor),
                     ],
                 ),
             ];
@@ -276,7 +408,11 @@ final readonly class ChainTipAnchorService implements ChainTipAnchorServiceInter
                         $anchor->sequence,
                         $currentSequence,
                     ),
-                    ['anchoredSequence' => $anchor->sequence, 'currentSequence' => $currentSequence],
+                    [
+                        'anchoredSequence' => $anchor->sequence,
+                        'currentSequence'  => $currentSequence,
+                        'ackKey'           => $this->anchorKey(AuditIntegrityReason::TableReset, $anchor),
+                    ],
                 ),
             ];
         }
@@ -295,7 +431,11 @@ final readonly class ChainTipAnchorService implements ChainTipAnchorServiceInter
                     $anchor->sequence,
                     gmdate('Y-m-d H:i:s', $anchor->timestamp) . ' UTC',
                 ),
-                ['anchoredSequence' => $anchor->sequence, 'anchoredAt' => $anchor->timestamp],
+                [
+                    'anchoredSequence' => $anchor->sequence,
+                    'anchoredAt'       => $anchor->timestamp,
+                    'ackKey'           => $this->anchorKey(AuditIntegrityReason::TableReset, $anchor),
+                ],
             );
         }
 
@@ -316,11 +456,31 @@ final readonly class ChainTipAnchorService implements ChainTipAnchorServiceInter
                     'anchoredSequence' => $anchor->sequence,
                     'currentEpoch'     => $row['epoch'],
                     'anchoredEpoch'    => $anchor->hmacEpoch,
+                    'ackKey'           => $this->anchorKey(AuditIntegrityReason::EpochDowngrade, $anchor),
                 ],
             );
         }
 
         return $findings;
+    }
+
+    /**
+     * Identity of an anchor finding for acknowledgement: which anchor was
+     * compared, how it differed, and what the chain held at that point.
+     */
+    private function anchorKey(AuditIntegrityReason $reason, ChainTipAnchor $anchor): string
+    {
+        // The anchor is the identity, not how the chain differs from it: after a
+        // restore the same anchor reads as a shrunken, then as a substituted
+        // chain. What stops a later incident from inheriting the acknowledgement
+        // is the prefix binding of the item, not a state in the key.
+        return AuditFindingOverlay::key(
+            $reason->value,
+            (string) $anchor->sequence,
+            $anchor->chainTip,
+            (string) $anchor->timestamp,
+            (string) $anchor->hmacEpoch,
+        );
     }
 
     /**
