@@ -121,7 +121,7 @@ final class AwsSecretsManagerStore implements AwsSecretStoreInterface
             }
         }
 
-        return $this->createOrPut($client, $name, $encoded);
+        return $this->createOrPut($client, $identifier, $name, $encoded);
     }
 
     public function restoreIfCurrent(string $identifier, #[SensitiveParameter] array $data, string $versionId): bool
@@ -185,23 +185,20 @@ final class AwsSecretsManagerStore implements AwsSecretStoreInterface
     }
 
     /**
-     * The secret did not exist for the put. Create it; when a concurrent create
-     * won in between, add the version to that secret instead.
+     * The secret did not exist for the put. Create it. When a concurrent create
+     * won in between, the secret belongs to that writer: the conflict is raised,
+     * nothing is written into it.
      */
-    private function createOrPut(SecretsManagerClient $client, string $name, #[SensitiveParameter] string $encoded): string
+    private function createOrPut(SecretsManagerClient $client, string $identifier, string $name, #[SensitiveParameter] string $encoded): string
     {
         try {
             return $this->versionOf($client->createSecret(['Name' => $name, 'SecretString' => $encoded]), 'write');
         } catch (Throwable $e) {
-            if (!$e instanceof AwsException || $e->getAwsErrorCode() !== 'ResourceExistsException') {
-                throw $this->translate($e, 'write');
+            if ($e instanceof AwsException && $e->getAwsErrorCode() === 'ResourceExistsException') {
+                throw AwsSecretsManagerException::nameExists($identifier);
             }
-        }
 
-        try {
-            return $this->put($client, $name, $encoded);
-        } catch (Throwable $second) {
-            throw $this->translate($second, 'write');
+            throw $this->translate($e, 'write');
         }
     }
 

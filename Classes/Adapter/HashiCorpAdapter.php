@@ -14,6 +14,7 @@ use Netresearch\NrVault\Domain\Dto\SecretFilters;
 use Netresearch\NrVault\Domain\Model\Secret;
 use Netresearch\NrVault\Exception\ConfigurationException;
 use Netresearch\NrVault\Exception\HashiCorpException;
+use Netresearch\NrVault\Exception\ValidationException;
 use Netresearch\NrVault\Storage\ExternalStoreJournal;
 use Netresearch\NrVault\Storage\HashiCorp\AtomicKvStoreInterface;
 use Netresearch\NrVault\Storage\HashiCorp\HashiCorpEndpoint;
@@ -169,7 +170,18 @@ final readonly class HashiCorpAdapter implements CreateCompensatingAdapterInterf
             return;
         }
 
-        $this->undoVaultWrite($identifier, $entry['previous'], is_int($entry['version']) ? $entry['version'] : null, true);
+        $rolledBack = $this->undoVaultWrite($identifier, $entry['previous'], is_int($entry['version']) ? $entry['version'] : null, true);
+        if (!$rolledBack) {
+            // The key is at a version somebody else wrote since. Its row stays,
+            // so the value that writer reported as stored keeps its pointer.
+            $this->logger->warning(
+                'nr-vault: the row was kept because the Vault key changed since the create that is being compensated.',
+                ['secret' => $identifier],
+            );
+
+            return;
+        }
+
         $this->registry->delete($identifier);
     }
 
@@ -263,7 +275,7 @@ final readonly class HashiCorpAdapter implements CreateCompensatingAdapterInterf
      *
      * @param array<string, mixed>|null $previous
      */
-    private function undoVaultWrite(string $identifier, #[SensitiveParameter] ?array $previous, ?int $version, bool $rowIsBeingRemoved = false): void
+    private function undoVaultWrite(string $identifier, #[SensitiveParameter] ?array $previous, ?int $version, bool $rowIsBeingRemoved = false): bool
     {
         try {
             if ($version !== null && $this->kv instanceof AtomicKvStoreInterface) {
@@ -272,7 +284,7 @@ final readonly class HashiCorpAdapter implements CreateCompensatingAdapterInterf
                 } elseif ($rowIsBeingRemoved || !$this->registry->exists($identifier)) {
                     $applied = $this->kv->destroyIfCurrent($identifier, $version);
                 } else {
-                    return;
+                    return true;
                 }
 
                 if (!$applied) {
@@ -282,7 +294,7 @@ final readonly class HashiCorpAdapter implements CreateCompensatingAdapterInterf
                     );
                 }
 
-                return;
+                return $applied;
             }
 
             if ($previous !== null) {
@@ -290,9 +302,13 @@ final readonly class HashiCorpAdapter implements CreateCompensatingAdapterInterf
             } elseif ($rowIsBeingRemoved || !$this->registry->exists($identifier)) {
                 $this->kv->destroy($identifier);
             }
+
+            return true;
         } catch (Throwable $e) {
             // The original failure is the one to report.
             $this->warnRollbackFailed($identifier, $e);
+
+            return true;
         }
     }
 
@@ -537,15 +553,21 @@ final readonly class HashiCorpAdapter implements CreateCompensatingAdapterInterf
             throw HashiCorpException::backingObjectMismatch($identifier);
         }
 
-        return $row->withEnvelope(
-            $fields['encrypted_value'],
-            $fields['encrypted_dek'],
-            $fields['dek_nonce'],
-            $fields['value_nonce'],
-            $checksum,
-            $version,
-            $algorithm,
-        );
+        try {
+            return $row->withEnvelope(
+                $fields['encrypted_value'],
+                $fields['encrypted_dek'],
+                $fields['dek_nonce'],
+                $fields['value_nonce'],
+                $checksum,
+                $version,
+                $algorithm,
+            );
+        } catch (ValidationException) {
+            // An envelope marker this version does not know, such as an unknown
+            // algorithm, is an unusable object like any other.
+            throw HashiCorpException::backingObjectMismatch($identifier);
+        }
     }
 
     /**

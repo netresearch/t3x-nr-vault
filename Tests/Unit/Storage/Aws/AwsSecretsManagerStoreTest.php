@@ -171,7 +171,7 @@ final class AwsSecretsManagerStoreTest extends TestCase
     }
 
     #[Test]
-    public function writeAddsAVersionWhenAConcurrentCreateWonInBetween(): void
+    public function writeRaisesTheConflictWhenAConcurrentCreateWonInBetween(): void
     {
         $store = $this->store(
             $this->awsError(400, 'ResourceNotFoundException'),
@@ -179,10 +179,15 @@ final class AwsSecretsManagerStoreTest extends TestCase
             $this->json(200, ['Name' => 'typo3/api_key', 'VersionId' => 'v2']),
         );
 
-        $store->write('api_key', ['k' => 'v']);
+        try {
+            $store->write('api_key', ['k' => 'v']);
+            self::fail('A secret another writer created must not be written into.');
+        } catch (AwsSecretsManagerException $e) {
+            self::assertSame(1794500012, $e->getCode());
+        }
 
         self::assertSame(
-            ['PutSecretValue', 'CreateSecret', 'PutSecretValue'],
+            ['PutSecretValue', 'CreateSecret'],
             array_map(static fn (RequestInterface $request): string => substr($request->getHeaderLine('X-Amz-Target'), strlen('secretsmanager.')), $this->requests),
         );
     }

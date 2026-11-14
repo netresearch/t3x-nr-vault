@@ -26,6 +26,7 @@ use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use Psr\Http\Message\RequestInterface;
+use Throwable;
 
 #[CoversClass(AwsClientFactory::class)]
 #[AllowMockObjectsWithoutExpectations]
@@ -248,6 +249,30 @@ final class AwsClientFactoryTest extends TestCase
 
         self::assertSame('sm.vpce.example.com', $client->getEndpoint()->getHost());
         self::assertSame(8443, $client->getEndpoint()->getPort());
+    }
+
+    #[Test]
+    public function doesNotFollowARedirectEvenWhenTheInjectedClientWould(): void
+    {
+        $this->explicitCredentials();
+        $stack = HandlerStack::create(new MockHandler([
+            new Response(307, ['Location' => 'http://elsewhere.example/']),
+            new Response(200, ['Content-Type' => 'application/x-amz-json-1.1'], '{"SecretString":"{}"}'),
+        ]));
+        $stack->push(Middleware::mapRequest(function (RequestInterface $request): RequestInterface {
+            $this->requests[] = $request;
+
+            return $request;
+        }));
+        $factory = new AwsClientFactory($this->configuration(), new Client(['handler' => $stack, 'http_errors' => false, 'allow_redirects' => ['max' => 5]]));
+
+        try {
+            $this->send($factory);
+        } catch (Throwable) {
+            // A 307 is not a Secrets Manager answer; only the requests matter.
+        }
+
+        self::assertCount(1, $this->requests, 'the redirect was not followed');
     }
 
     #[Test]

@@ -719,8 +719,28 @@ final class AwsSecretsManagerAdapterTest extends TestCase
         $adapter->compensateCreate('api_key');
 
         self::assertSame(['somebody' => 'else'], $this->aws['api_key']);
-        self::assertNotSame([], $this->warnings, 'the skipped rollback is reported');
+        self::assertArrayHasKey('api_key', $this->rows, 'the row of the secret the other writer wrote stays');
+        self::assertCount(2, $this->warnings, 'the skipped rollback and the kept row are reported');
         self::assertStringNotContainsString('else', implode(' ', $this->warnings));
+    }
+
+    #[Test]
+    public function aStoredEnvelopeWithAnUnknownAlgorithmIsAnUnusableObject(): void
+    {
+        $adapter = $this->adapter();
+        $adapter->store($this->envelopeSecret('api_key'));
+        $this->aws['api_key']['encryption_algorithm'] = 'made-up-algorithm';
+
+        $bare = $adapter->retrieveIncludingDisabled('api_key');
+        self::assertSame('aws', $bare?->getAdapter());
+        self::assertNull($bare->getEncryptedValue(), 'the administrative lookup returns the row without an envelope');
+
+        try {
+            $adapter->retrieve('api_key');
+            self::fail('The read path must refuse the object.');
+        } catch (AwsSecretsManagerException $e) {
+            self::assertSame(1794500010, $e->getCode());
+        }
     }
 
     #[Test]

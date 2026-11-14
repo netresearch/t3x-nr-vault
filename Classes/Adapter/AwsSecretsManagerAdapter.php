@@ -14,6 +14,7 @@ use Netresearch\NrVault\Domain\Dto\SecretFilters;
 use Netresearch\NrVault\Domain\Model\Secret;
 use Netresearch\NrVault\Exception\AwsSecretsManagerException;
 use Netresearch\NrVault\Exception\ConfigurationException;
+use Netresearch\NrVault\Exception\ValidationException;
 use Netresearch\NrVault\Storage\Aws\AwsSecretsEndpoint;
 use Netresearch\NrVault\Storage\Aws\AwsSecretStoreInterface;
 use Netresearch\NrVault\Storage\ExternalStoreJournal;
@@ -181,7 +182,18 @@ final readonly class AwsSecretsManagerAdapter implements CreateCompensatingAdapt
             return;
         }
 
-        $this->undoAwsWrite($identifier, $entry['previous'], is_string($entry['version']) ? $entry['version'] : null, true);
+        $rolledBack = $this->undoAwsWrite($identifier, $entry['previous'], is_string($entry['version']) ? $entry['version'] : null, true);
+        if (!$rolledBack) {
+            // The secret is at a version somebody else wrote since. Its row stays,
+            // so the value that writer reported as stored keeps its pointer.
+            $this->logger->warning(
+                'nr-vault: the row was kept because the AWS secret changed since the create that is being compensated.',
+                ['secret' => $identifier],
+            );
+
+            return;
+        }
+
         $this->registry->delete($identifier);
     }
 
@@ -281,11 +293,11 @@ final readonly class AwsSecretsManagerAdapter implements CreateCompensatingAdapt
      *
      * @param array<string, mixed>|null $previous
      */
-    private function undoAwsWrite(string $identifier, #[SensitiveParameter] ?array $previous, ?string $version, bool $rowIsBeingRemoved = false): void
+    private function undoAwsWrite(string $identifier, #[SensitiveParameter] ?array $previous, ?string $version, bool $rowIsBeingRemoved = false): bool
     {
         try {
             if ($version === null) {
-                return;
+                return true;
             }
 
             if ($previous !== null) {
@@ -293,7 +305,7 @@ final readonly class AwsSecretsManagerAdapter implements CreateCompensatingAdapt
             } elseif ($rowIsBeingRemoved || !$this->registry->exists($identifier)) {
                 $applied = $this->store->destroyIfCurrent($identifier, $version);
             } else {
-                return;
+                return true;
             }
 
             if (!$applied) {
@@ -302,9 +314,13 @@ final readonly class AwsSecretsManagerAdapter implements CreateCompensatingAdapt
                     ['secret' => $identifier],
                 );
             }
+
+            return $applied;
         } catch (Throwable $e) {
             // The original failure is the one to report.
             $this->warnRollbackFailed($identifier, $e);
+
+            return true;
         }
     }
 
@@ -520,15 +536,21 @@ final readonly class AwsSecretsManagerAdapter implements CreateCompensatingAdapt
             throw AwsSecretsManagerException::backingObjectMismatch($identifier);
         }
 
-        return $row->withEnvelope(
-            $fields['encrypted_value'],
-            $fields['encrypted_dek'],
-            $fields['dek_nonce'],
-            $fields['value_nonce'],
-            $checksum,
-            $version,
-            $algorithm,
-        );
+        try {
+            return $row->withEnvelope(
+                $fields['encrypted_value'],
+                $fields['encrypted_dek'],
+                $fields['dek_nonce'],
+                $fields['value_nonce'],
+                $checksum,
+                $version,
+                $algorithm,
+            );
+        } catch (ValidationException) {
+            // An envelope marker this version does not know, such as an unknown
+            // algorithm, is an unusable object like any other.
+            throw AwsSecretsManagerException::backingObjectMismatch($identifier);
+        }
     }
 
     /**

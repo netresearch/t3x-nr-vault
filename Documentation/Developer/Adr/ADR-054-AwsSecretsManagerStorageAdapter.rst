@@ -145,7 +145,9 @@ Transport and names
     version survives.
 *   A write adds a version (``PutSecretValue``) and creates the secret when AWS
     says it does not exist (``CreateSecret``); if a concurrent create wins in
-    between, the version is added to that secret.
+    between, the conflict is raised (code ``1794500012``) and nothing is written
+    into that writer's secret. A compensation that cannot apply because the
+    secret changed since keeps the row and logs a warning.
 
 Errors
 ------

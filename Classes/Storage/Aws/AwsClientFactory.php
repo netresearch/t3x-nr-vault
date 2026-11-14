@@ -84,7 +84,9 @@ final readonly class AwsClientFactory
             // The secure client is built with `http_errors => false`, so a 4xx or
             // 5xx would come back to the SDK as a successful response and be
             // parsed as an empty result: a rejected write would read as stored.
-            'http' => ['http_errors' => true],
+            // Secrets Manager answers without redirects. One would keep the method,
+            // the body and the session token on a 307, and could lead to plain http.
+            'http' => ['http_errors' => true, 'allow_redirects' => false],
         ];
 
         if ($endpoint->endpoint !== null) {
