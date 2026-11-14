@@ -13,6 +13,10 @@ namespace Netresearch\NrVault\Storage\HashiCorp;
  * The three KV v2 operations the storage adapter needs, addressed by secret
  * identifier. The implementation owns path construction, authentication and
  * transport; the adapter owns what is stored.
+ *
+ * Deprecated usage: a store that implements only this interface cannot claim a
+ * path atomically. Implement {@see AtomicKvStoreInterface}, which version 2.0
+ * will require.
  */
 interface KvStoreInterface
 {

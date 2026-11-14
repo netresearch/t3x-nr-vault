@@ -199,6 +199,67 @@ abstract class AbstractHashiCorpAuthMethodTestCase extends AbstractHashiCorpCont
     }
 
     #[Test]
+    public function anAuditFailureOfACreateThatAdoptedAnOrphanPutsTheOrphanBack(): void
+    {
+        $identifier = $this->newIdentifier();
+        $service    = $this->get(VaultServiceInterface::class);
+        $service->store($identifier, 'orphaned-value');
+
+        $orphan = $this->server->storedData($identifier);
+
+        // The row is gone, the Vault key written by this installation stays.
+        $connection = $this->get(ConnectionPool::class)->getConnectionForTable('tx_nrvault_secret');
+        $connection->delete('tx_nrvault_secret', ['identifier' => $identifier]);
+
+        $schema = $connection->createSchemaManager();
+        $table  = $schema->introspectSchema()->getTable('tx_nrvault_audit_log');
+        $schema->dropTable('tx_nrvault_audit_log');
+
+        try {
+            $failure = $this->thrownBy(static fn () => $service->store($identifier, 'new-value'));
+        } finally {
+            $schema->createTable($table);
+        }
+
+        self::assertInstanceOf(AuditWriteException::class, $failure);
+        self::assertFalse($service->exists($identifier));
+        self::assertSame($orphan, $this->server->storedData($identifier), 'the adopted key is back, not destroyed');
+    }
+
+    #[Test]
+    public function aRowWhoseKeyHoldsAnUnreadableEnvelopeCanStillBeDeleted(): void
+    {
+        $identifier = $this->newIdentifier();
+        $service    = $this->get(VaultServiceInterface::class);
+        $service->store($identifier, 'value');
+
+        $this->server->admin('POST', '/v1/secret/data/typo3/' . $identifier, ['data' => ['identifier' => $identifier, 'format' => 1, 'encrypted_value' => '***not base64***']]);
+
+        $service->delete($identifier);
+
+        self::assertFalse($service->exists($identifier));
+        self::assertNull($this->server->storedData($identifier));
+    }
+
+    #[Test]
+    public function aRowWhoseKeyHoldsAnotherIdentifiersPayloadIsNotDeletedByDeletingTheRow(): void
+    {
+        $identifier = $this->newIdentifier();
+        $service    = $this->get(VaultServiceInterface::class);
+        $service->store($identifier, 'value');
+
+        $foreign = ['identifier' => 'somebody_else', 'format' => 1, 'theirs' => 'kept'];
+        $this->server->admin('POST', '/v1/secret/data/typo3/' . $identifier, ['data' => $foreign]);
+
+        $failure = $this->thrownBy(static fn () => $service->delete($identifier));
+
+        self::assertInstanceOf(HashiCorpException::class, $failure);
+        self::assertSame(1794400012, $failure->getCode());
+        self::assertEqualsCanonicalizing($foreign, $this->server->storedData($identifier), 'the foreign data is untouched');
+        self::assertTrue($service->exists($identifier));
+    }
+
+    #[Test]
     public function aRowWhoseVaultKeyWasRemovedIsReportedAndCanBeRepaired(): void
     {
         $identifier = $this->newIdentifier();

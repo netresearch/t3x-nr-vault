@@ -13,15 +13,22 @@ use Netresearch\NrVault\Adapter\HashiCorpAdapter;
 use Netresearch\NrVault\Adapter\LocalEncryptionAdapter;
 use Netresearch\NrVault\Configuration\Dto\VaultServerConfig;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
+use Netresearch\NrVault\Crypto\MasterKeyProviderInterface;
 use Netresearch\NrVault\Domain\Model\Secret;
 use Netresearch\NrVault\Domain\Repository\SecretRepositoryInterface;
 use Netresearch\NrVault\Exception\HashiCorpException;
+use Netresearch\NrVault\Storage\ExternalStoreJournal;
+use Netresearch\NrVault\Storage\HashiCorp\AtomicKvStoreInterface;
 use Netresearch\NrVault\Storage\HashiCorp\KvStoreInterface;
+use Netresearch\NrVault\Storage\HashiCorp\LegacyKvStoreNotice;
+use Netresearch\NrVault\Storage\InstallationMarker;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
+use Psr\Log\AbstractLogger;
 use RuntimeException;
+use Stringable;
 
 #[CoversClass(HashiCorpAdapter::class)]
 #[AllowMockObjectsWithoutExpectations]
@@ -44,16 +51,50 @@ final class HashiCorpAdapterTest extends TestCase
 
     private bool $rowAppearsBeforeFailure = false;
 
+    /** @var array<string, int> */
+    private array $versions = [];
+
+    /** @var array<string, mixed>|null */
+    private ?array $concurrentWriterReplacesKey = null;
+
+    private bool $readKeysSorted = false;
+
+    private ?int $vaultWritesAllowed = null;
+
+    /** @var list<string> */
+    private array $warnings = [];
+
+    private string $masterKey = 'unit-test-master-key-of-this-installation';
+
+    private ExternalStoreJournal $journal;
+
+    /** @var list<callable(): mixed> */
+    private array $createScript = [];
+
+    /** @var list<callable(): mixed> */
+    private array $readScript = [];
+
     protected function setUp(): void
     {
         parent::setUp();
 
-        $this->rows                    = [];
-        $this->vault                   = [];
-        $this->vaultCalls              = [];
-        $this->failRowWrite            = false;
-        $this->failRowDelete           = false;
-        $this->rowAppearsBeforeFailure = false;
+        $this->rows                        = [];
+        $this->vault                       = [];
+        $this->vaultCalls                  = [];
+        $this->failRowWrite                = false;
+        $this->failRowDelete               = false;
+        $this->rowAppearsBeforeFailure     = false;
+        $this->versions                    = [];
+        $this->concurrentWriterReplacesKey = null;
+        $this->readKeysSorted              = false;
+        $this->createScript                = [];
+        $this->readScript                  = [];
+        $this->warnings                    = [];
+        $this->vaultWritesAllowed          = null;
+        $this->masterKey                   = 'unit-test-master-key-of-this-installation';
+        $this->journal                     = new ExternalStoreJournal();
+
+        LegacyKvStoreNotice::reset();
     }
 
     #[Test]
@@ -284,6 +325,7 @@ final class HashiCorpAdapterTest extends TestCase
     {
         $adapter = $this->adapter();
         $adapter->store($this->envelopeSecret('api_key'));
+        $adapter->releaseStore('api_key');
 
         $before             = $this->vault['api_key'];
         $this->failRowWrite = true;
@@ -470,6 +512,455 @@ final class HashiCorpAdapterTest extends TestCase
     }
 
     #[Test]
+    public function anAtomicStoreClaimsTheKeyWithOneCreateAndNoSeparateCheck(): void
+    {
+        $this->adapter()->store($this->envelopeSecret('api_key'));
+
+        self::assertSame(['create:api_key'], $this->vaultCalls);
+    }
+
+    #[Test]
+    public function aKeyCreatedByAnotherWriterBeforeTheCreateIsRefusedAndNothingIsDestroyed(): void
+    {
+        $this->vault['api_key'] = ['unrelated' => 'value'];
+        $this->failRowWrite     = true;
+
+        try {
+            $this->adapter()->store($this->envelopeSecret('api_key'));
+            self::fail('The store must be refused.');
+        } catch (HashiCorpException $e) {
+            self::assertSame(1794400012, $e->getCode());
+        }
+
+        self::assertSame(['create:api_key', 'read:api_key'], $this->vaultCalls, 'no write and no destroy follows the refused create');
+        self::assertSame(['unrelated' => 'value'], $this->vaultRead('api_key'));
+    }
+
+    #[Test]
+    public function aKeyThatVanishesAndIsCreatedByAThirdPartyIsNotWrittenOver(): void
+    {
+        $this->createScript = [
+            static function (): never {
+                throw HashiCorpException::keyExists('api_key');
+            },
+            function (): never {
+                $this->vault['api_key']    = ['somebody' => 'else'];
+                $this->versions['api_key'] = 1;
+
+                throw HashiCorpException::keyExists('api_key');
+            },
+        ];
+        $this->readScript = [static fn (): null => null];
+
+        try {
+            $this->adapter()->store($this->envelopeSecret('api_key'));
+            self::fail('A third party key must refuse the store.');
+        } catch (HashiCorpException $e) {
+            self::assertSame(1794400012, $e->getCode());
+        }
+
+        self::assertSame(['somebody' => 'else'], $this->vault['api_key']);
+        self::assertNotContains('write:api_key', $this->vaultCalls);
+    }
+
+    #[Test]
+    public function aKeyThatKeepsVanishingFailsClearlyAfterAFewAttemptsWithoutWriting(): void
+    {
+        $refuse = static function (): never {
+            throw HashiCorpException::keyExists('api_key');
+        };
+        $this->createScript = [$refuse, $refuse, $refuse];
+        $this->readScript   = [static fn (): null => null, static fn (): null => null, static fn (): null => null];
+
+        try {
+            $this->adapter()->store($this->envelopeSecret('api_key'));
+            self::fail('An unstable key must fail.');
+        } catch (HashiCorpException $e) {
+            self::assertSame(1794400014, $e->getCode());
+        }
+
+        self::assertNotContains('write:api_key', $this->vaultCalls);
+        self::assertArrayNotHasKey('api_key', $this->rows);
+    }
+
+    #[Test]
+    public function aRowWhoseStoredLocationIsNotTheConfiguredOneIsNeitherOverwrittenNorDestroyed(): void
+    {
+        $adapter = $this->adapter();
+        $adapter->store($this->envelopeSecret('api_key'));
+        // The operator changed hashicorp.path (or a database copy runs with
+        // another one): the key the same identifier names now is somebody else's.
+        $this->rows['api_key']  = $this->rows['api_key']->withExternalStorage('hashicorp', 'secret/data/elsewhere/api_key');
+        $this->vault['api_key'] = ['unrelated' => 'value'];
+        $this->vaultCalls       = [];
+
+        foreach (['rotate', 'delete', 'restore', 'retrieve'] as $operation) {
+            try {
+                match ($operation) {
+                    'rotate'  => $adapter->store($this->envelopeSecret('api_key', 'newer')->withUid(1)),
+                    'delete'  => $adapter->delete('api_key'),
+                    'restore' => $adapter->store((new Secret(identifier: 'api_key', uid: 1))->withExternalStorage('hashicorp', 'secret/data/elsewhere/api_key')),
+                    default   => $adapter->retrieve('api_key'),
+                };
+                self::fail($operation . ' must be refused.');
+            } catch (HashiCorpException $e) {
+                self::assertSame(1794400015, $e->getCode(), $operation);
+            }
+        }
+
+        self::assertSame(['unrelated' => 'value'], $this->vault['api_key']);
+        self::assertSame([], $this->vaultCalls, 'Vault is not touched at the wrong location');
+        self::assertArrayHasKey('api_key', $this->rows);
+        self::assertSame('hashicorp', $adapter->retrieveIncludingDisabled('api_key')?->getAdapter(), 'the administrative lookup still returns the row');
+    }
+
+    #[Test]
+    public function aBoundRowWhoseKeyHoldsAnotherIdentifiersPayloadIsNeitherOverwrittenNorDestroyed(): void
+    {
+        $adapter = $this->adapter();
+        $adapter->store($this->envelopeSecret('api_key'));
+        $adapter->store($this->envelopeSecret('other_key'));
+        $this->vault['api_key'] = $this->vault['other_key'];
+
+        foreach (['rotate', 'delete'] as $operation) {
+            try {
+                $operation === 'rotate'
+                    ? $adapter->store($this->envelopeSecret('api_key', 'newer')->withUid(1))
+                    : $adapter->delete('api_key');
+                self::fail($operation . ' must be refused.');
+            } catch (HashiCorpException $e) {
+                self::assertSame(1794400012, $e->getCode(), $operation);
+            }
+        }
+
+        self::assertSame($this->vault['other_key'], $this->vault['api_key']);
+    }
+
+    #[Test]
+    public function aBoundRowWhoseKeyCarriesAnotherInstallationsMarkerIsNeitherOverwrittenNorDestroyed(): void
+    {
+        $adapter = $this->adapter();
+        $adapter->store($this->envelopeSecret('api_key'));
+        $this->vault['api_key']['installation'] = 'marker-of-installation-b';
+        $theirs                                 = $this->vault['api_key'];
+
+        foreach (['rotate', 'delete'] as $operation) {
+            try {
+                $operation === 'rotate'
+                    ? $adapter->store($this->envelopeSecret('api_key', 'newer')->withUid(1))
+                    : $adapter->delete('api_key');
+                self::fail($operation . ' must be refused.');
+            } catch (HashiCorpException $e) {
+                self::assertSame(1794400012, $e->getCode(), $operation);
+            }
+        }
+
+        self::assertSame($theirs, $this->vault['api_key']);
+    }
+
+    #[Test]
+    public function aBoundRowWhoseKeyHoldsALegacyWriteWithoutAMarkerIsUpdatedAndStamped(): void
+    {
+        $adapter = $this->adapter();
+        $adapter->store($this->envelopeSecret('api_key'));
+        unset($this->vault['api_key']['installation']);
+
+        $adapter->store($this->envelopeSecret('api_key', 'newer')->withUid(1));
+
+        self::assertSame(base64_encode('newer'), $this->vault['api_key']['encrypted_value']);
+        self::assertArrayHasKey('installation', $this->vault['api_key'], 'the next write stamps the marker');
+    }
+
+    #[Test]
+    public function aBoundRowWhoseKeyHoldsALegacyWriteOfAnotherIdentifierIsRefused(): void
+    {
+        $adapter = $this->adapter();
+        $adapter->store($this->envelopeSecret('api_key'));
+        unset($this->vault['api_key']['installation']);
+        $this->vault['api_key']['identifier'] = 'other_key';
+
+        $this->expectException(HashiCorpException::class);
+        $this->expectExceptionCode(1794400012);
+
+        $adapter->delete('api_key');
+    }
+
+    #[Test]
+    public function anUnreferencedWriteOfAnotherInstallationIsNotAdopted(): void
+    {
+        $adapter = $this->adapter();
+        $adapter->store($this->envelopeSecret('api_key'));
+
+        $theirs = $this->vault['api_key'];
+        unset($this->rows['api_key']);
+        $this->masterKey = 'the-master-key-of-installation-b';
+
+        try {
+            $this->adapter()->store($this->envelopeSecret('api_key', 'mine'));
+            self::fail("Another installation's key must not be adopted.");
+        } catch (HashiCorpException $e) {
+            self::assertSame(1794400012, $e->getCode());
+        }
+
+        self::assertSame($theirs, $this->vault['api_key']);
+    }
+
+    #[Test]
+    public function aFailedCreateAuditPutsAnAdoptedKeyBackInsteadOfDestroyingIt(): void
+    {
+        $adapter = $this->adapter();
+        $adapter->store($this->envelopeSecret('api_key'));
+
+        $orphan = $this->vault['api_key'];
+        unset($this->rows['api_key']);
+
+        $adapter->store($this->envelopeSecret('api_key', 'adopted'));
+        $adapter->compensateCreate('api_key');
+
+        self::assertEquals($orphan, $this->vault['api_key'], 'the adopted key is back');
+        self::assertArrayNotHasKey('api_key', $this->rows, 'the row is removed');
+    }
+
+    #[Test]
+    public function aFailedCreateAuditDestroysAKeyThisCallCreated(): void
+    {
+        $adapter = $this->adapter();
+        $adapter->store($this->envelopeSecret('api_key'));
+
+        $adapter->compensateCreate('api_key');
+
+        self::assertArrayNotHasKey('api_key', $this->vault);
+        self::assertArrayNotHasKey('api_key', $this->rows);
+    }
+
+    #[Test]
+    public function aFailedCreateAuditDoesNotDestroyAKeyAConcurrentWriterWroteSince(): void
+    {
+        $adapter = $this->adapter();
+        $adapter->store($this->envelopeSecret('api_key'));
+        $this->vaultWrite('api_key', ['somebody' => 'else']);
+
+        $adapter->compensateCreate('api_key');
+
+        self::assertSame(['somebody' => 'else'], $this->vault['api_key']);
+        self::assertNotSame([], $this->warnings, 'the skipped rollback is reported');
+        self::assertStringNotContainsString('else', implode(' ', $this->warnings));
+    }
+
+    #[Test]
+    public function releasingAStoreDropsItsCompensationRecord(): void
+    {
+        $adapter = $this->adapter();
+        $adapter->store($this->envelopeSecret('api_key'));
+
+        $adapter->releaseStore('api_key');
+
+        self::assertNull($this->journal->take('hashicorp', 'api_key'));
+    }
+
+    #[Test]
+    public function theValuelessCompensationOfACompletionPutsAnAdoptedKeyBack(): void
+    {
+        $adapter = $this->adapter();
+        $adapter->store($this->envelopeSecret('api_key'));
+        $adapter->releaseStore('api_key');
+
+        $orphan = $this->vault['api_key'];
+        // The FormEngine path: the row exists without a value and the key is an
+        // unreferenced earlier write of this installation.
+        $this->rows['api_key'] = new Secret(identifier: 'api_key', uid: 1);
+
+        $adapter->store($this->envelopeSecret('api_key', 'adopted')->withUid(1));
+        // VaultService compensates a failed audit write with the prior row.
+        $adapter->store(new Secret(identifier: 'api_key', uid: 1));
+
+        self::assertEquals($orphan, $this->vault['api_key'], 'the adopted key is back, not destroyed');
+    }
+
+    #[Test]
+    public function theValuelessCompensationOfACompletionDestroysAKeyItCreated(): void
+    {
+        $adapter               = $this->adapter();
+        $this->rows['api_key'] = new Secret(identifier: 'api_key', uid: 1);
+
+        $adapter->store($this->envelopeSecret('api_key')->withUid(1));
+        $adapter->store(new Secret(identifier: 'api_key', uid: 1));
+
+        self::assertArrayNotHasKey('api_key', $this->vault);
+    }
+
+    #[Test]
+    public function aFailedRestoreOfAWriteIsReportedWithoutASecret(): void
+    {
+        $adapter = $this->adapter();
+        $adapter->store($this->envelopeSecret('api_key'));
+        $adapter->releaseStore('api_key');
+
+        $this->failRowWrite       = true;
+        $this->vaultWritesAllowed = 1;
+
+        try {
+            $adapter->store($this->envelopeSecret('api_key', 'newer')->withUid(1));
+            self::fail('The row failure must propagate.');
+        } catch (RuntimeException $e) {
+            self::assertSame(4778462882, $e->getCode());
+        }
+
+        self::assertCount(1, $this->warnings);
+        self::assertStringContainsString('RuntimeException', $this->warnings[0]);
+        self::assertStringNotContainsString('newer', $this->warnings[0]);
+    }
+
+    #[Test]
+    public function aCompensationWithoutARecordedStoreWarnsAndDeletes(): void
+    {
+        $adapter = $this->adapter();
+        $adapter->store($this->envelopeSecret('api_key'));
+
+        $this->journal->forget('hashicorp', 'api_key');
+
+        $adapter->compensateCreate('api_key');
+
+        self::assertCount(1, $this->warnings);
+
+        self::assertArrayNotHasKey('api_key', $this->vault);
+        self::assertArrayNotHasKey('api_key', $this->rows);
+    }
+
+    #[Test]
+    public function aRollbackThatIsSkippedBecauseSomebodyWroteSinceIsReportedWithoutASecret(): void
+    {
+        $adapter = $this->adapter();
+        $adapter->store($this->envelopeSecret('api_key'));
+
+        $this->failRowWrite                = true;
+        $this->concurrentWriterReplacesKey = ['identifier' => 'api_key', 'format' => 1, 'winner' => true];
+
+        try {
+            $adapter->store($this->envelopeSecret('api_key', 'newer')->withUid(1));
+            self::fail('The row failure must propagate.');
+        } catch (RuntimeException) {
+        }
+
+        self::assertCount(1, $this->warnings);
+        self::assertStringNotContainsString('newer', $this->warnings[0]);
+    }
+
+    #[Test]
+    public function aRollbackNeverOverwritesAConcurrentWritersVersion(): void
+    {
+        $adapter = $this->adapter();
+        $adapter->store($this->envelopeSecret('api_key'));
+
+        $this->failRowWrite                = true;
+        $this->concurrentWriterReplacesKey = ['identifier' => 'api_key', 'format' => 1, 'winner' => true];
+
+        try {
+            $adapter->store($this->envelopeSecret('api_key', 'newer')->withUid(1));
+            self::fail('The row failure must propagate.');
+        } catch (RuntimeException) {
+        }
+
+        self::assertSame(['identifier' => 'api_key', 'format' => 1, 'winner' => true], $this->vaultRead('api_key'));
+    }
+
+    #[Test]
+    public function aRollbackOfACreateNeverDeletesAKeyAConcurrentWriterHasWrittenSince(): void
+    {
+        $this->failRowWrite                = true;
+        $this->concurrentWriterReplacesKey = ['identifier' => 'api_key', 'format' => 1, 'winner' => true];
+
+        try {
+            $this->adapter()->store($this->envelopeSecret('api_key'));
+            self::fail('The row failure must propagate.');
+        } catch (RuntimeException) {
+        }
+
+        self::assertSame(['identifier' => 'api_key', 'format' => 1, 'winner' => true], $this->vaultRead('api_key'));
+    }
+
+    #[Test]
+    public function aRollbackDoesNotDependOnTheOrderOfTheKeysVaultReturns(): void
+    {
+        $adapter = $this->adapter();
+        $adapter->store($this->envelopeSecret('api_key'));
+
+        $before               = $this->vault['api_key'];
+        $this->readKeysSorted = true;
+        $this->failRowWrite   = true;
+
+        try {
+            $adapter->store($this->envelopeSecret('api_key', 'newer')->withUid(1));
+            self::fail('The row failure must propagate.');
+        } catch (RuntimeException) {
+        }
+
+        self::assertEquals($before, $this->vault['api_key'], 'the previous envelope is back although Vault reorders the keys');
+    }
+
+    #[Test]
+    public function anAdoptedOrphanIsPutBackWhenTheRowWriteFails(): void
+    {
+        $adapter = $this->adapter();
+        $adapter->store($this->envelopeSecret('api_key'));
+
+        $orphan = $this->vault['api_key'];
+        unset($this->rows['api_key']);
+        $this->readKeysSorted = true;
+        $this->failRowWrite   = true;
+
+        try {
+            $adapter->store($this->envelopeSecret('api_key', 'adopted'));
+            self::fail('The row failure must propagate.');
+        } catch (RuntimeException) {
+        }
+
+        self::assertEquals($orphan, $this->vault['api_key']);
+    }
+
+    #[Test]
+    public function aStoreWithoutACreateOnlyWriteStillWorksButReportsTheDeprecationOnce(): void
+    {
+        $deprecations = $this->collectDeprecations(function (): void {
+            $adapter = $this->adapter(atomic: false);
+            $adapter->store($this->envelopeSecret('first_key'));
+            $adapter->store($this->envelopeSecret('second_key'));
+        });
+
+        self::assertCount(1, $deprecations, 'reported once, not per store');
+        self::assertStringContainsString('implements only KvStoreInterface, which is deprecated', $deprecations[0]);
+        self::assertStringContainsString('nr-vault 2.0 will require it', $deprecations[0]);
+        self::assertSame('hashicorp', $this->rows['first_key']->getAdapter());
+        self::assertSame('hashicorp', $this->rows['second_key']->getAdapter());
+        self::assertSame(['read:first_key', 'write:first_key', 'read:second_key', 'write:second_key'], $this->vaultCalls);
+    }
+
+    #[Test]
+    public function anAtomicStoreReportsNoDeprecation(): void
+    {
+        $deprecations = $this->collectDeprecations(fn (): Secret => $this->adapter()->store($this->envelopeSecret('api_key')));
+
+        self::assertSame([], $deprecations);
+    }
+
+    #[Test]
+    public function aStoreWithoutACreateOnlyWriteStillRefusesForeignData(): void
+    {
+        $this->vault['api_key'] = ['unrelated' => 'value'];
+
+        $this->collectDeprecations(function (): void {
+            try {
+                $this->adapter(atomic: false)->store($this->envelopeSecret('api_key'));
+                self::fail('The store must be refused.');
+            } catch (HashiCorpException $e) {
+                self::assertSame(1794400012, $e->getCode());
+            }
+        });
+
+        self::assertSame(['unrelated' => 'value'], $this->vaultRead('api_key'));
+    }
+
+    #[Test]
     public function registryOperationsNeverCallVault(): void
     {
         $adapter = $this->adapter();
@@ -503,8 +994,20 @@ final class HashiCorpAdapterTest extends TestCase
     public function vaultRead(string $identifier): ?array
     {
         $this->vaultCalls[] = 'read:' . $identifier;
+        if ($this->readScript !== []) {
+            $step = array_shift($this->readScript);
+            $step();
 
-        return $this->vault[$identifier] ?? null;
+            return null;
+        }
+
+        $data = $this->vault[$identifier] ?? null;
+        if ($data !== null && $this->readKeysSorted) {
+            // Vault returns keys in its own order, not the one that was sent.
+            ksort($data);
+        }
+
+        return $data;
     }
 
     /**
@@ -512,14 +1015,71 @@ final class HashiCorpAdapterTest extends TestCase
      */
     public function vaultWrite(string $identifier, array $data): void
     {
-        $this->vaultCalls[]       = 'write:' . $identifier;
-        $this->vault[$identifier] = $data;
+        $this->vaultCalls[] = 'write:' . $identifier;
+        if ($this->vaultWritesAllowed !== null && $this->vaultWritesAllowed-- <= 0) {
+            throw new RuntimeException('vault write refused', 4778462884);
+        }
+
+        $this->vault[$identifier]    = $data;
+        $this->versions[$identifier] = ($this->versions[$identifier] ?? 0) + 1;
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     */
+    public function vaultCreate(string $identifier, array $data): void
+    {
+        $this->vaultCalls[] = 'create:' . $identifier;
+        if ($this->createScript !== []) {
+            $step = array_shift($this->createScript);
+            $step();
+        }
+
+        if (array_key_exists($identifier, $this->vault)) {
+            throw HashiCorpException::keyExists($identifier);
+        }
+
+        $this->vault[$identifier]    = $data;
+        $this->versions[$identifier] = 1;
+    }
+
+    public function vaultVersion(string $identifier): int
+    {
+        return $this->versions[$identifier] ?? 0;
+    }
+
+    public function recordWarning(string $message): void
+    {
+        $this->warnings[] = $message;
     }
 
     public function vaultDestroy(string $identifier): void
     {
         $this->vaultCalls[] = 'destroy:' . $identifier;
-        unset($this->vault[$identifier]);
+        unset($this->vault[$identifier], $this->versions[$identifier]);
+    }
+
+    /**
+     * @param callable(): mixed $action
+     *
+     * @return list<string> The E_USER_DEPRECATED messages the action triggered
+     */
+    private function collectDeprecations(callable $action): array
+    {
+        $messages = [];
+        set_error_handler(static function (int $number, string $message) use (&$messages): bool {
+            $messages[] = $message;
+
+            return true;
+        }, E_USER_DEPRECATED);
+
+        try {
+            $action();
+        } finally {
+            restore_error_handler();
+        }
+
+        return $messages;
     }
 
     private function envelopeSecret(string $identifier, string $value = self::BINARY_VALUE): Secret
@@ -536,7 +1096,7 @@ final class HashiCorpAdapterTest extends TestCase
         );
     }
 
-    private function adapter(string $address = 'https://vault.example.com:8200'): HashiCorpAdapter
+    private function adapter(string $address = 'https://vault.example.com:8200', bool $atomic = true): HashiCorpAdapter
     {
         $repository = $this->createMock(SecretRepositoryInterface::class);
         $repository->method('findByIdentifier')->willReturnCallback(
@@ -556,6 +1116,10 @@ final class HashiCorpAdapterTest extends TestCase
         );
         $repository->method('save')->willReturnCallback(function (Secret $secret): Secret {
             if ($this->failRowWrite) {
+                if ($this->concurrentWriterReplacesKey !== null) {
+                    $this->vaultWrite($secret->getIdentifier(), $this->concurrentWriterReplacesKey);
+                }
+
                 if ($this->rowAppearsBeforeFailure) {
                     $this->rows[$secret->getIdentifier()] = $secret->withUid(99);
                 }
@@ -584,7 +1148,65 @@ final class HashiCorpAdapterTest extends TestCase
             token: 'unit-token',
         ));
 
-        $kv = new class ($this) implements KvStoreInterface {
+        $kv = $atomic ? new class ($this) implements AtomicKvStoreInterface {
+            public function __construct(private readonly HashiCorpAdapterTest $test) {}
+
+            public function read(string $identifier): ?array
+            {
+                return $this->test->vaultRead($identifier);
+            }
+
+            public function write(string $identifier, array $data): void
+            {
+                $this->test->vaultWrite($identifier, $data);
+            }
+
+            public function create(string $identifier, array $data): int
+            {
+                $this->test->vaultCreate($identifier, $data);
+
+                return $this->test->vaultVersion($identifier);
+            }
+
+            public function writeVersioned(string $identifier, array $data): int
+            {
+                $this->test->vaultWrite($identifier, $data);
+
+                return $this->test->vaultVersion($identifier);
+            }
+
+            public function restoreIfCurrent(string $identifier, array $data, int $version): bool
+            {
+                if ($this->test->vaultVersion($identifier) !== $version) {
+                    return false;
+                }
+
+                $this->test->vaultWrite($identifier, $data);
+
+                return true;
+            }
+
+            public function destroyIfCurrent(string $identifier, int $version): bool
+            {
+                if ($this->test->vaultVersion($identifier) !== $version) {
+                    return false;
+                }
+
+                $this->test->vaultDestroy($identifier);
+
+                return true;
+            }
+
+            public function destroy(string $identifier): void
+            {
+                $this->test->vaultDestroy($identifier);
+            }
+
+            public function reference(string $identifier): string
+            {
+                return 'secret/data/typo3/' . $identifier;
+            }
+        } : new class ($this) implements KvStoreInterface {
             public function __construct(private readonly HashiCorpAdapterTest $test) {}
 
             public function read(string $identifier): ?array
@@ -608,6 +1230,20 @@ final class HashiCorpAdapterTest extends TestCase
             }
         };
 
-        return new HashiCorpAdapter(new LocalEncryptionAdapter($repository), $kv, $configuration);
+        $masterKey = $this->createMock(MasterKeyProviderInterface::class);
+        $masterKey->method('getMasterKey')->willReturnCallback(fn (): string => $this->masterKey);
+
+        $logger = new class ($this) extends AbstractLogger {
+            public function __construct(private readonly HashiCorpAdapterTest $test) {}
+
+            public function log($level, string|Stringable $message, array $context = []): void
+            {
+                if ($level === 'warning') {
+                    $this->test->recordWarning((string) $message);
+                }
+            }
+        };
+
+        return new HashiCorpAdapter(new LocalEncryptionAdapter($repository), $kv, $configuration, new InstallationMarker($masterKey), $this->journal, $logger);
     }
 }

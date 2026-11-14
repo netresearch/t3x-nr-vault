@@ -112,6 +112,34 @@ final class HashiCorpException extends VaultException
         );
     }
 
+    public static function claimUnstable(string $identifier): self
+    {
+        return new self(
+            sprintf('The HashiCorp Vault key for secret "%s" kept appearing and disappearing while it was being claimed. Nothing was written; try again.', $identifier),
+            1794400014,
+        );
+    }
+
+    public static function pathMismatch(string $identifier): self
+    {
+        return new self(
+            sprintf(
+                'The registry row for secret "%s" points at a different HashiCorp Vault path than the one hashicorp.path resolves to now. '
+                . 'Nothing was changed. Restore the previous hashicorp.path (or move the key and update the row) before touching this secret.',
+                $identifier,
+            ),
+            1794400015,
+        );
+    }
+
+    public static function keyExists(string $identifier): self
+    {
+        return new self(
+            sprintf('The HashiCorp Vault key for secret "%s" already exists.', $identifier),
+            1794400013,
+        );
+    }
+
     public static function externalSecretsBlockMasterKeyRotation(string $identifier, string $adapter): self
     {
         return new self(
