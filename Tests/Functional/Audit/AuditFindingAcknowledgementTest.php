@@ -471,6 +471,33 @@ final class AuditFindingAcknowledgementTest extends AbstractVaultFunctionalTestC
         self::assertFalse($report->isValid());
         self::assertContains('TABLE_RESET', $report->getReasonCodes());
         self::assertSame([], $report->getAcknowledgedItems());
+
+        // Whoever can append to the anchor file cannot forge freshness: a record
+        // with a future timestamp but a tip that is not the stored one is ignored.
+        $forged = json_decode(trim($oldAnchorFile), true);
+        self::assertIsArray($forged);
+        self::assertIsArray($forged['anchor']);
+        $forged['anchor']['timestamp'] = time() + 86400;
+        $forged['anchor']['sequence']  = 2;
+        $forged['anchor']['chainTip']  = str_repeat('c', 64);
+        file_put_contents($this->auditSinkAnchorPath, json_encode($forged, JSON_THROW_ON_ERROR) . "\n", FILE_APPEND);
+
+        $afterForgery = $service->inspect();
+        self::assertFalse($afterForgery->isValid(), 'a forged future timestamp does not make an anchor fresh');
+        self::assertSame([], $afterForgery->getAcknowledgedItems());
+
+        // An anchor that names the stored chain correctly but ends BEFORE the
+        // acknowledgement row does not reach it either, whatever its timestamp.
+        $realTip = $this->getConnection()->createQueryBuilder()
+            ->select('entry_hash')->from(self::TABLE)->where('uid = 1')
+            ->executeQuery()->fetchOne();
+        self::assertIsString($realTip);
+        $early                       = $forged;
+        $early['anchor']['sequence'] = 1;
+        $early['anchor']['chainTip'] = $realTip;
+        file_put_contents($this->auditSinkAnchorPath, json_encode($early, JSON_THROW_ON_ERROR) . "\n", FILE_APPEND);
+
+        self::assertFalse($service->inspect()->isValid(), 'an anchor older than the acknowledgement is not fresh');
     }
 
     /**

@@ -49,8 +49,8 @@ Netresearch\NrVault\Audit\Acknowledgement\AuditFindingOverlayInterface (interfac
   method chainItems(Netresearch\NrVault\Audit\HashChainVerificationResult $raw): array
 
 Netresearch\NrVault\Audit\Anchor\AnchorReaderInterface (interface)
-  method hasAnchorSince(int $timestamp): bool
   method isAvailable(): bool
+  method readAnchors(): array
   method readLatestAnchor(): ?Netresearch\NrVault\Audit\Anchor\ChainTipAnchor
 
 Netresearch\NrVault\Audit\Anchor\ChainTipAnchor (class)

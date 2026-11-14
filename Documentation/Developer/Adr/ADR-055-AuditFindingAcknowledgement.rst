@@ -106,10 +106,14 @@ Findings fall in three classes:
     tip uid and hash it was chained after; the finding is covered only while the
     row at that uid still carries that hash. Rewriting or truncating the chain
     up to that tip uncovers it again. A finding against the external anchor is
-    additionally covered only once an anchor was published after the
-    acknowledgement row (the flow publishes one; without an external sink the
-    request is refused before anything is written, and a replayed old anchor
-    file reopens the finding). The reader keeps the anchor with the highest
+    additionally covered only once a fresh anchor exists: a record in the
+    anchor file whose sequence is at or above the uid of the acknowledgement row
+    and whose tip equals the stored entry hash of the row at that sequence. The
+    timestamp of a record is ignored, because whoever can append to the file
+    could set it to anything. The flow publishes such an anchor; without an
+    external sink the request is refused before anything is written, and a
+    replayed old anchor file, an appended record with a wrong tip, or one that
+    ends before the acknowledgement reopens the finding. The reader keeps the anchor with the highest
     sequence, which after a restore stays the old one, so anchoring alone never
     clears such a finding.
 *   **The in-database anchor errors** are never covered. They carry no

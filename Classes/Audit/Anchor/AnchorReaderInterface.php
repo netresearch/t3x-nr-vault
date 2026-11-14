@@ -40,11 +40,15 @@ interface AnchorReaderInterface
     public function isAvailable(): bool;
 
     /**
-     * Whether an anchor taken at or after `$timestamp` has been published.
+     * Every anchor record the store holds, in file order (at most
+     * {@see AnchorFileReader::MAX_RECORDS}).
      *
      * {@see self::readLatestAnchor()} returns the highest SEQUENCE, which after a
      * restore is still the old anchor, so it cannot show that a fresh baseline
-     * exists. An acknowledged external-anchor finding counts only once one does.
+     * exists. The caller decides what counts as fresh by checking each record
+     * against the chain, never by the timestamp a record carries.
+     *
+     * @return list<ChainTipAnchor>
      */
-    public function hasAnchorSince(int $timestamp): bool;
+    public function readAnchors(): array;
 }

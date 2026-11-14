@@ -185,13 +185,16 @@ final readonly class ChainTipAnchorService implements ChainTipAnchorServiceInter
     }
 
     /**
-     * Withdraw the acknowledgement of an external-anchor finding unless an anchor
-     * was published after the acknowledgement row was written.
+     * Withdraw the acknowledgement of an external-anchor finding unless a fresh
+     * anchor was published after the acknowledgement row.
      *
      * The reader returns the anchor with the highest SEQUENCE, which after a
-     * restore is still the old one, so the finding keeps being raised; the fresh
-     * anchor proves that a new baseline exists, and a replayed old anchor file
-     * (without it) reopens the finding.
+     * restore is still the old one, so the finding keeps being raised. A fresh
+     * anchor must reach the acknowledgement row (sequence at or above its uid) and
+     * must name the chain as it is stored: its tip equals the stored entry hash
+     * of the row at that sequence. The timestamp a record carries is ignored;
+     * whoever can append to the anchor file could set it to anything. A replayed
+     * old anchor file, or an appended record with a wrong tip, does not count.
      *
      * @param list<AuditFindingItem> $items
      *
@@ -199,12 +202,14 @@ final readonly class ChainTipAnchorService implements ChainTipAnchorServiceInter
      */
     private function requireFreshAnchor(array $items): array
     {
-        $result = [];
+        $anchors = null;
+        $result  = [];
         foreach ($items as $item) {
-            if ($item->requiresFreshAnchor && $item->acknowledgedBy !== null
-                && !$this->anchorReader->hasAnchorSince($this->fetchCreationTime($item->acknowledgedBy))
-            ) {
-                $item = $item->withoutAcknowledgement();
+            if ($item->requiresFreshAnchor && $item->acknowledgedBy !== null) {
+                $anchors ??= $this->anchorReader->readAnchors();
+                if (!$this->hasFreshAnchor($anchors, $item->acknowledgedBy)) {
+                    $item = $item->withoutAcknowledgement();
+                }
             }
 
             $result[] = $item;
@@ -213,17 +218,23 @@ final readonly class ChainTipAnchorService implements ChainTipAnchorServiceInter
         return $result;
     }
 
-    private function fetchCreationTime(int $uid): int
+    /**
+     * @param list<ChainTipAnchor> $anchors
+     */
+    private function hasFreshAnchor(array $anchors, int $acknowledgementUid): bool
     {
-        $queryBuilder = $this->getQueryBuilder();
-        $time         = $queryBuilder
-            ->select('crdate')
-            ->from(AuditLogService::TABLE_NAME)
-            ->where($queryBuilder->expr()->eq('uid', $queryBuilder->createNamedParameter($uid, Connection::PARAM_INT)))
-            ->executeQuery()
-            ->fetchOne();
+        foreach ($anchors as $anchor) {
+            if ($anchor->isEmpty() || $anchor->sequence < $acknowledgementUid) {
+                continue;
+            }
 
-        return is_numeric($time) ? (int) $time : PHP_INT_MAX;
+            $row = $this->fetchRowAt($anchor->sequence);
+            if ($row !== null && hash_equals($anchor->chainTip, $row['entryHash'])) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
