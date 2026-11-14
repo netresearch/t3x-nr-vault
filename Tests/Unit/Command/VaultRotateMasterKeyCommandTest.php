@@ -355,8 +355,8 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
         $this->connectionPool->method('getConnectionForTable')->willReturn($connection);
 
         $exitCode = $this->commandTester->execute([
-            '--old-key' => $this->createKeyFile('old', str_repeat('a', 32)),
-            '--new-key' => $this->createKeyFile('new', str_repeat('b', 32)),
+            '--old-key' => $this->createKeyFile('old', sodium_crypto_secretbox_keygen()),
+            '--new-key' => $this->createKeyFile('new', sodium_crypto_secretbox_keygen()),
             '--confirm' => true,
         ]);
 
@@ -427,8 +427,8 @@ final class VaultRotateMasterKeyCommandTest extends TestCase
         $this->recordAuditRows($auditRows);
 
         $exitCode = $this->commandTester->execute([
-            '--old-key' => $this->createKeyFile('old', str_repeat('a', 32)),
-            '--new-key' => $this->createKeyFile('new', str_repeat('b', 32)),
+            '--old-key' => $this->createKeyFile('old', sodium_crypto_secretbox_keygen()),
+            '--new-key' => $this->createKeyFile('new', sodium_crypto_secretbox_keygen()),
             '--confirm' => true,
         ]);
 

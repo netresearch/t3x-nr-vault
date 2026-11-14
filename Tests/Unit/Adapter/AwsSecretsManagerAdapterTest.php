@@ -70,7 +70,7 @@ final class AwsSecretsManagerAdapterTest extends TestCase
     /** @var list<string> */
     private array $warnings = [];
 
-    private string $masterKey = 'unit-test-master-key-of-this-installation';
+    private string $masterKey = '';
 
     private ExternalStoreJournal $journal;
 
@@ -91,7 +91,7 @@ final class AwsSecretsManagerAdapterTest extends TestCase
         $this->readScript                     = [];
         $this->warnings                       = [];
         $this->awsWritesAllowed               = null;
-        $this->masterKey                      = 'unit-test-master-key-of-this-installation';
+        $this->masterKey                      = sodium_crypto_secretbox_keygen();
         $this->journal                        = new ExternalStoreJournal();
     }
 
@@ -669,7 +669,7 @@ final class AwsSecretsManagerAdapterTest extends TestCase
 
         $theirs = $this->aws['api_key'];
         unset($this->rows['api_key']);
-        $this->masterKey = 'the-master-key-of-installation-b';
+        $this->masterKey = sodium_crypto_secretbox_keygen();
 
         try {
             $this->adapter()->store($this->envelopeSecret('api_key', 'mine'));

@@ -95,7 +95,10 @@ prefix:
        {
          "Effect": "Allow",
          "Action": "secretsmanager:CreateSecret",
-         "Resource": "*"
+         "Resource": "*",
+         "Condition": {
+           "StringLike": {"secretsmanager:Name": "typo3/*"}
+         }
        },
        {
          "Effect": "Allow",
@@ -110,8 +113,10 @@ prefix:
    }
 
 ``CreateSecret`` acts on a secret that does not exist yet, so AWS cannot scope it
-to the prefix by ARN; look for a condition on the secret name if you need to
-narrow it. The adapter calls no other action: it does not list, describe, tag or
+to the prefix by ARN; the ``secretsmanager:Name`` condition limits it to names
+under the prefix. The pattern ``typo3/*`` matches the default prefix; change it
+if ``aws.secretPrefix`` differs. The condition is not exercised by the tests,
+because the emulation does not evaluate policies like AWS does. The adapter calls no other action: it does not list, describe, tag or
 rotate secrets. That the four actions are enough is tested; the ARN pattern is
 not, because the emulation the tests run against does not evaluate it (see
 :ref:`adr-054-aws-secrets-manager-storage-adapter`).
@@ -229,7 +234,10 @@ Delete
    Deleting removes the AWS secret with ``ForceDeleteWithoutRecovery``, so there
    is no recovery window and no version survives, then the row. Run
    ``vault:delete`` again after an interrupted delete. The flip side: nothing is
-   left in AWS to recover a deleted secret from.
+   left in AWS to recover a deleted secret from. A crash, or a failed row delete
+   whose restore is also refused, after the AWS secret was removed leaves a row
+   whose envelope is gone; that value is lost and has to be restored from a
+   backup, or the row removed.
 
 Versions
    Every rotation adds a version in AWS. The previous one stays staged as
@@ -242,17 +250,22 @@ Master-key rotation
    keys held in AWS are not re-wrapped by this release.
 
 Audit
-   Every operation is written to the nr-vault audit log, and when the audit
-   write fails the previous state is restored. Unlike local secrets, the AWS
+   Every mutation is written to the nr-vault audit log, and reads are written
+   when ``auditReads`` is enabled. When the audit write of a mutation fails, the
+   previous state is restored on a best-effort, conditional basis: the rollback
+   is skipped when somebody wrote to the AWS secret since, or when AWS refuses
+   it. Either case is logged as a warning, and the secret and its row then need
+   a manual check. Unlike local secrets, the AWS
    write and the database write are not one transaction: a crash after the AWS
    write and before the audit write persists the change without an audit entry.
    CloudTrail records every call to Secrets Manager, so compare writes and
    deletes there with the nr-vault audit log.
 
 Changing ``aws.region`` or ``aws.secretPrefix``
-   The secret of a row is looked up under the current setting. Existing
-   AWS-backed secrets are not found under a new region or prefix: move them in
-   AWS first (or keep the old values) before you change either.
+   The secret of a row is looked up under the current setting, and a row whose
+   recorded location differs from it is refused. This release has no migration
+   for the recorded location, so keep the original region and prefix for as long
+   as AWS-backed secrets exist.
 
 Another external adapter
    A row bound to ``hashicorp`` is refused under ``aws``, and the other way

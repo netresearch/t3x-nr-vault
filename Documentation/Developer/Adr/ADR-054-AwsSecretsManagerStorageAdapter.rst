@@ -233,9 +233,11 @@ Negative
 
 -  A secret has two stores and they are not updated atomically. A crash between
    the writes leaves an unreferenced AWS secret (overwritten by the next store of
-   that identifier) or a row whose metadata lags the envelope by one write; no
-   value is lost. A compensated delete recreates the secret with its latest value
-   only (:ref:`adr-036-mutation-audit-atomicity`).
+   that identifier) or a row whose metadata lags the envelope by one write. A
+   crash between the AWS delete and the row delete leaves a row whose envelope is
+   gone; that value is lost and comes back only from a backup. A compensated
+   delete recreates the secret with its latest value only
+   (:ref:`adr-036-mutation-audit-atomicity`).
 -  AWS stages versions. After a rotation the previous envelope stays in AWS
    labelled ``AWSPREVIOUS`` (measured on Moto 5.2.5; the real service was not
    measured), until the secret is deleted. The previous envelope is ciphertext
