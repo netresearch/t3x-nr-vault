@@ -14,7 +14,7 @@ use Netresearch\NrVault\Domain\Dto\SecretFilters;
 use Netresearch\NrVault\Domain\Model\Secret;
 use Netresearch\NrVault\Exception\ConfigurationException;
 use Netresearch\NrVault\Exception\HashiCorpException;
-use Netresearch\NrVault\Exception\ValidationException;
+use Netresearch\NrVault\Storage\ExternalEnvelopeCodec;
 use Netresearch\NrVault\Storage\ExternalStoreJournal;
 use Netresearch\NrVault\Storage\HashiCorp\AtomicKvStoreInterface;
 use Netresearch\NrVault\Storage\HashiCorp\HashiCorpEndpoint;
@@ -28,7 +28,6 @@ use Throwable;
 use function array_key_exists;
 use function in_array;
 use function is_int;
-use function is_string;
 
 /**
  * Stores the encryption envelope of a secret in HashiCorp Vault (KV v2).
@@ -55,7 +54,7 @@ final readonly class HashiCorpAdapter implements CreateCompensatingAdapterInterf
 {
     public const IDENTIFIER = 'hashicorp';
 
-    private const FORMAT = 1;
+    private const FORMAT = ExternalEnvelopeCodec::FORMAT;
 
     private const CLAIM_ATTEMPTS = 3;
 
@@ -135,7 +134,7 @@ final readonly class HashiCorpAdapter implements CreateCompensatingAdapterInterf
         // is an earlier write of nr-vault for this very identifier (an
         // unreferenced one left by a crash). Only a key this call created is
         // destroyed again on failure; an adopted one is put back.
-        $payload = $this->toPayload($secret);
+        $payload = ExternalEnvelopeCodec::encode($secret, $this->installation->value());
         if ($existing instanceof Secret && $existing->getAdapter() === self::IDENTIFIER) {
             $this->assertOwnsLocation($existing);
             $previous = $this->readOwned($identifier);
@@ -148,7 +147,7 @@ final readonly class HashiCorpAdapter implements CreateCompensatingAdapterInterf
         $this->journal->remember(self::IDENTIFIER, $identifier, $previous, $version);
 
         try {
-            return $this->registry->store($row, $persistGroupRelations)->withEnvelope(...$this->envelopeOf($secret));
+            return $this->registry->store($row, $persistGroupRelations)->withEnvelope(...ExternalEnvelopeCodec::envelopeOf($secret));
         } catch (Throwable $e) {
             $this->journal->forget(self::IDENTIFIER, $identifier);
             $this->undoVaultWrite($identifier, $previous, $version);
@@ -512,11 +511,7 @@ final readonly class HashiCorpAdapter implements CreateCompensatingAdapterInterf
                 return $row;
             }
 
-            if (($payload['identifier'] ?? null) !== $identifier || ($payload['format'] ?? null) !== self::FORMAT) {
-                throw HashiCorpException::backingObjectMismatch($identifier);
-            }
-
-            return $this->rowWithEnvelope($row, $payload);
+            return ExternalEnvelopeCodec::decode($row, $payload, HashiCorpException::backingObjectMismatch(...));
         } catch (HashiCorpException $e) {
             // The administrative lookup must not fail on a broken or foreign
             // object: the row comes back bare, and delete() or a rotation decides
@@ -527,83 +522,5 @@ final readonly class HashiCorpAdapter implements CreateCompensatingAdapterInterf
 
             return $row;
         }
-    }
-
-    /**
-     * @param array<string, mixed> $payload
-     */
-    private function rowWithEnvelope(Secret $row, #[SensitiveParameter] array $payload): Secret
-    {
-        $identifier = $row->getIdentifier();
-
-        $version = $payload['encryption_version'] ?? null;
-        $fields  = [];
-        foreach (['encrypted_value', 'encrypted_dek', 'dek_nonce', 'value_nonce'] as $key) {
-            $decoded = is_string($payload[$key] ?? null) ? base64_decode($payload[$key], true) : false;
-            if ($decoded === false) {
-                throw HashiCorpException::backingObjectMismatch($identifier);
-            }
-
-            $fields[$key] = $decoded;
-        }
-
-        $checksum  = $payload['value_checksum'] ?? null;
-        $algorithm = $payload['encryption_algorithm'] ?? null;
-        if (!is_string($checksum) || !is_string($algorithm) || !is_int($version)) {
-            throw HashiCorpException::backingObjectMismatch($identifier);
-        }
-
-        try {
-            return $row->withEnvelope(
-                $fields['encrypted_value'],
-                $fields['encrypted_dek'],
-                $fields['dek_nonce'],
-                $fields['value_nonce'],
-                $checksum,
-                $version,
-                $algorithm,
-            );
-        } catch (ValidationException) {
-            // An envelope marker this version does not know, such as an unknown
-            // algorithm, is an unusable object like any other.
-            throw HashiCorpException::backingObjectMismatch($identifier);
-        }
-    }
-
-    /**
-     * Binary fields are base64 so the JSON body is lossless.
-     *
-     * @return array<string, mixed>
-     */
-    private function toPayload(Secret $secret): array
-    {
-        return [
-            'format'               => self::FORMAT,
-            'installation'         => $this->installation->value(),
-            'identifier'           => $secret->getIdentifier(),
-            'encrypted_value'      => base64_encode($secret->getEncryptedValue() ?? ''),
-            'encrypted_dek'        => base64_encode($secret->getEncryptedDek()),
-            'dek_nonce'            => base64_encode($secret->getDekNonce()),
-            'value_nonce'          => base64_encode($secret->getValueNonce()),
-            'value_checksum'       => $secret->getValueChecksum(),
-            'encryption_version'   => $secret->getEncryptionVersion(),
-            'encryption_algorithm' => $secret->getEncryptionAlgorithm(),
-        ];
-    }
-
-    /**
-     * @return array{string, string, string, string, string, int, string}
-     */
-    private function envelopeOf(Secret $secret): array
-    {
-        return [
-            $secret->getEncryptedValue() ?? '',
-            $secret->getEncryptedDek(),
-            $secret->getDekNonce(),
-            $secret->getValueNonce(),
-            $secret->getValueChecksum(),
-            $secret->getEncryptionVersion(),
-            $secret->getEncryptionAlgorithm(),
-        ];
     }
 }
