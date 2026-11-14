@@ -570,7 +570,7 @@ final class ExtensionConfiguration implements ExtensionConfigurationInterface, S
             return new AwsSecretsConfig();
         }
 
-        /** @var array{region?: string, secretPrefix?: string} $config */
+        /** @var array{region?: string, secretPrefix?: string, endpoint?: string, allowInsecureHttp?: string|bool|int, accessKeyId?: string, accessKeyIdEnvVar?: string, secretAccessKeyEnvVar?: string, sessionTokenEnvVar?: string} $config */
         return AwsSecretsConfig::fromArray($config);
     }
 

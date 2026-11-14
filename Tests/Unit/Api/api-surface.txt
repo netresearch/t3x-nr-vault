@@ -268,13 +268,19 @@ Netresearch\NrVault\Audit\Sink\SinkDeliveryStateRepositoryInterface (interface)
   method recordSuccess(string $sinkIdentifier): void
 
 Netresearch\NrVault\Configuration\Dto\AwsSecretsConfig (class)
-  constructor(string $region = …, string $secretPrefix = …)
+  constructor(string $region = …, string $secretPrefix = …, string $endpoint = …, bool $allowInsecureHttp = …, string $accessKeyId = …, string $accessKeyIdEnvVar = …, string $secretAccessKeyEnvVar = …, string $sessionTokenEnvVar = …)
   method getFullSecretName(string $secretName): string
   method isValid(): bool
   method static fromArray(array $config): self
   method toArray(): array
+  property readonly accessKeyId: string
+  property readonly accessKeyIdEnvVar: string
+  property readonly allowInsecureHttp: bool
+  property readonly endpoint: string
   property readonly region: string
+  property readonly secretAccessKeyEnvVar: string
   property readonly secretPrefix: string
+  property readonly sessionTokenEnvVar: string
 
 Netresearch\NrVault\Configuration\Dto\TransitConfig (class)
   const DEFAULT_KEY_NAME = "nr-vault-master"
@@ -680,7 +686,23 @@ Netresearch\NrVault\Exception\AuditWriteException (class)
   method static postgreSqlLockAcquisitionFailed(mixed $rawResult, int $lockKey): self
   method static writeFailed(Throwable $cause): self
 
+Netresearch\NrVault\Exception\AwsSecretsManagerException (class)
+  method static backingObjectMismatch(string $identifier): self
+  method static backingObjectMissing(string $identifier): self
+  method static claimUnstable(string $identifier): self
+  method static credentialMissing(string $what): self
+  method static insecureTransport(): self
+  method static malformedResponse(string $operation, string $detail): self
+  method static nameExists(string $identifier): self
+  method static nameTaken(string $identifier): self
+  method static notConfigured(string $detail): self
+  method static pathMismatch(string $identifier): self
+  method static requestRejected(string $operation, int $status, string $awsCode): self
+  method static transportFailure(string $operation, string $detail): self
+  method static unsafeName(string $what): self
+
 Netresearch\NrVault\Exception\ConfigurationException (class)
+  method static awsSdkMissing(): self
   method static blankProviderIdentifier(string $providerClass): self
   method static duplicateProviderIdentifier(string $identifier, string $registeredClass, string $conflictingClass): self
   method static invalidAdapter(string $adapter): self
@@ -688,6 +710,7 @@ Netresearch\NrVault\Exception\ConfigurationException (class)
   method static invalidSecurityProfile(string $profile): self
   method static missingConfiguration(string $key): self
   method static providerForbiddenInHardenedProfile(string $provider): self
+  method static secretBoundToAnotherAdapter(string $identifier, string $boundTo, string $configured): self
   method static statementBinlogFormatForRotation(): self
 
 Netresearch\NrVault\Exception\EncryptionException (class)
@@ -1038,6 +1061,16 @@ Netresearch\NrVault\Service\VaultServiceInterface (interface)
   method rotate(string $identifier, string $newSecret, string $reason = …): void
   method setEnabled(string $identifier, bool $enabled, string $reason = …): void
   method store(string $identifier, string $secret, array $options = …): void
+
+Netresearch\NrVault\Storage\Aws\AwsSecretStoreInterface (interface)
+  method create(string $identifier, array $data): string
+  method destroy(string $identifier): void
+  method destroyIfCurrent(string $identifier, string $versionId): bool
+  method isSdkInstalled(): bool
+  method read(string $identifier): ?array
+  method reference(string $identifier): string
+  method restoreIfCurrent(string $identifier, array $data, string $versionId): bool
+  method write(string $identifier, array $data): string
 
 Netresearch\NrVault\Storage\HashiCorp\AtomicKvStoreInterface (interface)
   method create(string $identifier, array $data): int

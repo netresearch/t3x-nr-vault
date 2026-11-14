@@ -578,6 +578,41 @@ final class VaultServiceTest extends TestCase
         $subject->store('dangling', 'overwrite');
     }
 
+    #[Test]
+    public function storeOnAnAwsRowWithoutAnEnvelopeStillFacesTheRotateGate(): void
+    {
+        // The adapter returns such a row when the external object is missing.
+        // It is an existing secret, not a creation in progress, so a caller who
+        // may only create must not be able to overwrite it.
+        $existing = (new Secret(identifier: 'dangling', uid: 43, ownerUid: 1))
+            ->withExternalStorage('aws', 'eu-central-1:typo3/dangling');
+
+        $createOnlyAccess = $this->createMock(AccessControlServiceInterface::class);
+        $createOnlyAccess->method('getCurrentActorUid')->willReturn(1);
+        $createOnlyAccess->method('getCurrentActorType')->willReturn('cli');
+        $createOnlyAccess->method('canWrite')->willReturn(true);
+        $createOnlyAccess->method('isGranted')->willReturnCallback(
+            static fn (VaultPermission $permission): bool => $permission === VaultPermission::SecretCreate,
+        );
+
+        $subject = new VaultService(
+            $this->adapter,
+            $this->encryptionService,
+            $createOnlyAccess,
+            $this->auditLogService,
+            $this->configuration,
+            $this->httpClientFactory,
+        );
+
+        $this->adapter->method('retrieve')->willReturn($existing);
+        $this->adapter->method('retrieveIncludingDisabled')->willReturn($existing);
+        $this->adapter->expects(self::never())->method('store');
+
+        $this->expectException(AccessDeniedException::class);
+
+        $subject->store('dangling', 'overwrite');
+    }
+
     /**
      * Regression: DataHandler inserts the row and defers its MM writes until
      * after the hook that calls store() has returned, so the read behind

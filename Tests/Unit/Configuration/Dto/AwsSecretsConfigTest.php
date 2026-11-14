@@ -157,4 +157,55 @@ final class AwsSecretsConfigTest extends TestCase
 
         self::assertSame($original, $subject->toArray());
     }
+
+    #[Test]
+    public function credentialsAreNamedByVariablesThatAreNotTheSdksDefaults(): void
+    {
+        $subject = new AwsSecretsConfig();
+
+        self::assertSame('NR_VAULT_AWS_ACCESS_KEY_ID', $subject->accessKeyIdEnvVar);
+        self::assertSame('NR_VAULT_AWS_SECRET_ACCESS_KEY', $subject->secretAccessKeyEnvVar);
+        self::assertSame('NR_VAULT_AWS_SESSION_TOKEN', $subject->sessionTokenEnvVar);
+        self::assertSame('', $subject->endpoint);
+        self::assertFalse($subject->allowInsecureHttp);
+        self::assertSame('', $subject->accessKeyId);
+    }
+
+    #[Test]
+    public function fromArrayReadsTheEndpointTransportAndCredentialSettings(): void
+    {
+        $subject = AwsSecretsConfig::fromArray([
+            'region'                => 'eu-west-1',
+            'endpoint'              => ' https://sm.example.com ',
+            'allowInsecureHttp'     => '1',
+            'accessKeyId'           => ' AKIAEXAMPLE ',
+            'accessKeyIdEnvVar'     => 'MY_KEY_ID',
+            'secretAccessKeyEnvVar' => 'MY_SECRET',
+            'sessionTokenEnvVar'    => 'MY_TOKEN',
+        ]);
+
+        self::assertSame('https://sm.example.com', $subject->endpoint);
+        self::assertTrue($subject->allowInsecureHttp);
+        self::assertSame('AKIAEXAMPLE', $subject->accessKeyId);
+        self::assertSame('MY_KEY_ID', $subject->accessKeyIdEnvVar);
+        self::assertSame('MY_SECRET', $subject->secretAccessKeyEnvVar);
+        self::assertSame('MY_TOKEN', $subject->sessionTokenEnvVar);
+    }
+
+    #[Test]
+    public function fromArrayFallsBackToTheDefaultVariableNameForAnEmptyOne(): void
+    {
+        $subject = AwsSecretsConfig::fromArray(['secretAccessKeyEnvVar' => '  ', 'allowInsecureHttp' => '0']);
+
+        self::assertSame('NR_VAULT_AWS_SECRET_ACCESS_KEY', $subject->secretAccessKeyEnvVar);
+        self::assertFalse($subject->allowInsecureHttp);
+    }
+
+    #[Test]
+    public function toArrayCarriesNoCredential(): void
+    {
+        $subject = new AwsSecretsConfig(region: 'eu-west-1', accessKeyId: 'AKIAEXAMPLE');
+
+        self::assertSame(['region', 'secretPrefix'], array_keys($subject->toArray()));
+    }
 }

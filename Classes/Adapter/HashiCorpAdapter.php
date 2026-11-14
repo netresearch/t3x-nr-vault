@@ -12,7 +12,9 @@ namespace Netresearch\NrVault\Adapter;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Domain\Dto\SecretFilters;
 use Netresearch\NrVault\Domain\Model\Secret;
+use Netresearch\NrVault\Exception\ConfigurationException;
 use Netresearch\NrVault\Exception\HashiCorpException;
+use Netresearch\NrVault\Storage\ExternalEnvelopeCodec;
 use Netresearch\NrVault\Storage\ExternalStoreJournal;
 use Netresearch\NrVault\Storage\HashiCorp\AtomicKvStoreInterface;
 use Netresearch\NrVault\Storage\HashiCorp\HashiCorpEndpoint;
@@ -26,7 +28,6 @@ use Throwable;
 use function array_key_exists;
 use function in_array;
 use function is_int;
-use function is_string;
 
 /**
  * Stores the encryption envelope of a secret in HashiCorp Vault (KV v2).
@@ -53,7 +54,7 @@ final readonly class HashiCorpAdapter implements CreateCompensatingAdapterInterf
 {
     public const IDENTIFIER = 'hashicorp';
 
-    private const FORMAT = 1;
+    private const FORMAT = ExternalEnvelopeCodec::FORMAT;
 
     private const CLAIM_ATTEMPTS = 3;
 
@@ -86,6 +87,9 @@ final readonly class HashiCorpAdapter implements CreateCompensatingAdapterInterf
     {
         $identifier = $secret->getIdentifier();
         $existing   = $this->registry->retrieveIncludingDisabled($identifier);
+
+        $this->assertNotBoundElsewhere($existing);
+        $this->assertNotBoundElsewhere($secret);
 
         // A write without a value has nothing to put into Vault. Restoring a
         // valueless row that is, or just was, bound to Vault also removes the
@@ -130,7 +134,7 @@ final readonly class HashiCorpAdapter implements CreateCompensatingAdapterInterf
         // is an earlier write of nr-vault for this very identifier (an
         // unreferenced one left by a crash). Only a key this call created is
         // destroyed again on failure; an adopted one is put back.
-        $payload = $this->toPayload($secret);
+        $payload = ExternalEnvelopeCodec::encode($secret, $this->installation->value());
         if ($existing instanceof Secret && $existing->getAdapter() === self::IDENTIFIER) {
             $this->assertOwnsLocation($existing);
             $previous = $this->readOwned($identifier);
@@ -143,7 +147,7 @@ final readonly class HashiCorpAdapter implements CreateCompensatingAdapterInterf
         $this->journal->remember(self::IDENTIFIER, $identifier, $previous, $version);
 
         try {
-            return $this->registry->store($row, $persistGroupRelations)->withEnvelope(...$this->envelopeOf($secret));
+            return $this->registry->store($row, $persistGroupRelations)->withEnvelope(...ExternalEnvelopeCodec::envelopeOf($secret));
         } catch (Throwable $e) {
             $this->journal->forget(self::IDENTIFIER, $identifier);
             $this->undoVaultWrite($identifier, $previous, $version);
@@ -165,7 +169,18 @@ final readonly class HashiCorpAdapter implements CreateCompensatingAdapterInterf
             return;
         }
 
-        $this->undoVaultWrite($identifier, $entry['previous'], is_int($entry['version']) ? $entry['version'] : null, true);
+        $rolledBack = $this->undoVaultWrite($identifier, $entry['previous'], is_int($entry['version']) ? $entry['version'] : null, true);
+        if (!$rolledBack) {
+            // The key is at a version somebody else wrote since. Its row stays,
+            // so the value that writer reported as stored keeps its pointer.
+            $this->logger->warning(
+                'nr-vault: the row was kept because the Vault key changed since the create that is being compensated.',
+                ['secret' => $identifier],
+            );
+
+            return;
+        }
+
         $this->registry->delete($identifier);
     }
 
@@ -176,7 +191,10 @@ final readonly class HashiCorpAdapter implements CreateCompensatingAdapterInterf
 
     public function retrieve(string $identifier): ?Secret
     {
-        return $this->withBackingEnvelope($this->registry->retrieve($identifier), true);
+        $row = $this->registry->retrieve($identifier);
+        $this->assertNotBoundElsewhere($row);
+
+        return $this->withBackingEnvelope($row, true);
     }
 
     public function retrieveIncludingDisabled(string $identifier): ?Secret
@@ -191,7 +209,9 @@ final readonly class HashiCorpAdapter implements CreateCompensatingAdapterInterf
 
     public function delete(string $identifier): void
     {
-        $row      = $this->registry->retrieveIncludingDisabled($identifier);
+        $row = $this->registry->retrieveIncludingDisabled($identifier);
+        $this->assertNotBoundElsewhere($row);
+
         $previous = null;
         if ($row instanceof Secret && $row->getAdapter() === self::IDENTIFIER) {
             $this->assertOwnsLocation($row);
@@ -254,7 +274,7 @@ final readonly class HashiCorpAdapter implements CreateCompensatingAdapterInterf
      *
      * @param array<string, mixed>|null $previous
      */
-    private function undoVaultWrite(string $identifier, #[SensitiveParameter] ?array $previous, ?int $version, bool $rowIsBeingRemoved = false): void
+    private function undoVaultWrite(string $identifier, #[SensitiveParameter] ?array $previous, ?int $version, bool $rowIsBeingRemoved = false): bool
     {
         try {
             if ($version !== null && $this->kv instanceof AtomicKvStoreInterface) {
@@ -263,7 +283,7 @@ final readonly class HashiCorpAdapter implements CreateCompensatingAdapterInterf
                 } elseif ($rowIsBeingRemoved || !$this->registry->exists($identifier)) {
                     $applied = $this->kv->destroyIfCurrent($identifier, $version);
                 } else {
-                    return;
+                    return true;
                 }
 
                 if (!$applied) {
@@ -273,7 +293,7 @@ final readonly class HashiCorpAdapter implements CreateCompensatingAdapterInterf
                     );
                 }
 
-                return;
+                return $applied;
             }
 
             if ($previous !== null) {
@@ -281,9 +301,13 @@ final readonly class HashiCorpAdapter implements CreateCompensatingAdapterInterf
             } elseif ($rowIsBeingRemoved || !$this->registry->exists($identifier)) {
                 $this->kv->destroy($identifier);
             }
+
+            return true;
         } catch (Throwable $e) {
             // The original failure is the one to report.
             $this->warnRollbackFailed($identifier, $e);
+
+            return true;
         }
     }
 
@@ -419,6 +443,25 @@ final readonly class HashiCorpAdapter implements CreateCompensatingAdapterInterf
     }
 
     /**
+     * A row that another external adapter owns stays with it. Rebinding it here
+     * would write a second copy of the envelope and orphan the first; deleting
+     * it would orphan that copy and leave a secret nothing refers to.
+     *
+     * @throws ConfigurationException
+     */
+    private function assertNotBoundElsewhere(?Secret $secret): void
+    {
+        if (!$secret instanceof Secret) {
+            return;
+        }
+
+        $boundTo = $secret->getAdapter();
+        if (!in_array($boundTo, ['local', self::IDENTIFIER], true)) {
+            throw ConfigurationException::secretBoundToAnotherAdapter($secret->getIdentifier(), $boundTo, self::IDENTIFIER);
+        }
+    }
+
+    /**
      * A new secret, or a row that exists but holds no value yet, goes to Vault;
      * a row already bound to Vault stays there; a row that was stored locally
      * stays local.
@@ -468,11 +511,7 @@ final readonly class HashiCorpAdapter implements CreateCompensatingAdapterInterf
                 return $row;
             }
 
-            if (($payload['identifier'] ?? null) !== $identifier || ($payload['format'] ?? null) !== self::FORMAT) {
-                throw HashiCorpException::backingObjectMismatch($identifier);
-            }
-
-            return $this->rowWithEnvelope($row, $payload);
+            return ExternalEnvelopeCodec::decode($row, $payload, HashiCorpException::backingObjectMismatch(...));
         } catch (HashiCorpException $e) {
             // The administrative lookup must not fail on a broken or foreign
             // object: the row comes back bare, and delete() or a rotation decides
@@ -483,77 +522,5 @@ final readonly class HashiCorpAdapter implements CreateCompensatingAdapterInterf
 
             return $row;
         }
-    }
-
-    /**
-     * @param array<string, mixed> $payload
-     */
-    private function rowWithEnvelope(Secret $row, #[SensitiveParameter] array $payload): Secret
-    {
-        $identifier = $row->getIdentifier();
-
-        $version = $payload['encryption_version'] ?? null;
-        $fields  = [];
-        foreach (['encrypted_value', 'encrypted_dek', 'dek_nonce', 'value_nonce'] as $key) {
-            $decoded = is_string($payload[$key] ?? null) ? base64_decode($payload[$key], true) : false;
-            if ($decoded === false) {
-                throw HashiCorpException::backingObjectMismatch($identifier);
-            }
-
-            $fields[$key] = $decoded;
-        }
-
-        $checksum  = $payload['value_checksum'] ?? null;
-        $algorithm = $payload['encryption_algorithm'] ?? null;
-        if (!is_string($checksum) || !is_string($algorithm) || !is_int($version)) {
-            throw HashiCorpException::backingObjectMismatch($identifier);
-        }
-
-        return $row->withEnvelope(
-            $fields['encrypted_value'],
-            $fields['encrypted_dek'],
-            $fields['dek_nonce'],
-            $fields['value_nonce'],
-            $checksum,
-            $version,
-            $algorithm,
-        );
-    }
-
-    /**
-     * Binary fields are base64 so the JSON body is lossless.
-     *
-     * @return array<string, mixed>
-     */
-    private function toPayload(Secret $secret): array
-    {
-        return [
-            'format'               => self::FORMAT,
-            'installation'         => $this->installation->value(),
-            'identifier'           => $secret->getIdentifier(),
-            'encrypted_value'      => base64_encode($secret->getEncryptedValue() ?? ''),
-            'encrypted_dek'        => base64_encode($secret->getEncryptedDek()),
-            'dek_nonce'            => base64_encode($secret->getDekNonce()),
-            'value_nonce'          => base64_encode($secret->getValueNonce()),
-            'value_checksum'       => $secret->getValueChecksum(),
-            'encryption_version'   => $secret->getEncryptionVersion(),
-            'encryption_algorithm' => $secret->getEncryptionAlgorithm(),
-        ];
-    }
-
-    /**
-     * @return array{string, string, string, string, string, int, string}
-     */
-    private function envelopeOf(Secret $secret): array
-    {
-        return [
-            $secret->getEncryptedValue() ?? '',
-            $secret->getEncryptedDek(),
-            $secret->getDekNonce(),
-            $secret->getValueNonce(),
-            $secret->getValueChecksum(),
-            $secret->getEncryptionVersion(),
-            $secret->getEncryptionAlgorithm(),
-        ];
     }
 }

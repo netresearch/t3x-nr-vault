@@ -79,6 +79,8 @@ ADR      Title                                                    Status
 050      :ref:`adr-050-local-mutation-transactions`               Accepted
 051      :ref:`adr-051-postgresql-audit-lock`                     Accepted
 052      :ref:`adr-052-caller-pinned-addresses`                   Accepted
+053      :ref:`adr-053-hashicorp-storage-adapter`                 Accepted
+054      :ref:`adr-054-aws-secrets-manager-storage-adapter`       Accepted
 =======  =======================================================  ========
 
 .. toctree::
@@ -137,3 +139,4 @@ ADR      Title                                                    Status
    ADR-051-PostgreSqlAuditLock
    ADR-052-CallerPinnedAddresses
    ADR-053-HashiCorpVaultStorageAdapter
+   ADR-054-AwsSecretsManagerStorageAdapter

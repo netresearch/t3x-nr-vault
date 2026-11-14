@@ -169,6 +169,23 @@ services:
     arguments:
       $httpClient: '@nr_vault.hashicorp.http_client'
 
+  Netresearch\NrVault\Storage\Aws\AwsSecretStoreInterface:
+    alias: Netresearch\NrVault\Storage\Aws\AwsSecretsManagerStore
+
+  # The AWS SDK sends its requests through this client instead of its own
+  # transport, so they pass the same SSRF range check and DNS pin as every other
+  # outbound call and are bounded to 10 seconds. The service never names an SDK
+  # class: the SDK is a `suggest`, and a TYPO3 that does not select
+  # `storageAdapter = aws` must boot without it.
+  nr_vault.aws.http_client:
+    class: GuzzleHttp\ClientInterface
+    factory: ['@Netresearch\NrVault\Http\SecureHttpClientFactory', 'create']
+    arguments: [10]
+
+  Netresearch\NrVault\Storage\Aws\AwsClientFactory:
+    arguments:
+      $httpClient: '@nr_vault.aws.http_client'
+
   Netresearch\NrVault\Domain\Repository\SecretRepositoryInterface:
     alias: Netresearch\NrVault\Domain\Repository\SecretRepository
     # public: OrphanCleanupTask runs in the scheduler context (unserialized

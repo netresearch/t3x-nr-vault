@@ -113,6 +113,38 @@ final class ConfigurationException extends VaultException
     }
 
     /**
+     * `storageAdapter = aws` without the SDK. Never a fallback to local storage.
+     */
+    public static function awsSdkMissing(): self
+    {
+        return new self(
+            'storageAdapter is "aws", but the AWS SDK for PHP is not installed. Run "composer require aws/aws-sdk-php", '
+            . 'or select another storage adapter; nr-vault does not fall back to local storage.',
+            1794500002,
+        );
+    }
+
+    /**
+     * Two external adapters can exist at once, so a row bound to one of them is
+     * not another adapter's to rebind or delete: that would leave the first
+     * store's object behind, or write a second copy of the envelope.
+     */
+    public static function secretBoundToAnotherAdapter(string $identifier, string $boundTo, string $configured): self
+    {
+        return new self(
+            sprintf(
+                'Secret "%s" is stored in the "%s" adapter, but storageAdapter is "%s". Select "%s" again to work with it; '
+                . 'nr-vault does not move secrets between adapters.',
+                $identifier,
+                $boundTo,
+                $configured,
+                $boundTo,
+            ),
+            1794500020,
+        );
+    }
+
+    /**
      * Master-key rotation runs in READ COMMITTED, and InnoDB refuses writes
      * there while the binary log uses STATEMENT format (error 1665).
      */

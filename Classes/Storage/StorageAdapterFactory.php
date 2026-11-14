@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Storage;
 
+use Netresearch\NrVault\Adapter\AwsSecretsManagerAdapter;
 use Netresearch\NrVault\Adapter\HashiCorpAdapter;
 use Netresearch\NrVault\Adapter\LocalEncryptionAdapter;
 use Netresearch\NrVault\Adapter\VaultAdapterInterface;
@@ -18,8 +19,9 @@ use Netresearch\NrVault\Exception\ConfigurationException;
 /**
  * Selects the storage adapter named by the `storageAdapter` setting.
  *
- * `local` is the default and the fallback for `aws`, which is declared but not
- * yet implemented. An unknown value is refused rather than treated as `local`:
+ * `local` is the default. `aws` never falls back to it: without the AWS SDK or
+ * with an incomplete configuration the adapter fails with a configuration error
+ * when it is used. An unknown value is refused rather than treated as `local`:
  * a typo must not decide where secrets are stored.
  *
  * A consuming extension that binds its own adapter to
@@ -32,6 +34,7 @@ final readonly class StorageAdapterFactory
         private ExtensionConfigurationInterface $configuration,
         private LocalEncryptionAdapter $local,
         private HashiCorpAdapter $hashicorp,
+        private AwsSecretsManagerAdapter $aws,
     ) {}
 
     /**
@@ -40,9 +43,10 @@ final readonly class StorageAdapterFactory
     public function create(): VaultAdapterInterface
     {
         return match ($this->configuration->getStorageAdapter()) {
-            'local', 'aws'               => $this->local,
-            HashiCorpAdapter::IDENTIFIER => $this->hashicorp,
-            default                      => throw ConfigurationException::invalidAdapter($this->configuration->getStorageAdapter()),
+            'local'                              => $this->local,
+            HashiCorpAdapter::IDENTIFIER         => $this->hashicorp,
+            AwsSecretsManagerAdapter::IDENTIFIER => $this->aws,
+            default                              => throw ConfigurationException::invalidAdapter($this->configuration->getStorageAdapter()),
         };
     }
 }
