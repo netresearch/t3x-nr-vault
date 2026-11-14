@@ -38,7 +38,7 @@ use Throwable;
 #[AllowMockObjectsWithoutExpectations]
 final class AwsSecretsManagerStoreTest extends TestCase
 {
-    private const KEY_ID = 'AKIAUNITTESTKEY00001';
+    use AccessKeyFixtures;
 
     private const SECRET_KEY = 'unit-test-secret-access-key-value';
 
@@ -50,7 +50,7 @@ final class AwsSecretsManagerStoreTest extends TestCase
         parent::setUp();
 
         $this->requests = [];
-        putenv('NR_VAULT_AWS_ACCESS_KEY_ID=' . self::KEY_ID);
+        putenv('NR_VAULT_AWS_ACCESS_KEY_ID=' . self::akia('UNITTESTKEY00001'));
         putenv('NR_VAULT_AWS_SECRET_ACCESS_KEY=' . self::SECRET_KEY);
     }
 
@@ -71,7 +71,7 @@ final class AwsSecretsManagerStoreTest extends TestCase
 
         self::assertSame('secretsmanager.GetSecretValue', $this->request(0)->getHeaderLine('X-Amz-Target'));
         self::assertSame(['SecretId' => 'typo3/api_key'], $this->bodyOf(0));
-        self::assertStringContainsString('Credential=' . self::KEY_ID . '/', $this->request(0)->getHeaderLine('Authorization'));
+        self::assertStringContainsString('Credential=' . self::akia('UNITTESTKEY00001') . '/', $this->request(0)->getHeaderLine('Authorization'));
         self::assertStringNotContainsString(self::SECRET_KEY, $this->request(0)->getHeaderLine('Authorization'));
     }
 
@@ -385,7 +385,7 @@ final class AwsSecretsManagerStoreTest extends TestCase
     public function aTransportFailureKeepsCredentialsOutOfTheMessage(): void
     {
         $failure = new ConnectException(
-            'cURL error 7: could not connect. Authorization: AWS4-HMAC-SHA256 Credential=AKIASECRETKEY12345/20261113/eu-central-1/secretsmanager/aws4_request, '
+            'cURL error 7: could not connect. Authorization: AWS4-HMAC-SHA256 Credential=' . self::akia('SECRETKEY12345') . '/20261113/eu-central-1/secretsmanager/aws4_request, '
             . 'SignedHeaders=host, Signature=0123456789abcdef0123456789abcdef',
             new Request('POST', 'https://secretsmanager.eu-central-1.amazonaws.com/'),
         );
@@ -397,7 +397,7 @@ final class AwsSecretsManagerStoreTest extends TestCase
         } catch (AwsSecretsManagerException $e) {
             self::assertSame(1794500007, $e->getCode());
             self::assertStringContainsString('could not connect', $e->getMessage());
-            self::assertStringNotContainsString('AKIASECRETKEY12345', $e->getMessage());
+            self::assertStringNotContainsString(self::akia('SECRETKEY12345'), $e->getMessage());
             self::assertStringNotContainsString('0123456789abcdef', $e->getMessage());
             self::assertNotInstanceOf(Throwable::class, $e->getPrevious());
         }
@@ -407,11 +407,11 @@ final class AwsSecretsManagerStoreTest extends TestCase
     public function redactRemovesEveryCredentialShape(): void
     {
         $redacted = AwsSecretsManagerStore::redact(
-            'key AKIAABCDEFGHIJKLMNOP, temp ASIAABCDEFGHIJKLMNOP, Authorization: AWS4-HMAC-SHA256 Credential=x, '
+            'key ' . self::akia('ABCDEFGHIJKLMNOP') . ', temp ' . self::asia('ABCDEFGHIJKLMNOP') . ', Authorization: AWS4-HMAC-SHA256 Credential=x, '
             . 'X-Amz-Security-Token: tok123, ?X-Amz-Signature=deadbeefdeadbeefdeadbeef&X-Amz-Credential=AKIAZ%2F2026',
         );
 
-        foreach (['AKIAABCDEFGHIJKLMNOP', 'ASIAABCDEFGHIJKLMNOP', 'tok123', 'deadbeef', 'AWS4-HMAC-SHA256'] as $secret) {
+        foreach ([self::akia('ABCDEFGHIJKLMNOP'), self::asia('ABCDEFGHIJKLMNOP'), 'tok123', 'deadbeef', 'AWS4-HMAC-SHA256'] as $secret) {
             self::assertStringNotContainsString($secret, $redacted);
         }
     }

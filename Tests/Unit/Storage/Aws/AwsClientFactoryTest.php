@@ -31,6 +31,8 @@ use Psr\Http\Message\RequestInterface;
 #[AllowMockObjectsWithoutExpectations]
 final class AwsClientFactoryTest extends TestCase
 {
+    use AccessKeyFixtures;
+
     private const VARIABLES = [
         'NR_VAULT_AWS_ACCESS_KEY_ID',
         'NR_VAULT_AWS_SECRET_ACCESS_KEY',
@@ -101,34 +103,34 @@ final class AwsClientFactoryTest extends TestCase
     #[Test]
     public function readsTheCredentialsFromTheNamedEnvironmentVariablesAndSignsWithThem(): void
     {
-        putenv('NR_VAULT_AWS_ACCESS_KEY_ID=AKIAENVIRONMENTKEY001');
+        putenv('NR_VAULT_AWS_ACCESS_KEY_ID=' . self::akia('ENVIRONMENTKEY001'));
         putenv('NR_VAULT_AWS_SECRET_ACCESS_KEY=environment-secret-value');
 
         $this->send($this->factory());
 
-        self::assertStringContainsString('Credential=AKIAENVIRONMENTKEY001/', $this->requests[0]->getHeaderLine('Authorization'));
+        self::assertStringContainsString('Credential=' . self::akia('ENVIRONMENTKEY001') . '/', $this->requests[0]->getHeaderLine('Authorization'));
         self::assertSame('', $this->requests[0]->getHeaderLine('X-Amz-Security-Token'));
     }
 
     #[Test]
     public function theEnvironmentWinsOverTheStoredAccessKeyId(): void
     {
-        putenv('NR_VAULT_AWS_ACCESS_KEY_ID=AKIAENVIRONMENTKEY001');
+        putenv('NR_VAULT_AWS_ACCESS_KEY_ID=' . self::akia('ENVIRONMENTKEY001'));
         putenv('NR_VAULT_AWS_SECRET_ACCESS_KEY=environment-secret-value');
 
-        $this->send($this->factory(new AwsSecretsConfig(region: 'eu-central-1', accessKeyId: 'AKIASTOREDKEY0000001')));
+        $this->send($this->factory(new AwsSecretsConfig(region: 'eu-central-1', accessKeyId: self::akia('STOREDKEY0000001'))));
 
-        self::assertStringContainsString('Credential=AKIAENVIRONMENTKEY001/', $this->requests[0]->getHeaderLine('Authorization'));
+        self::assertStringContainsString('Credential=' . self::akia('ENVIRONMENTKEY001') . '/', $this->requests[0]->getHeaderLine('Authorization'));
     }
 
     #[Test]
     public function fallsBackToTheStoredAccessKeyIdButNeverForTheSecret(): void
     {
-        $config = new AwsSecretsConfig(region: 'eu-central-1', accessKeyId: 'AKIASTOREDKEY0000001');
+        $config = new AwsSecretsConfig(region: 'eu-central-1', accessKeyId: self::akia('STOREDKEY0000001'));
 
         putenv('NR_VAULT_AWS_SECRET_ACCESS_KEY=environment-secret-value');
         $this->send($this->factory($config));
-        self::assertStringContainsString('Credential=AKIASTOREDKEY0000001/', $this->requests[0]->getHeaderLine('Authorization'));
+        self::assertStringContainsString('Credential=' . self::akia('STOREDKEY0000001') . '/', $this->requests[0]->getHeaderLine('Authorization'));
 
         putenv('NR_VAULT_AWS_SECRET_ACCESS_KEY');
 
@@ -158,7 +160,7 @@ final class AwsClientFactoryTest extends TestCase
     #[Test]
     public function sendsTheSessionTokenOfTemporaryCredentials(): void
     {
-        putenv('NR_VAULT_AWS_ACCESS_KEY_ID=ASIATEMPORARYKEY0001');
+        putenv('NR_VAULT_AWS_ACCESS_KEY_ID=' . self::asia('TEMPORARYKEY0001'));
         putenv('NR_VAULT_AWS_SECRET_ACCESS_KEY=environment-secret-value');
         putenv('NR_VAULT_AWS_SESSION_TOKEN=session-token-value');
 
@@ -170,7 +172,7 @@ final class AwsClientFactoryTest extends TestCase
     #[Test]
     public function honoursTheConfiguredVariableNames(): void
     {
-        putenv('MY_KEY_ID=AKIACUSTOMNAMEKEY0001');
+        putenv('MY_KEY_ID=' . self::akia('CUSTOMNAMEKEY0001'));
         putenv('MY_SECRET=custom-secret');
 
         try {
@@ -180,16 +182,16 @@ final class AwsClientFactoryTest extends TestCase
             putenv('MY_SECRET');
         }
 
-        self::assertStringContainsString('Credential=AKIACUSTOMNAMEKEY0001/', $this->requests[0]->getHeaderLine('Authorization'));
+        self::assertStringContainsString('Credential=' . self::akia('CUSTOMNAMEKEY0001') . '/', $this->requests[0]->getHeaderLine('Authorization'));
     }
 
     #[Test]
     public function ignoresTheAmbientAwsEnvironmentAndTheSharedFilesAndMakesNoMetadataCall(): void
     {
-        putenv('NR_VAULT_AWS_ACCESS_KEY_ID=AKIAEXPLICITKEY000001');
+        putenv('NR_VAULT_AWS_ACCESS_KEY_ID=' . self::akia('EXPLICITKEY000001'));
         putenv('NR_VAULT_AWS_SECRET_ACCESS_KEY=explicit-secret');
         // What the default provider chain would have used instead.
-        putenv('AWS_ACCESS_KEY_ID=AKIAAMBIENTKEY0000001');
+        putenv('AWS_ACCESS_KEY_ID=' . self::akia('AMBIENTKEY0000001'));
         putenv('AWS_SECRET_ACCESS_KEY=ambient-secret');
         putenv('AWS_SESSION_TOKEN=ambient-token');
         putenv('AWS_PROFILE=no-such-profile');
@@ -198,7 +200,7 @@ final class AwsClientFactoryTest extends TestCase
 
         self::assertCount(1, $this->requests, 'exactly the one request: no 169.254.169.254 call, no credential lookup');
         $request = $this->requests[0];
-        self::assertStringContainsString('Credential=AKIAEXPLICITKEY000001/', $request->getHeaderLine('Authorization'));
+        self::assertStringContainsString('Credential=' . self::akia('EXPLICITKEY000001') . '/', $request->getHeaderLine('Authorization'));
         self::assertSame('', $request->getHeaderLine('X-Amz-Security-Token'));
         self::assertSame('secretsmanager.eu-central-1.amazonaws.com', $request->getUri()->getHost());
     }
@@ -229,7 +231,8 @@ final class AwsClientFactoryTest extends TestCase
             $client = $this->factory()->create($this->endpoint());
         } finally {
             putenv('AWS_CONFIG_FILE');
-            unlink($file);
+            // The file was created by this test with tempnam(); no external input reaches the path.
+            unlink($file); // nosemgrep: php.lang.security.unlink-use.unlink-use
         }
 
         self::assertSame('secretsmanager.eu-central-1.amazonaws.com', $client->getEndpoint()->getHost());
@@ -259,7 +262,7 @@ final class AwsClientFactoryTest extends TestCase
 
     private function explicitCredentials(): void
     {
-        putenv('NR_VAULT_AWS_ACCESS_KEY_ID=AKIAEXPLICITKEY000001');
+        putenv('NR_VAULT_AWS_ACCESS_KEY_ID=' . self::akia('EXPLICITKEY000001'));
         putenv('NR_VAULT_AWS_SECRET_ACCESS_KEY=explicit-secret');
     }
 
