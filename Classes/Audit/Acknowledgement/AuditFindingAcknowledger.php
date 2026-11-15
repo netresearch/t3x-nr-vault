@@ -18,6 +18,7 @@ use Netresearch\NrVault\Audit\AuditLogService;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
 use Netresearch\NrVault\Audit\GenericContext;
 use Netresearch\NrVault\Audit\Sink\AuditSinkRegistryInterface;
+use Netresearch\NrVault\Audit\VaultMutationTransaction;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Security\AccessControlServiceInterface;
 use Netresearch\NrVault\Security\VaultPermission;
@@ -62,6 +63,7 @@ final readonly class AuditFindingAcknowledger implements AuditFindingAcknowledge
         private ConnectionPool $connectionPool,
         private AuditSinkRegistryInterface $sinkRegistry,
         private AnchorReaderInterface $anchorReader,
+        private ?VaultMutationTransaction $mutationTransaction = null,
     ) {}
 
     public function acknowledge(
@@ -179,9 +181,7 @@ final readonly class AuditFindingAcknowledger implements AuditFindingAcknowledge
             $codes[$item->reason->value]                       = true;
         }
 
-        $connection->beginTransaction();
-
-        try {
+        $append = function () use ($connection, $open, $reason, $ticket, $originalUserUid, $codes, $ranges, $resetAnchor): void {
             if ($resetAnchor) {
                 $this->anchorStore->reset($connection);
             }
@@ -216,12 +216,36 @@ final readonly class AuditFindingAcknowledger implements AuditFindingAcknowledge
             if ($resetAnchor) {
                 $this->anchorStore->arm($connection);
             }
+        };
 
+        // Inside the mutation transaction the chain lock is held from reading
+        // the tip until the commit, so no other writer can chain onto the old
+        // tip in between, and the sinks hear of the row only once it is
+        // committed.
+        if ($this->mutationTransaction instanceof VaultMutationTransaction && $this->sharesMutationConnection($connection)) {
+            $this->mutationTransaction->run($append);
+
+            return;
+        }
+
+        $connection->beginTransaction();
+
+        try {
+            $append();
             $connection->commit();
         } catch (Throwable $e) {
             $connection->rollBack();
 
             throw $e;
+        }
+    }
+
+    private function sharesMutationConnection(Connection $connection): bool
+    {
+        try {
+            return $this->mutationTransaction?->sharedConnection() === $connection;
+        } catch (Throwable) {
+            return false;
         }
     }
 
