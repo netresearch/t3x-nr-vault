@@ -218,38 +218,61 @@ final readonly class AuditFindingOverlay implements AuditFindingOverlayInterface
 
         $covered = [];
         foreach ($rows as $row) {
-            $uid = is_numeric($row['uid'] ?? null) ? (int) $row['uid'] : 0;
-            // A row that fails its own hash proves nothing: ignore it.
-            if ($uid === 0 || array_key_exists($uid, $raw->errors)) {
+            $acknowledgement = $this->validAcknowledgement($row, $raw);
+            if ($acknowledgement === null) {
                 continue;
             }
 
-            $context = json_decode(is_string($row['context'] ?? null) ? $row['context'] : '', true);
-            if (!is_array($context)) {
-                continue;
-            }
-
-            $tipHash  = $context['tipHash'] ?? null;
-            $findings = $context['findings'] ?? null;
-            $previous = is_string($row['previous_hash'] ?? null) ? $row['previous_hash'] : '';
-            // The acknowledgement must sit directly after the tip it recorded:
-            // that is what stops it from covering rows written later.
-            if (!is_string($tipHash) || $tipHash === '' || !hash_equals($tipHash, $previous) || !is_string($findings) || $findings === '') {
-                continue;
-            }
-
-            foreach (explode(',', $findings) as $key) {
+            foreach ($acknowledgement['keys'] as $key) {
                 if (preg_match('/^[0-9a-f]{64}$/', $key) === 1 && !array_key_exists($key, $covered)) {
                     $covered[$key] = [
-                        'uid'     => $uid,
-                        'tipUid'  => is_numeric($context['tipUid'] ?? null) ? (int) $context['tipUid'] : 0,
-                        'tipHash' => $tipHash,
+                        'uid'     => $acknowledgement['uid'],
+                        'tipUid'  => $acknowledgement['tipUid'],
+                        'tipHash' => $acknowledgement['tipHash'],
                     ];
                 }
             }
         }
 
         return $covered;
+    }
+
+    /**
+     * The parts of one acknowledgement row that count, or null when the row
+     * proves nothing.
+     *
+     * @param array<string, mixed> $row
+     *
+     * @return array{uid: int, tipUid: int, tipHash: string, keys: list<string>}|null
+     */
+    private function validAcknowledgement(array $row, HashChainVerificationResult $raw): ?array
+    {
+        $uid = is_numeric($row['uid'] ?? null) ? (int) $row['uid'] : 0;
+        // A row that fails its own hash proves nothing: ignore it.
+        if ($uid === 0 || array_key_exists($uid, $raw->errors)) {
+            return null;
+        }
+
+        $context = json_decode(is_string($row['context'] ?? null) ? $row['context'] : '', true);
+        if (!is_array($context)) {
+            return null;
+        }
+
+        $tipHash  = $context['tipHash'] ?? null;
+        $findings = $context['findings'] ?? null;
+        $previous = is_string($row['previous_hash'] ?? null) ? $row['previous_hash'] : '';
+        // The acknowledgement must sit directly after the tip it recorded:
+        // that is what stops it from covering rows written later.
+        if (!is_string($tipHash) || $tipHash === '' || !hash_equals($tipHash, $previous) || !is_string($findings) || $findings === '') {
+            return null;
+        }
+
+        return [
+            'uid'     => $uid,
+            'tipUid'  => is_numeric($context['tipUid'] ?? null) ? (int) $context['tipUid'] : 0,
+            'tipHash' => $tipHash,
+            'keys'    => explode(',', $findings),
+        ];
     }
 
     /**

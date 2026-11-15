@@ -176,6 +176,36 @@ final class VaultAuditVerifyCommand extends Command
         $io->error($message);
     }
 
+    private function formatChainState(AuditIntegrityReport $report): string
+    {
+        if ($report->chainValid) {
+            return 'valid';
+        }
+
+        if ($report->getOpenItems() === [] && $report->getAcknowledgedItems() !== []) {
+            return 'INVALID (all findings acknowledged)';
+        }
+
+        return 'INVALID';
+    }
+
+    /**
+     * Rows of a finding: `-` for a chain-level finding, the uid for one row,
+     * `start-end` for a range.
+     */
+    private static function formatRowRange(AuditFindingItem $item): string
+    {
+        if ($item->rangeStart === 0) {
+            return '-';
+        }
+
+        if ($item->rangeStart === $item->rangeEnd) {
+            return (string) $item->rangeStart;
+        }
+
+        return $item->rangeStart . '-' . $item->rangeEnd;
+    }
+
     private function renderText(SymfonyStyle $io, AuditIntegrityReport $report, bool $failed): void
     {
         $io->title('Vault Audit Integrity Verification');
@@ -183,9 +213,7 @@ final class VaultAuditVerifyCommand extends Command
         $anchor = $report->anchor;
         $io->definitionList(
             ['Chain length (max uid)' => (string) $report->currentSequence],
-            ['Hash chain' => $report->chainValid
-                ? 'valid'
-                : ($report->getOpenItems() === [] && $report->getAcknowledgedItems() !== [] ? 'INVALID (all findings acknowledged)' : 'INVALID')],
+            ['Hash chain' => $this->formatChainState($report)],
             ['Anchor' => $anchor instanceof ChainTipAnchor
                 ? sprintf(
                     'sequence %d, epoch %d, taken %s UTC',
@@ -221,7 +249,7 @@ final class VaultAuditVerifyCommand extends Command
                 array_map(
                     static fn (AuditFindingItem $item): array => [
                         $item->reason->value,
-                        $item->rangeStart === 0 ? '-' : ($item->rangeStart === $item->rangeEnd ? (string) $item->rangeStart : $item->rangeStart . '-' . $item->rangeEnd),
+                        self::formatRowRange($item),
                         (string) $item->acknowledgedBy,
                         $item->detail,
                     ],

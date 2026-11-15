@@ -60,6 +60,9 @@ final class AuditCheckTest extends TestCase
     /** Stands in for the preceding entry's hash in the drift tests. */
     private const PREVIOUS_HASH = 'previous-entry-hash';
 
+    /** Error string the chain pass reports for a row that fails its own hash. */
+    private const HASH_MISMATCH_ERROR = 'Entry hash mismatch - possible tampering';
+
     #[Test]
     public function appliesToEveryProfile(): void
     {
@@ -222,7 +225,7 @@ final class AuditCheckTest extends TestCase
     public function anAcknowledgedFindingInTheWindowNoLongerFailsTheCheckButIsStillReported(): void
     {
         $findings = $this->check(
-            chainResult: HashChainVerificationResult::invalid([17 => 'Entry hash mismatch - possible tampering']),
+            chainResult: HashChainVerificationResult::invalid([17 => self::HASH_MISMATCH_ERROR]),
             overlay: new AcknowledgingOverlay([17]),
         )->run($this->doctorContext(SecurityProfile::Standard));
 
@@ -236,8 +239,8 @@ final class AuditCheckTest extends TestCase
     {
         $findings = $this->check(
             chainResult: HashChainVerificationResult::invalid([
-                17 => 'Entry hash mismatch - possible tampering',
-                18 => 'Entry hash mismatch - possible tampering',
+                17 => self::HASH_MISMATCH_ERROR,
+                18 => self::HASH_MISMATCH_ERROR,
             ]),
             overlay: new AcknowledgingOverlay([17]),
         )->run($this->doctorContext(SecurityProfile::Standard));

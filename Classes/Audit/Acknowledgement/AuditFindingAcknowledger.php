@@ -135,6 +135,22 @@ final readonly class AuditFindingAcknowledger implements AuditFindingAcknowledge
 
         // The tip binding only holds when the row landed directly after the tip
         // it recorded. Read the verdict back instead of assuming it.
+        $refusal = $this->readBackRefusal($open, $published);
+        if ($refusal instanceof AcknowledgementStatus) {
+            return AcknowledgementOutcome::refused($refusal);
+        }
+
+        return new AcknowledgementOutcome(AcknowledgementStatus::Acknowledged, count($open), $published);
+    }
+
+    /**
+     * Inspect the chain again and name the refusal when any acknowledged item
+     * is still open, or null when every one of them is covered.
+     *
+     * @param list<AuditFindingItem> $open
+     */
+    private function readBackRefusal(array $open, int $published): ?AcknowledgementStatus
+    {
         $after = $this->anchorService->inspect();
         $keys  = array_map(static fn (AuditFindingItem $item): string => $item->key, $open);
         foreach ($after->items as $item) {
@@ -142,12 +158,10 @@ final readonly class AuditFindingAcknowledger implements AuditFindingAcknowledge
                 continue;
             }
 
-            return AcknowledgementOutcome::refused(
-                $item->requiresFreshAnchor && $published === 0 ? AcknowledgementStatus::AnchorNotPublished : AcknowledgementStatus::NotHonoured,
-            );
+            return $item->requiresFreshAnchor && $published === 0 ? AcknowledgementStatus::AnchorNotPublished : AcknowledgementStatus::NotHonoured;
         }
 
-        return new AcknowledgementOutcome(AcknowledgementStatus::Acknowledged, count($open), $published);
+        return null;
     }
 
     /**
