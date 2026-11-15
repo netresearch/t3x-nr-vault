@@ -261,8 +261,12 @@ the comparison with the external anchor.
     finding, and optionally a ticket reference. Tick the confirmation and submit.
 
 This writes one chained audit entry of the type ``audit_findings_acknowledged``
-with the reason, your account, the finding set and the old chain tip, and
-publishes a new external anchor. It repairs nothing: the flagged rows keep
+with the reason, your account, the finding set and the old chain tip, and then
+tries to publish a new external anchor. That publication is best effort: when
+it fails, a row finding is still acknowledged, but the new segment has no
+external anchor until the next ``vault:audit-anchor`` run. An external-anchor
+finding (``TABLE_RESET``) is only acknowledged once a fresh anchor was
+published. The acknowledgement repairs nothing: the flagged rows keep
 failing their own hash, ``vault:audit --verify`` still reports them, and every
 re-seal still refuses the chain. ``vault:audit-verify`` and the readiness check
 report the findings as acknowledged. A new finding, or another change to a

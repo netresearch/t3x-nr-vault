@@ -452,13 +452,20 @@ with the external anchor.
 
 **Test 6h — an acknowledgement turns the check green without hiding anything**
 
-As an administrator, acknowledge the findings of Test 6c on that page.
+Edit a row as in Test 6a, then, as an administrator, acknowledge the finding
+on that page.
 
 *Expected:* ``vault:audit-verify`` and the ``audit.hash_chain`` check no longer
-fail, and ``vault:audit-verify --format=json`` lists the findings under
-``acknowledged``. ``vault:audit --verify`` still reports the broken rows, and
-``vault:audit-migrate-hmac`` still refuses the chain. Edit an acknowledged row
-again, or break another row: the finding returns. The acknowledgement is an
+fail, and ``vault:audit-verify --format=json`` lists the finding under
+``acknowledged``. ``vault:audit --verify`` still reports the edited row, and
+``vault:audit-migrate-hmac`` still refuses the chain. Edit the acknowledged row
+again, or break another row: the finding returns.
+
+Acknowledging the findings of Test 6c instead resets and re-arms the
+in-database anchor. The rebuilt rows verify on their own, so ``vault:audit
+--verify`` then passes; ``vault:audit-verify`` keeps ``TABLE_RESET``
+acknowledged only while the anchors published after the acknowledgement match
+the stored chain. The acknowledgement is an
 ``audit_findings_acknowledged`` entry in the audit log with the reason and the
 acting administrator
 (:ref:`adr-055-audit-finding-acknowledgement`).
