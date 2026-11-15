@@ -88,6 +88,25 @@ interface ExtensionConfigurationInterface
     public function getProvisioningBeUserUid(): int;
 
     /**
+     * UID of the technical backend user that `vault:audit-verify --as-auditor`
+     * enters via {@see TechnicalActorContextInterface::runAs()}.
+     *
+     * A plain shell holds `audit.view` only through `allowCliAccess` plus the
+     * `cliAllowedOperations` allowlist, which opens every `audit.view` command,
+     * reading the log included, to every shell. The named actor is entered by
+     * `vault:audit-verify` only, needs no admin flag, and needs only a group
+     * carrying `tx_nrvault:audit.view`.
+     *
+     * Read from configuration, never from the command line, for the same reason
+     * as {@see getProvisioningBeUserUid()}. A separate setting rather than the
+     * provisioning actor: that identity writes secrets, this one reads the
+     * trail, and one grant must not imply the other.
+     *
+     * @return int<0, max> 0 when no audit verification actor is configured
+     */
+    public function getAuditorBeUserUid(): int;
+
+    /**
      * Check if read operations should be written to the audit log.
      */
     public function isAuditReadsEnabled(): bool;

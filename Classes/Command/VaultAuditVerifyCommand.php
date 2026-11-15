@@ -15,7 +15,10 @@ use Netresearch\NrVault\Audit\Anchor\ChainTipAnchorServiceInterface;
 use Netresearch\NrVault\Audit\AuditIntegrityAlert;
 use Netresearch\NrVault\Audit\AuditIntegrityReport;
 use Netresearch\NrVault\Audit\Sink\AuditSinkRegistryInterface;
+use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
+use Netresearch\NrVault\Exception\TechnicalActorException;
 use Netresearch\NrVault\Security\AccessControlServiceInterface;
+use Netresearch\NrVault\Security\TechnicalActorContextInterface;
 use Netresearch\NrVault\Security\VaultPermission;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
@@ -26,6 +29,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 use Throwable;
 
 use function count;
+use function is_int;
 use function is_string;
 use function sprintf;
 
@@ -59,8 +63,17 @@ use function sprintf;
  * `--format=json` it reports `valid: false` — a verifier that was not allowed
  * to run must never read as a verifier that found nothing.
  *
+ * `--as-auditor` runs the whole command, gate included, as the technical
+ * backend user configured in `auditorBeUserUid`. The TYPO3 CLI never logs a
+ * user in, so without it a shell holds `audit.view` only through
+ * `allowCliAccess` and `cliAllowedOperations`, which open every `audit.view`
+ * command, reading the log included, to every shell. The option opens this
+ * verification only. The UID comes from configuration, never from the command
+ * line, and the actor still needs a group carrying `tx_nrvault:audit.view`.
+ *
  * Usage:
  *   vendor/bin/typo3 vault:audit-verify
+ *   vendor/bin/typo3 vault:audit-verify --as-auditor
  *   vendor/bin/typo3 vault:audit-verify --format=json
  *   vendor/bin/typo3 vault:audit-verify --tamper-only
  */
@@ -74,6 +87,8 @@ final class VaultAuditVerifyCommand extends Command
         private readonly ChainTipAnchorServiceInterface $anchorService,
         private readonly AuditSinkRegistryInterface $sinkRegistry,
         private readonly AccessControlServiceInterface $accessControlService,
+        private readonly ExtensionConfigurationInterface $configuration,
+        private readonly TechnicalActorContextInterface $technicalActorContext,
     ) {
         parent::__construct();
     }
@@ -94,6 +109,14 @@ final class VaultAuditVerifyCommand extends Command
                 InputOption::VALUE_NONE,
                 'Only fail on tamper evidence; treat configuration and delivery findings '
                 . '(NO_EXTERNAL_SINK, SINK_FAILURE) as warnings',
+            )
+            ->addOption(
+                'as-auditor',
+                null,
+                InputOption::VALUE_NONE,
+                'Verify as the configured audit verification backend user (nr_vault option '
+                . '"auditorBeUserUid") instead of the unattributed CLI actor. The UID comes '
+                . 'from configuration, never from this command line.',
             );
     }
 
@@ -104,6 +127,47 @@ final class VaultAuditVerifyCommand extends Command
         $json         = is_string($formatOption) && strtolower($formatOption) === 'json';
         $tamperOnly   = (bool) $input->getOption('tamper-only');
 
+        if ($input->getOption('as-auditor') === false) {
+            return $this->verify($io, $output, $json, $tamperOnly);
+        }
+
+        $auditorUid = $this->configuration->getAuditorBeUserUid();
+        if ($auditorUid === 0) {
+            $this->fail(
+                $io,
+                $output,
+                $json,
+                'No audit verification actor is configured. Set the nr_vault option "auditorBeUserUid" '
+                . 'to a backend user whose group carries the tx_nrvault:audit.view permission option.',
+            );
+
+            return Command::FAILURE;
+        }
+
+        try {
+            $exitCode = $this->technicalActorContext->runAs(
+                $auditorUid,
+                fn (): int => $this->verify($io, $output, $json, $tamperOnly),
+            );
+        } catch (TechnicalActorException $e) {
+            // Refused before the callable ran, so nothing has been written yet.
+            $this->fail($io, $output, $json, 'The audit verification actor cannot be used: ' . $e->getMessage());
+
+            return Command::FAILURE;
+        } catch (Throwable $e) {
+            // Resolving the actor reads the database and can fail with
+            // something other than a refusal; so can the report rendering
+            // inside the scope. Either way the run did not complete.
+            $this->fail($io, $output, $json, 'Could not run as the audit verification actor: ' . $e->getMessage());
+
+            return Command::FAILURE;
+        }
+
+        return is_int($exitCode) ? $exitCode : Command::FAILURE;
+    }
+
+    private function verify(SymfonyStyle $io, OutputInterface $output, bool $json, bool $tamperOnly): int
+    {
         // Before the verification runs, and before anything is written to the
         // output a monitoring wrapper might parse.
         if (!$this->accessControlService->isGranted(VaultPermission::AuditView)) {
@@ -159,11 +223,14 @@ final class VaultAuditVerifyCommand extends Command
      */
     private function refuse(SymfonyStyle $io, OutputInterface $output, bool $json): void
     {
-        $message = sprintf(
+        $this->fail($io, $output, $json, sprintf(
             'Access denied: the "%s" permission is required to verify the audit log integrity.',
             VaultPermission::AuditView->value,
-        );
+        ));
+    }
 
+    private function fail(SymfonyStyle $io, OutputInterface $output, bool $json, string $message): void
+    {
         if ($json) {
             $output->writeln(json_encode(
                 ['valid' => false, 'error' => $message],

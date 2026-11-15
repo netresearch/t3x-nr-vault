@@ -125,7 +125,10 @@ a verification run after key destruction proves nothing.
         :confval:`ext-nrvault-cliAllowedOperations` default, so from a shell
         they need ``allowCliAccess = 1`` **and** the operation in that
         allowlist — or, better for an evidence run, a named technical actor, so
-        the record names who collected the evidence. Sort the grant out before
+        the record names who collected the evidence. ``vault:audit-verify``
+        runs as one with ``--as-auditor`` and
+        :confval:`ext-nrvault-auditorBeUserUid`; it writes no audit row, so
+        its run is not attributed. Sort the grant out before
         the decommissioning window: after the master key is destroyed there is
         no second chance at this output.
 

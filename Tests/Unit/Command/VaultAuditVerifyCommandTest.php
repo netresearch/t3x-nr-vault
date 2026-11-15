@@ -13,13 +13,16 @@ use Netresearch\NrVault\Audit\Anchor\ChainTipAnchorServiceInterface;
 use Netresearch\NrVault\Audit\AuditIntegrityReport;
 use Netresearch\NrVault\Audit\Sink\AuditSinkRegistryInterface;
 use Netresearch\NrVault\Command\VaultAuditVerifyCommand;
+use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Security\AccessControlServiceInterface;
+use Netresearch\NrVault\Security\TechnicalActorContextInterface;
 use Netresearch\NrVault\Security\VaultPermission;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
+use RuntimeException;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Tester\CommandTester;
 
@@ -70,6 +73,8 @@ final class VaultAuditVerifyCommandTest extends TestCase
             $this->anchorService,
             $this->sinkRegistry,
             $this->accessControlService,
+            self::createStub(ExtensionConfigurationInterface::class),
+            self::createStub(TechnicalActorContextInterface::class),
         ));
     }
 
@@ -80,9 +85,41 @@ final class VaultAuditVerifyCommandTest extends TestCase
             $this->anchorService,
             $this->sinkRegistry,
             $this->accessControlService,
+            self::createStub(ExtensionConfigurationInterface::class),
+            self::createStub(TechnicalActorContextInterface::class),
         );
 
         self::assertSame('vault:audit-verify', $command->getName());
+    }
+
+    /**
+     * Resolving the actor reads the database. If that fails (a database outage
+     * during a monitoring run), the JSON body must still say `valid: false`
+     * rather than leave stdout empty, and no verification may run.
+     */
+    #[Test]
+    public function anActorLookupFailureReportsInvalidInJson(): void
+    {
+        $configuration = self::createStub(ExtensionConfigurationInterface::class);
+        $configuration->method('getAuditorBeUserUid')->willReturn(7);
+        $actorContext = self::createStub(TechnicalActorContextInterface::class);
+        $actorContext->method('runAs')->willThrowException(new RuntimeException('database unavailable'));
+        $this->anchorService->expects($this->never())->method('verify');
+
+        $tester = new CommandTester(new VaultAuditVerifyCommand(
+            $this->anchorService,
+            $this->sinkRegistry,
+            $this->accessControlService,
+            $configuration,
+            $actorContext,
+        ));
+
+        self::assertSame(Command::FAILURE, $tester->execute(['--as-auditor' => true, '--format' => 'json']));
+        $payload = json_decode($tester->getDisplay(), true, 512, JSON_THROW_ON_ERROR);
+        self::assertIsArray($payload);
+        self::assertFalse($payload['valid']);
+        self::assertIsString($payload['error']);
+        self::assertStringContainsString('database unavailable', $payload['error']);
     }
 
     /**

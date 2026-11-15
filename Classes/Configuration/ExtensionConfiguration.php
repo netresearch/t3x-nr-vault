@@ -229,6 +229,23 @@ final class ExtensionConfiguration implements ExtensionConfigurationInterface, S
     }
 
     /**
+     * UID of the technical backend user `vault:audit-verify --as-auditor` acts
+     * as. Fail-closed exactly like {@see getProvisioningBeUserUid()}.
+     *
+     * @return int<0, max>
+     */
+    public function getAuditorBeUserUid(): int
+    {
+        $raw = $this->configuration['auditorBeUserUid'] ?? 0;
+
+        if (!is_numeric($raw)) {
+            return 0;
+        }
+
+        return max(0, (int) $raw);
+    }
+
+    /**
      * Get backend groups that can access secrets via CLI.
      *
      * @return int[]

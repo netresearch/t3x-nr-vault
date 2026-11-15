@@ -23,8 +23,10 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Tester\CommandTester;
+use TYPO3\CMS\Core\Authentication\CommandLineUserAuthentication;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
+use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 /**
  * End-to-end tests for `vault:audit-verify` through CommandTester.
@@ -318,6 +320,45 @@ final class VaultAuditVerifyCommandTest extends AbstractVaultFunctionalTestCase
         $tester = new CommandTester($this->get(VaultAuditVerifyCommand::class));
 
         self::assertSame(Command::FAILURE, $tester->execute([]));
+    }
+
+    /**
+     * The state the TYPO3 CLI really runs in: `CommandApplication` places an
+     * unauthenticated `CommandLineUserAuthentication` in `$GLOBALS['BE_USER']`,
+     * and with `allowCliAccess` off that shell holds no operation permission.
+     */
+    #[Test]
+    public function anUnauthenticatedShellIsRefused(): void
+    {
+        $this->seedChain(3);
+        $this->publishAnchor();
+        $GLOBALS['BE_USER'] = GeneralUtility::makeInstance(CommandLineUserAuthentication::class);
+
+        $tester = new CommandTester($this->get(VaultAuditVerifyCommand::class));
+
+        self::assertSame(Command::FAILURE, $tester->execute([]));
+        self::assertStringContainsString('Access denied', $this->normalize($tester));
+    }
+
+    /**
+     * `--as-auditor` without a configured actor must not fall back to the
+     * ambient actor, and must not read as a clean chain.
+     */
+    #[Test]
+    public function asAuditorWithoutAConfiguredActorIsRefused(): void
+    {
+        $this->seedChain(3);
+        $this->publishAnchor();
+
+        $tester   = new CommandTester($this->get(VaultAuditVerifyCommand::class));
+        $exitCode = $tester->execute(['--as-auditor' => true, '--format' => 'json']);
+
+        self::assertSame(Command::FAILURE, $exitCode);
+        $payload = json_decode($tester->getDisplay(), true, 512, JSON_THROW_ON_ERROR);
+        self::assertIsArray($payload);
+        self::assertFalse($payload['valid']);
+        self::assertIsString($payload['error']);
+        self::assertStringContainsString('auditorBeUserUid', $payload['error']);
     }
 
     private function seedChain(int $entries): void
