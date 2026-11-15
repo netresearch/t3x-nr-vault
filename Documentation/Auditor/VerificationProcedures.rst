@@ -439,6 +439,40 @@ force — confirm it is set, and remember a backend administrator can still
 clear it from the Settings module, since this key is **not** among the three
 that accept a ``$TYPO3_CONF_VARS`` pin.
 
+**Test 6g — the backend view reports what the command line reports**
+
+Run Tests 6c and 6e, then open :guilabel:`Vault > Audit Log > Verify chain`
+as a user with ``audit.view``.
+
+*Expected:* the page lists every finding under the same reason code as
+``vault:audit-verify`` (``UID_GAP``, ``TABLE_RESET``, ``HASH_MISMATCH``,
+``EPOCH_DOWNGRADE``), the verified uid range with the row count and the epoch
+distribution, the chain tip, the in-database anchor state, and the comparison
+with the external anchor.
+
+**Test 6h — an acknowledgement turns the check green without hiding anything**
+
+Edit a row as in Test 6a, then, as an administrator, acknowledge the finding
+on that page.
+
+*Expected:* ``vault:audit-verify`` and the ``audit.hash_chain`` check no longer
+fail, and ``vault:audit-verify --format=json`` lists the finding under
+``acknowledged``. ``vault:audit --verify`` still reports the edited row, and
+``vault:audit-migrate-hmac`` still refuses the chain. Edit the acknowledged row
+again, or break another row: the finding returns.
+
+Acknowledging the findings of Test 6c instead resets and re-arms the
+in-database anchor. The rebuilt rows verify on their own, so ``vault:audit
+--verify`` then passes; ``vault:audit-verify`` keeps ``TABLE_RESET``
+acknowledged only while the anchors published after the acknowledgement match
+the stored chain. The acknowledgement is an
+``audit_findings_acknowledged`` entry in the audit log with the reason and the
+acting administrator
+(:ref:`adr-055-audit-finding-acknowledgement`).
+
+*Finding if:* an acknowledged row stays acknowledged after you edit it, or a
+newly broken row is not reported.
+
 **Test 6d — algorithm downgrade →** ``EPOCH_DOWNGRADE``
 
 ..  code-block:: sql

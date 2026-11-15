@@ -1,0 +1,1 @@
+- `audit.hash_chain` reported one failed entry on every installation with more than 1000 audit rows while the full chain verified: a bounded verification linked its first row to the empty genesis hash instead of to the row before its range. `verifyHashChain()` now starts a range from the nearest earlier row.

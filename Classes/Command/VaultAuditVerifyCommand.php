@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Command;
 
+use Netresearch\NrVault\Audit\Acknowledgement\AuditFindingItem;
 use Netresearch\NrVault\Audit\Anchor\ChainTipAnchor;
 use Netresearch\NrVault\Audit\Anchor\ChainTipAnchorServiceInterface;
 use Netresearch\NrVault\Audit\AuditIntegrityAlert;
@@ -175,6 +176,36 @@ final class VaultAuditVerifyCommand extends Command
         $io->error($message);
     }
 
+    private function formatChainState(AuditIntegrityReport $report): string
+    {
+        if ($report->chainValid) {
+            return 'valid';
+        }
+
+        if ($report->getOpenItems() === [] && $report->getAcknowledgedItems() !== []) {
+            return 'INVALID (all findings acknowledged)';
+        }
+
+        return 'INVALID';
+    }
+
+    /**
+     * Rows of a finding: `-` for a chain-level finding, the uid for one row,
+     * `start-end` for a range.
+     */
+    private static function formatRowRange(AuditFindingItem $item): string
+    {
+        if ($item->rangeStart === 0) {
+            return '-';
+        }
+
+        if ($item->rangeStart === $item->rangeEnd) {
+            return (string) $item->rangeStart;
+        }
+
+        return $item->rangeStart . '-' . $item->rangeEnd;
+    }
+
     private function renderText(SymfonyStyle $io, AuditIntegrityReport $report, bool $failed): void
     {
         $io->title('Vault Audit Integrity Verification');
@@ -182,7 +213,7 @@ final class VaultAuditVerifyCommand extends Command
         $anchor = $report->anchor;
         $io->definitionList(
             ['Chain length (max uid)' => (string) $report->currentSequence],
-            ['Hash chain' => $report->chainValid ? 'valid' : 'INVALID'],
+            ['Hash chain' => $this->formatChainState($report)],
             ['Anchor' => $anchor instanceof ChainTipAnchor
                 ? sprintf(
                     'sequence %d, epoch %d, taken %s UTC',
@@ -205,6 +236,34 @@ final class VaultAuditVerifyCommand extends Command
                     array_values($report->warnings),
                 ),
             );
+        }
+
+        $acknowledged = $report->getAcknowledgedItems();
+        if ($acknowledged !== []) {
+            $io->note(sprintf(
+                '%d finding(s) acknowledged by an administrator. The affected rows are unchanged.',
+                count($acknowledged),
+            ));
+            $io->table(
+                ['Code', 'Rows', 'Acknowledged in entry', 'Detail'],
+                array_map(
+                    static fn (AuditFindingItem $item): array => [
+                        $item->reason->value,
+                        self::formatRowRange($item),
+                        (string) $item->acknowledgedBy,
+                        $item->detail,
+                    ],
+                    $acknowledged,
+                ),
+            );
+        }
+
+        if ($report->isValid() && $acknowledged !== []) {
+            $io->success($report->chainValid
+                ? 'No open findings: every finding was acknowledged by an administrator.'
+                : 'No open findings: every finding was acknowledged by an administrator. The hash chain itself does not verify.');
+
+            return;
         }
 
         if ($report->isValid()) {

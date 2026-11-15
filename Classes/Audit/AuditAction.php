@@ -114,8 +114,18 @@ enum AuditAction: string
     case OAuthRefreshStoreFailed        = 'oauth_refresh_store_failed';
     case AuditReadLoggingChanged        = 'audit_read_logging_changed';
     case AuditAnchorReset               = 'audit_anchor_reset';
-    case BreakGlassActivated            = 'break_glass_activated';
-    case BreakGlassDeactivated          = 'break_glass_deactivated';
+    /**
+     * An administrator acknowledged specific integrity findings in the backend
+     * (ADR-055). The row records the finding set, the stated reason, the acting
+     * administrator and the chain tip it was written directly after.
+     *
+     * Append-only: the broken rows stay exactly as they are. The verifier reports
+     * a finding as acknowledged only while this row, its tip binding and the
+     * flagged row's content all still verify.
+     */
+    case AuditFindingsAcknowledged = 'audit_findings_acknowledged';
+    case BreakGlassActivated       = 'break_glass_activated';
+    case BreakGlassDeactivated     = 'break_glass_deactivated';
 
     /**
      * Human-readable label for backend filter dropdowns.

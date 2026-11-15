@@ -354,8 +354,19 @@ final readonly class AuditLogService implements AuditLogServiceInterface
         /** @var list<int> $missingUids */
         $missingUids     = [];
         $missingUidCount = 0;
-        $previousHash    = '';
-        $previousEpoch   = -1;
+        /** @var list<array{start: int, end: int, uid: int}> $gaps */
+        $gaps = [];
+        // A bounded range starts mid-chain: its first row links to the row
+        // BEFORE the range, not to the empty genesis hash. Seeding '' there made
+        // every range that does not start at uid 1 fail on its first row, which
+        // is how `audit.hash_chain` (newest 1000 rows) reported one failure on
+        // every installation past 1000 audit rows.
+        $rowBefore    = $fromUid !== null && $fromUid > 1 ? $this->fetchRowBefore($connection, $fromUid) : null;
+        $previousHash = $rowBefore['entryHash'] ?? '';
+        // The epoch of the row before the range, so a range whose first row
+        // was downgraded (re-signed with the keyless epoch 0 and linked to the
+        // stored hash before it) still fails the downgrade check below.
+        $previousEpoch = $rowBefore['epoch'] ?? -1;
         // Highest epoch observed across the chain (the "high-water mark"). Stays
         // -1 for an empty chain so the epoch-floor check below is skipped.
         $maxEpoch = -1;
@@ -368,12 +379,17 @@ final readonly class AuditLogService implements AuditLogServiceInterface
         // attribution fields outside the MAC.
         /** @var array<int, int> $epochCounts */
         $epochCounts = [];
-        // When the caller specified $fromUid, treat $fromUid-1 as the
-        // previous UID so a leading gap (first row > $fromUid) is still
-        // detected. Otherwise start at -1 meaning "no prior row yet".
-        $previousUid = $fromUid !== null ? $fromUid - 1 : -1;
+        // A bounded range continues from the nearest row before it, so a gap
+        // that starts before $fromUid is reported with the same bounds (and
+        // the same finding key) as in the full pass. Without such a row,
+        // treat $fromUid-1 as the previous UID so a leading gap (first row >
+        // $fromUid) is still detected. Otherwise start at -1 meaning "no
+        // prior row yet".
+        $previousUid = $rowBefore['uid'] ?? ($fromUid !== null ? $fromUid - 1 : -1);
         /** @var int Cap on $missingUids enumeration — beyond this we count only */
         $missingUidCap = 1000;
+        // uid of the last row walked: rows above it carry no verdict.
+        $lastUid = 0;
 
         // Derive the HMAC key once for all HMAC-epoch entries
         $hmacKey = $this->getHmacKey();
@@ -409,6 +425,7 @@ final readonly class AuditLogService implements AuditLogServiceInterface
                     $gapEnd   = $uid - 1;
                     $gapSize  = $gapEnd - $gapStart + 1;
                     $missingUidCount += $gapSize;
+                    $gaps[] = ['start' => $gapStart, 'end' => $gapEnd, 'uid' => $uid];
 
                     $remaining = $missingUidCap - count($missingUids);
                     if ($remaining > 0) {
@@ -426,6 +443,7 @@ final readonly class AuditLogService implements AuditLogServiceInterface
                 }
 
                 $previousUid = $uid;
+                $lastUid     = $uid;
 
                 // Detect epoch transitions.
                 //
@@ -536,8 +554,8 @@ final readonly class AuditLogService implements AuditLogServiceInterface
         ksort($epochCounts);
 
         return $errors === []
-            ? HashChainVerificationResult::valid($warnings, $missingUids, $missingUidCount, $anchorStatus, $epochCounts)
-            : HashChainVerificationResult::invalid($errors, $warnings, $missingUids, $missingUidCount, $anchorStatus, $epochCounts);
+            ? HashChainVerificationResult::valid($warnings, $missingUids, $missingUidCount, $anchorStatus, $epochCounts, $gaps, $lastUid)
+            : HashChainVerificationResult::invalid($errors, $warnings, $missingUids, $missingUidCount, $anchorStatus, $epochCounts, $gaps, $lastUid);
     }
 
     public function verifyChainForReseal(): ?HashChainVerificationResult
@@ -1201,6 +1219,44 @@ final readonly class AuditLogService implements AuditLogServiceInterface
             ->fetchOne();
 
         return is_string($hash) ? $hash : null;
+    }
+
+    /**
+     * uid, `entry_hash` and `hmac_key_epoch` of the newest row below `$uid`,
+     * or null when there is none.
+     *
+     * The nearest row rather than `$uid - 1`: when the row just before a range
+     * was deleted, the range's first row still links to the last row that
+     * exists, and the gap itself is reported by the uid-sequence check.
+     *
+     * @return array{uid: int, entryHash: string, epoch: int}|null
+     */
+    private function fetchRowBefore(Connection $connection, int $uid): ?array
+    {
+        $queryBuilder = $connection->createQueryBuilder();
+        $row          = $queryBuilder
+            ->select('uid', 'entry_hash', 'hmac_key_epoch')
+            ->from(self::TABLE_NAME)
+            ->where(
+                $queryBuilder->expr()->lt(
+                    'uid',
+                    $queryBuilder->createNamedParameter($uid, Connection::PARAM_INT),
+                ),
+            )
+            ->orderBy('uid', 'DESC')
+            ->setMaxResults(1)
+            ->executeQuery()
+            ->fetchAssociative();
+
+        if ($row === false || !is_numeric($row['uid'] ?? null)) {
+            return null;
+        }
+
+        return [
+            'uid'       => (int) $row['uid'],
+            'entryHash' => is_string($row['entry_hash'] ?? null) ? $row['entry_hash'] : '',
+            'epoch'     => is_numeric($row['hmac_key_epoch'] ?? null) ? (int) $row['hmac_key_epoch'] : 0,
+        ];
     }
 
     /**

@@ -47,4 +47,15 @@ interface ChainTipAnchorServiceInterface
      * listeners are notified even when nobody reads the command output.
      */
     public function verify(): AuditIntegrityReport;
+
+    /**
+     * The same verification as {@see self::verify()} without dispatching the
+     * findings as alert events.
+     *
+     * For callers that verify as a step of something else — the acknowledgement
+     * flow re-checks the chain before and after writing, and the evidence export
+     * reads it — so one administrator action does not alert SIEM listeners three
+     * times about the same finding.
+     */
+    public function inspect(): AuditIntegrityReport;
 }

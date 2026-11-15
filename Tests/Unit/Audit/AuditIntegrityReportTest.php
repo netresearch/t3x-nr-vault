@@ -9,7 +9,9 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Unit\Audit;
 
+use Netresearch\NrVault\Audit\Acknowledgement\AuditFindingItem;
 use Netresearch\NrVault\Audit\Anchor\ChainTipAnchor;
+use Netresearch\NrVault\Audit\AuditChainAnchorStatus;
 use Netresearch\NrVault\Audit\AuditIntegrityAlert;
 use Netresearch\NrVault\Audit\AuditIntegrityReason;
 use Netresearch\NrVault\Audit\AuditIntegrityReport;
@@ -230,5 +232,43 @@ final class AuditIntegrityReportTest extends TestCase
 
         self::assertTrue($report->chainValid);
         self::assertFalse($report->isValid());
+    }
+
+    /**
+     * Open and acknowledged items split the item list without overlap, and only
+     * the acknowledged ones travel in the array form.
+     */
+    #[Test]
+    public function itemsSplitIntoOpenAndAcknowledged(): void
+    {
+        $open         = new AuditFindingItem('open', AuditIntegrityReason::HashMismatch, 5, 5, 'row 5');
+        $acknowledged = (new AuditFindingItem('done', AuditIntegrityReason::UidGap, 3, 4, 'uids 3..4'))->withAcknowledgement(9);
+
+        $report = new AuditIntegrityReport(
+            findings: [AuditIntegrityAlert::create(AuditIntegrityReason::HashMismatch, 'row 5')],
+            chainValid: false,
+            currentSequence: 9,
+            items: [$open, $acknowledged],
+            tipHash: 'tip-9',
+            anchorStatus: AuditChainAnchorStatus::Ok,
+        );
+
+        self::assertSame([$open], $report->getOpenItems());
+        self::assertSame([$acknowledged], $report->getAcknowledgedItems());
+
+        $array = $report->toArray();
+        self::assertSame([$acknowledged->toArray()], $array['acknowledged']);
+        self::assertSame('tip-9', $array['tipHash']);
+        self::assertSame('ok', $array['anchorStatus']);
+    }
+
+    #[Test]
+    public function aReportWithoutAnAnchorCheckHasANullAnchorStatus(): void
+    {
+        $report = new AuditIntegrityReport(findings: [], chainValid: true, currentSequence: 0);
+
+        self::assertSame([], $report->getOpenItems());
+        self::assertSame([], $report->getAcknowledgedItems());
+        self::assertNull($report->toArray()['anchorStatus']);
     }
 }

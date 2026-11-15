@@ -11,6 +11,8 @@ namespace Netresearch\NrVault\Tests\Functional\Command;
 
 use Doctrine\DBAL\Platforms\PostgreSQLPlatform;
 use Doctrine\DBAL\Platforms\SQLitePlatform;
+use Netresearch\NrVault\Audit\Acknowledgement\AuditFindingAcknowledgerInterface;
+use Netresearch\NrVault\Audit\Acknowledgement\AuditFindingItem;
 use Netresearch\NrVault\Audit\Anchor\ChainTipAnchorServiceInterface;
 use Netresearch\NrVault\Audit\AuditLogService;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
@@ -141,6 +143,40 @@ final class VaultAuditVerifyCommandTest extends AbstractVaultFunctionalTestCase
 
         self::assertSame(Command::FAILURE, $exitCode);
         self::assertStringContainsString('HASH_MISMATCH', $tester->getDisplay());
+    }
+
+    /**
+     * Acknowledged findings stay visible in the text output: the chain is still
+     * reported INVALID, and each acknowledged finding names its rows and the
+     * acknowledging entry.
+     */
+    #[Test]
+    public function acknowledgedFindingsAreListedWithTheirRowsAndTheAcknowledgingEntry(): void
+    {
+        $this->seedChain(6);
+        $this->getAuditConnection()->delete(AuditLogService::TABLE_NAME, ['uid' => 2]);
+        $this->getAuditConnection()->delete(AuditLogService::TABLE_NAME, ['uid' => 3]);
+
+        $report  = $this->get(ChainTipAnchorServiceInterface::class)->inspect();
+        $outcome = $this->get(AuditFindingAcknowledgerInterface::class)->acknowledge(
+            AuditFindingItem::fingerprint($report->getOpenItems()),
+            'restored from backup',
+            '',
+            0,
+        );
+        self::assertTrue($outcome->isAcknowledged(), $outcome->status->value);
+
+        $tester = new CommandTester($this->get(VaultAuditVerifyCommand::class));
+        $tester->execute([]);
+
+        $display = $tester->getDisplay();
+
+        self::assertStringContainsString('INVALID (all findings acknowledged)', $display);
+        self::assertStringContainsString('2 finding(s) acknowledged by an administrator', $display);
+        self::assertStringContainsString('chain itself does not verify', $display);
+        self::assertStringNotContainsString('hash chain intact', $display);
+        self::assertMatchesRegularExpression('/UID_GAP\s+2-3\s+7\s/', $display);
+        self::assertMatchesRegularExpression('/HASH_MISMATCH\s+4\s+7\s/', $display);
     }
 
     #[Test]
