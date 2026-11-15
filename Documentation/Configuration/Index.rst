@@ -440,6 +440,24 @@ CLI access
    access control and are attributed to this identity in the audit log.
    The UID is read from trusted configuration, never from a CLI argument.
 
+.. confval:: auditorBeUserUid
+   :name: ext-nrvault-auditorBeUserUid
+   :type: integer
+   :Default: 0
+
+   Backend user UID used by :bash:`vault:audit-verify --as-auditor`.
+   The default 0 disables this option. Configure a dedicated non-admin user
+   whose group carries ``tx_nrvault:audit.view``. This lets a shell or a
+   monitoring job verify the audit chain without adding ``audit.view`` to
+   :confval:`ext-nrvault-cliAllowedOperations`, which would also open reading
+   the audit log (:bash:`vault:audit`) to every shell. Any shell that can run
+   :bash:`vendor/bin/typo3` can still run the verification. It reads no secret
+   and writes no audit row; findings still go to the configured audit sinks.
+   Use a different user than
+   :confval:`ext-nrvault-provisioningBeUserUid`: one writes secrets, the other
+   reads the audit trail. The UID is read from trusted configuration, never
+   from a CLI argument.
+
 .. confval:: auditLogRetention
    :name: ext-nrvault-auditLogRetention
    :type: integer

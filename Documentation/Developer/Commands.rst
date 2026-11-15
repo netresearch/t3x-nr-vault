@@ -562,6 +562,15 @@ Options
    sinks are still being rolled out, so a pending integration does not keep the
    check permanently red and train operators to ignore a real alarm.
 
+--as-auditor
+   Run the whole command, permission check included, as the backend user
+   configured in :confval:`ext-nrvault-auditorBeUserUid` instead of the
+   unattributed CLI actor. That user needs no admin flag, only a group carrying
+   ``tx_nrvault:audit.view``. The UID is read from configuration, never from the
+   command line. Without a configured user, or with one that cannot be used
+   (missing, disabled, outside its time window, not at root level), the command
+   exits 1 and in ``--format=json`` reports ``valid: false``.
+
 .. important::
 
    This command asserts ``audit.view``, the same permission
@@ -574,8 +583,11 @@ Options
    finding about the chain.
 
    :confval:`ext-nrvault-cliAllowedOperations` excludes ``audit.view`` by
-   default, so from a shell this command needs ``allowCliAccess`` **and** that
-   operation in the allowlist. **Scheduled runs are unaffected on a default
+   default, so from a shell this command needs ``--as-auditor`` with a
+   configured :confval:`ext-nrvault-auditorBeUserUid`, or ``allowCliAccess``
+   **and** that operation in the allowlist. The TYPO3 CLI never logs a backend
+   user in, so a plain shell is the unattributed CLI actor.
+   **Scheduled runs are unaffected on a default
    installation**: the *Vault Audit Integrity Verification* task runs under
    :bash:`scheduler:run`, which authenticates the ``_cli_`` administrator, and
    the admin bypass grants it. Under ``disableAdminOverride`` that identity
@@ -653,6 +665,9 @@ Example
 
    # Only alarm on tamper evidence while sinks are being rolled out
    vendor/bin/typo3 vault:audit-verify --tamper-only
+
+   # From a shell, as the configured audit verification user
+   vendor/bin/typo3 vault:audit-verify --as-auditor
 
 .. _command-rotate-master-key:
 

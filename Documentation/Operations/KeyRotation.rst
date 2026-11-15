@@ -136,9 +136,10 @@ Your own preflight, before running any of it:
 
       ..  code-block:: bash
 
-          # Asserts audit.view; on the CLI that needs allowCliAccess = 1 AND
-          # audit.view in cliAllowedOperations, or a named technical actor.
-          vendor/bin/typo3 vault:audit-verify
+          # Asserts audit.view; on the CLI that needs --as-auditor with a
+          # configured auditorBeUserUid, or allowCliAccess = 1 AND audit.view
+          # in cliAllowedOperations.
+          vendor/bin/typo3 vault:audit-verify --as-auditor
 
 *   [ ] **Nothing writes secrets or consumer envelopes** from the start of the
       rotation until the configuration switch and the restarts after it. Stop
@@ -393,9 +394,9 @@ Verification
     vendor/bin/typo3 vault:retrieve <a-known-identifier>
 
     # 3. The chain verifies under the new key, end to end. Needs audit.view:
-    #    on the CLI that is allowCliAccess = 1 AND audit.view in
-    #    cliAllowedOperations, or a named technical actor.
-    vendor/bin/typo3 vault:audit-verify
+    #    on the CLI that is --as-auditor with a configured auditorBeUserUid,
+    #    or allowCliAccess = 1 AND audit.view in cliAllowedOperations.
+    vendor/bin/typo3 vault:audit-verify --as-auditor
 
     # 4. Anchor the new tip; the old anchor's baseline is now stale. Needs
     #    vault.configure, on the same terms as step 5 below.

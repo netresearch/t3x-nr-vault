@@ -34,7 +34,9 @@ Read-only evidence collection is in :ref:`auditor-evidence-collection`.
     mutates tamper evidence. Both permissions are excluded from the
     :confval:`ext-nrvault-cliAllowedOperations` default, so grant them to the
     actor running the procedure (see :ref:`auditor-evidence-collection`) or
-    read the same rows through the audit module.
+    read the same rows through the audit module. ``vault:audit-verify`` runs
+    as a named user with ``--as-auditor`` and
+    :confval:`ext-nrvault-auditorBeUserUid`.
 
 .. _auditor-verify-reveal-audited:
 

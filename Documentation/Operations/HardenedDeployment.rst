@@ -191,7 +191,11 @@ ownership and group tiers still apply — see
     gate the corresponding backend actions — ``secret.manage_policy`` is
     listed because it edits ``allowed_groups`` / ``write_groups``, so it is
     the entry that lets a grant widen itself. Prefer a named technical actor —
-    :ref:`developer-technical-actor-context` — for those workflows.
+    :ref:`developer-technical-actor-context` — for those workflows. For
+    ``vault:audit-verify`` that is ``--as-auditor`` with
+    :confval:`ext-nrvault-auditorBeUserUid`: any shell can still pass the
+    flag, but ``vault:audit`` and the other ``audit.view`` commands stay
+    closed to it.
     ``vault:doctor`` reports the list as ``cli.allowed_operations``.
 
 .. _operations-hardened-deployment-step4:
@@ -250,6 +254,9 @@ Register :php:`AuditAnchorTask` and :php:`AuditVerifyTask` in
     unattributed CLI actor and
     :confval:`ext-nrvault-cliAllowedOperations` excludes both permissions.
     Prefer the scheduler tasks here, and read step 6 before you choose cron.
+    From cron or by hand, the verification runs as a named user with
+    ``vault:audit-verify --as-auditor`` and
+    :confval:`ext-nrvault-auditorBeUserUid`.
 
 Publish the first anchor by hand now, so verification has a baseline
 immediately rather than after the first scheduled run:

@@ -371,6 +371,7 @@ Netresearch\NrVault\Configuration\ExtensionConfigurationInterface (interface)
   method getAuditSinkStaleDeliveryHours(): int
   method getAuditSinkSyslogIdent(): string
   method getAuditSinkWebhookUrl(): string
+  method getAuditorBeUserUid(): int
   method getAutoKeyPath(): string
   method getAwsConfig(): Netresearch\NrVault\Configuration\Dto\AwsSecretsConfig
   method getCliAccessGroups(): array

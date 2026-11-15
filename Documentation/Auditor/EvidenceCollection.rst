@@ -30,7 +30,12 @@ artefact is the evidence, not the terminal.
     (``vault.configure``).
     The cleanest arrangement for an assessment is a named technical actor
     holding exactly those, so every evidence command appears in the audit trail
-    under its own identity rather than as the anonymous CLI operator.
+    under its own identity rather than as the anonymous CLI operator. For
+    ``vault:audit-verify`` that is ``--as-auditor`` with
+    :confval:`ext-nrvault-auditorBeUserUid`. It opens only the verification
+    to the shell, not the other ``audit.view`` commands such as reading the
+    log with ``vault:audit``. Verification itself writes no audit row, so the
+    trail does not record that it ran.
 
     A refusal is not evidence about the vault's contents: the command exits 1
     before doing any work, and writes no audit row. Record it as a gap in the

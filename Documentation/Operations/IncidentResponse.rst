@@ -50,6 +50,9 @@ Step 1 — preserve, before you change anything
     Under time pressure this is the moment the command exits 1 — sort the grant
     out before the incident, not during it. A named technical actor for the
     response runbook is the clean answer: the trail then names who responded.
+    ``vault:audit-verify`` runs as one with ``--as-auditor`` and
+    :confval:`ext-nrvault-auditorBeUserUid`; it writes no audit row, so its
+    run is not attributed.
 
 Copy the audit rows for the affected identifiers and the suspected time window
 out of the system as well (see :ref:`auditor-evidence-collection` for the
