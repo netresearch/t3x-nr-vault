@@ -48,7 +48,8 @@ CLI commands and do exactly the same work.
         -   Findings were raised — subject to the ``nr_vault_tamper_only``
             switch below.
 
-Alternatively, run the commands from cron:
+Alternatively, run the commands from cron. The verify line runs as the user
+configured in :confval:`ext-nrvault-auditorBeUserUid`:
 
 ..  code-block:: bash
     :caption: Example crontab
@@ -77,9 +78,9 @@ Alternatively, run the commands from cron:
 
     **Scheduler tasks are unaffected on a default installation**:
     :bash:`scheduler:run` authenticates the ``_cli_`` administrator, who passes
-    through the admin bypass. **The cron form above is affected**: it runs as
-    the unattributed CLI actor, which holds neither permission unless
-    ``allowCliAccess = 1`` **and** the operation is listed in
+    through the admin bypass. **The cron anchor line above is affected**: it
+    runs as the unattributed CLI actor, which does not hold ``vault.configure``
+    unless ``allowCliAccess = 1`` **and** it is listed in
     :confval:`ext-nrvault-cliAllowedOperations`. Prefer the scheduler tasks, or
     run the cron entries as a named technical actor
     (:ref:`developer-technical-actor-context`) so the audit trail names the

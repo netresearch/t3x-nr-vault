@@ -158,7 +158,7 @@ final class VaultAuditVerifyCommand extends Command
             // Resolving the actor reads the database and can fail with
             // something other than a refusal; so can the report rendering
             // inside the scope. Either way the run did not complete.
-            $this->fail($io, $output, $json, 'Could not run as the audit verification actor: ' . $e->getMessage());
+            $this->fail($io, $output, $json, 'Audit verification could not complete: ' . $e->getMessage());
 
             return Command::FAILURE;
         }
