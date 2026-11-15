@@ -177,3 +177,13 @@ Consequences
     records, not a content hash, so rewriting the file before it shifts the
     window; rewriting the anchor file already blinds the external anchor without
     any acknowledgement involved.
+*   The key of a row finding hashes every stored column of the row. A release
+    that adds a column to ``tx_nrvault_audit_log`` therefore changes the key of
+    every acknowledged row finding, and those findings are open again after the
+    database schema update until an administrator acknowledges them again. This
+    fails closed; such a release says so in its upgrade notes.
+*   Every failing row becomes a finding item, and its stored content is read
+    once per verification to build the key. A chain that fails as a whole (for
+    example after a restore with the wrong master key) costs memory and queries
+    in proportion to the number of failing rows. The cost has not been measured
+    on large chains.
