@@ -361,7 +361,8 @@ final readonly class AuditLogService implements AuditLogServiceInterface
         // every range that does not start at uid 1 fail on its first row, which
         // is how `audit.hash_chain` (newest 1000 rows) reported one failure on
         // every installation past 1000 audit rows.
-        $previousHash  = $fromUid !== null && $fromUid > 1 ? $this->fetchEntryHashBefore($connection, $fromUid) : '';
+        $rowBefore     = $fromUid !== null && $fromUid > 1 ? $this->fetchRowBefore($connection, $fromUid) : null;
+        $previousHash  = $rowBefore['entryHash'] ?? '';
         $previousEpoch = -1;
         // Highest epoch observed across the chain (the "high-water mark"). Stays
         // -1 for an empty chain so the epoch-floor check below is skipped.
@@ -375,10 +376,13 @@ final readonly class AuditLogService implements AuditLogServiceInterface
         // attribution fields outside the MAC.
         /** @var array<int, int> $epochCounts */
         $epochCounts = [];
-        // When the caller specified $fromUid, treat $fromUid-1 as the
-        // previous UID so a leading gap (first row > $fromUid) is still
-        // detected. Otherwise start at -1 meaning "no prior row yet".
-        $previousUid = $fromUid !== null ? $fromUid - 1 : -1;
+        // A bounded range continues from the nearest row before it, so a gap
+        // that starts before $fromUid is reported with the same bounds (and
+        // the same finding key) as in the full pass. Without such a row,
+        // treat $fromUid-1 as the previous UID so a leading gap (first row >
+        // $fromUid) is still detected. Otherwise start at -1 meaning "no
+        // prior row yet".
+        $previousUid = $rowBefore['uid'] ?? ($fromUid !== null ? $fromUid - 1 : -1);
         /** @var int Cap on $missingUids enumeration — beyond this we count only */
         $missingUidCap = 1000;
 
@@ -1212,17 +1216,20 @@ final readonly class AuditLogService implements AuditLogServiceInterface
     }
 
     /**
-     * `entry_hash` of the newest row below `$uid`, or '' when there is none.
+     * uid and `entry_hash` of the newest row below `$uid`, or null when there
+     * is none.
      *
      * The nearest row rather than `$uid - 1`: when the row just before a range
      * was deleted, the range's first row still links to the last row that
      * exists, and the gap itself is reported by the uid-sequence check.
+     *
+     * @return array{uid: int, entryHash: string}|null
      */
-    private function fetchEntryHashBefore(Connection $connection, int $uid): string
+    private function fetchRowBefore(Connection $connection, int $uid): ?array
     {
         $queryBuilder = $connection->createQueryBuilder();
-        $hash         = $queryBuilder
-            ->select('entry_hash')
+        $row          = $queryBuilder
+            ->select('uid', 'entry_hash')
             ->from(self::TABLE_NAME)
             ->where(
                 $queryBuilder->expr()->lt(
@@ -1233,9 +1240,16 @@ final readonly class AuditLogService implements AuditLogServiceInterface
             ->orderBy('uid', 'DESC')
             ->setMaxResults(1)
             ->executeQuery()
-            ->fetchOne();
+            ->fetchAssociative();
 
-        return is_string($hash) ? $hash : '';
+        if ($row === false || !is_numeric($row['uid'] ?? null)) {
+            return null;
+        }
+
+        return [
+            'uid'       => (int) $row['uid'],
+            'entryHash' => is_string($row['entry_hash'] ?? null) ? $row['entry_hash'] : '',
+        ];
     }
 
     /**

@@ -9,6 +9,8 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Functional\Audit;
 
+use Netresearch\NrVault\Audit\Acknowledgement\AuditFindingItem;
+use Netresearch\NrVault\Audit\Acknowledgement\AuditFindingOverlayInterface;
 use Netresearch\NrVault\Audit\AuditLogService;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
 use Netresearch\NrVault\Tests\Functional\AbstractVaultFunctionalTestCase;
@@ -74,6 +76,38 @@ final class BoundedChainVerificationTest extends AbstractVaultFunctionalTestCase
 
         self::assertFalse($result->isValid());
         self::assertSame([4], array_keys($result->errors));
+    }
+
+    /**
+     * A range that starts inside a gap continues from the nearest row before
+     * it, so it reports the gap with the bounds of the full pass. The gap's
+     * finding key carries those bounds: with a shorter gap the Doctor check,
+     * which verifies only the newest rows, would reopen a gap an administrator
+     * acknowledged against the full chain.
+     */
+    #[Test]
+    public function aRangeStartingInsideAGapReportsTheGapOfTheFullPass(): void
+    {
+        $auditLogService = $this->get(AuditLogServiceInterface::class);
+        $this->writeEntries($auditLogService, 12);
+
+        $connection = $this->get(ConnectionPool::class)->getConnectionForTable('tx_nrvault_audit_log');
+        foreach ([4, 5, 6, 7] as $uid) {
+            $connection->delete('tx_nrvault_audit_log', ['uid' => $uid]);
+        }
+
+        $full    = $auditLogService->verifyHashChain();
+        $bounded = $auditLogService->verifyHashChain(6);
+
+        self::assertSame([['start' => 4, 'end' => 7, 'uid' => 8]], $full->gaps);
+        self::assertSame($full->gaps, $bounded->gaps);
+        self::assertSame(array_keys($full->errors), array_keys($bounded->errors));
+
+        $overlay = $this->get(AuditFindingOverlayInterface::class);
+        self::assertSame(
+            array_map(static fn (AuditFindingItem $item): string => $item->key, $overlay->chainItems($full)),
+            array_map(static fn (AuditFindingItem $item): string => $item->key, $overlay->chainItems($bounded)),
+        );
     }
 
     private function writeEntries(AuditLogServiceInterface $auditLogService, int $count): void
