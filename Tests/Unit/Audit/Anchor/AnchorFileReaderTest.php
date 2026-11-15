@@ -348,6 +348,62 @@ final class AnchorFileReaderTest extends TestCase
         }
     }
 
+    /**
+     * `readAnchors()` returns every anchor record in file order, not only the
+     * highest one: the acknowledgement check counts the records published after
+     * an acknowledgement by their position in the file.
+     */
+    #[Test]
+    public function readAnchorsReturnsEveryAnchorRecordInFileOrder(): void
+    {
+        $path = $this->writeFile(
+            $this->anchorLine(100, 'tip-100', 1_750_000_000, 3)
+            . '{"type":"alert","reason":"TABLE_RESET"}' . "\n"
+            . "not json\n"
+            . "\n"
+            . $this->anchorLine(1, 'tip-1', 1_750_000_900, 3),
+        );
+
+        $anchors = $this->createSubject($path)->readAnchors();
+
+        self::assertCount(2, $anchors);
+        self::assertSame(100, $anchors[0]->sequence);
+        self::assertSame('tip-100', $anchors[0]->chainTip);
+        self::assertSame(1, $anchors[1]->sequence);
+        self::assertSame('tip-1', $anchors[1]->chainTip);
+    }
+
+    #[Test]
+    public function readAnchorsOfAMissingFileIsEmpty(): void
+    {
+        self::assertSame([], $this->createSubject($this->root->url() . '/missing.ndjson')->readAnchors());
+    }
+
+    #[Test]
+    public function readAnchorsOfAnUnopenableFileIsEmpty(): void
+    {
+        FailingStreamWrapper::register(FailingStreamWrapper::MODE_OPEN_REFUSED);
+
+        try {
+            $subject = $this->createSubject(FailingStreamWrapper::path('anchor.ndjson'));
+            self::assertSame([], $this->withoutPhpDiagnostics(static fn (): array => $subject->readAnchors()));
+        } finally {
+            FailingStreamWrapper::unregister();
+        }
+    }
+
+    #[Test]
+    public function readAnchorsOfAThrowingOpenIsEmpty(): void
+    {
+        FailingStreamWrapper::register(FailingStreamWrapper::MODE_OPEN_THROWS);
+
+        try {
+            self::assertSame([], $this->createSubject(FailingStreamWrapper::path('anchor.ndjson'))->readAnchors());
+        } finally {
+            FailingStreamWrapper::unregister();
+        }
+    }
+
     private function createSubject(string $path, ?LoggerInterface $logger = null): AnchorFileReader
     {
         $configuration = self::createStub(ExtensionConfigurationInterface::class);

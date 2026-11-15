@@ -45,6 +45,44 @@ final class AuditFindingItemTest extends TestCase
         self::assertSame(42, $acknowledged->acknowledgedBy);
     }
 
+    /**
+     * Withdrawing an acknowledgement (an external-anchor finding without a fresh
+     * anchor) must keep every other property, the anchor flags included.
+     */
+    #[Test]
+    public function withdrawingTheAcknowledgementKeepsEverythingElse(): void
+    {
+        $item = (new AuditFindingItem('k', AuditIntegrityReason::TableReset, 0, 0, 'reset', null, true, true))->withAcknowledgement(7);
+
+        $withdrawn = $item->withoutAcknowledgement();
+
+        self::assertFalse($withdrawn->isAcknowledged());
+        self::assertNull($withdrawn->acknowledgedBy);
+        self::assertSame('k', $withdrawn->key);
+        self::assertSame(AuditIntegrityReason::TableReset, $withdrawn->reason);
+        self::assertSame('reset', $withdrawn->detail);
+        self::assertTrue($withdrawn->prefixBound);
+        self::assertTrue($withdrawn->requiresFreshAnchor);
+    }
+
+    #[Test]
+    public function theArrayFormNamesReasonRangeAndAcknowledgingRow(): void
+    {
+        $item = (new AuditFindingItem('k', AuditIntegrityReason::UidGap, 3, 4, 'Missing uids 3..4 before uid 5.'))->withAcknowledgement(12);
+
+        self::assertSame(
+            [
+                'key'            => 'k',
+                'reason'         => 'UID_GAP',
+                'rangeStart'     => 3,
+                'rangeEnd'       => 4,
+                'detail'         => 'Missing uids 3..4 before uid 5.',
+                'acknowledgedBy' => 12,
+            ],
+            $item->toArray(),
+        );
+    }
+
     #[Test]
     public function theKeyChangesWithTheStoredContentOfTheRow(): void
     {

@@ -16,6 +16,8 @@ use Netresearch\NrVault\Audit\Acknowledgement\AcknowledgementStatus;
 use Netresearch\NrVault\Audit\Acknowledgement\AuditFindingAcknowledger;
 use Netresearch\NrVault\Audit\Acknowledgement\AuditFindingAcknowledgerInterface;
 use Netresearch\NrVault\Audit\Acknowledgement\AuditFindingItem;
+use Netresearch\NrVault\Audit\Acknowledgement\AuditFindingOverlay;
+use Netresearch\NrVault\Audit\Anchor\ChainTipAnchorService;
 use Netresearch\NrVault\Audit\Anchor\ChainTipAnchorServiceInterface;
 use Netresearch\NrVault\Audit\AuditAction;
 use Netresearch\NrVault\Audit\AuditIntegrityReport;
@@ -38,6 +40,8 @@ use TYPO3\CMS\Core\Database\ConnectionPool;
  * `verifyChainForReseal()`, which have to keep refusing the broken chain.
  */
 #[CoversClass(AuditFindingAcknowledger::class)]
+#[CoversClass(AuditFindingOverlay::class)]
+#[CoversClass(ChainTipAnchorService::class)]
 final class AuditFindingAcknowledgementTest extends AbstractVaultFunctionalTestCase
 {
     use AuditSinkSandboxTrait;
