@@ -278,7 +278,7 @@ final class VaultFieldPermissionService implements SingletonInterface
          *
          * @var array<string, string> $flatOverrides
          *
-         * @phpstan-ignore method.internal, method.internalClass
+         * @phpstan-ignore method.internal, method.internalClass, method.internalClass
          */
         $flatOverrides = $backendUser->getUserTsConfig()?->getUserTsConfigTree()->flatten() ?? [];
         foreach ($flatOverrides as $key => $value) {
