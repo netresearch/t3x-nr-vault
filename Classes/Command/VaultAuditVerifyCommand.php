@@ -243,6 +243,25 @@ final class VaultAuditVerifyCommand extends Command
         $io->error($message);
     }
 
+    /**
+     * The success line names only what was checked: the comparison with the
+     * external anchor runs only when an anchor with a chain tip exists (the
+     * same condition the anchor service and the backend module use).
+     */
+    private function formatSuccess(?ChainTipAnchor $anchor): string
+    {
+        if (!$anchor instanceof ChainTipAnchor) {
+            return 'Audit log integrity verified — hash chain intact. No external anchor was available to compare it against.';
+        }
+
+        if ($anchor->isEmpty()) {
+            return 'Audit log integrity verified — hash chain intact. The external anchor was taken while the chain was empty, '
+                . 'so there was nothing to compare it against.';
+        }
+
+        return 'Audit log integrity verified — hash chain intact and consistent with the external anchor.';
+    }
+
     private function formatChainState(AuditIntegrityReport $report): string
     {
         if ($report->chainValid) {
@@ -334,7 +353,7 @@ final class VaultAuditVerifyCommand extends Command
         }
 
         if ($report->isValid()) {
-            $io->success('Audit log integrity verified — hash chain intact and consistent with the external anchor.');
+            $io->success($this->formatSuccess($anchor));
 
             return;
         }

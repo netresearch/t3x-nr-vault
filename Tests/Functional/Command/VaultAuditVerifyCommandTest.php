@@ -80,7 +80,10 @@ final class VaultAuditVerifyCommandTest extends AbstractVaultFunctionalTestCase
         $exitCode = $tester->execute([]);
 
         self::assertSame(Command::SUCCESS, $exitCode, $tester->getDisplay());
-        self::assertStringContainsString('verified', $tester->getDisplay());
+        self::assertStringContainsString(
+            'Audit log integrity verified — hash chain intact and consistent with the external anchor.',
+            $this->normalize($tester),
+        );
     }
 
     /**
@@ -225,6 +228,38 @@ final class VaultAuditVerifyCommandTest extends AbstractVaultFunctionalTestCase
 
         self::assertSame(Command::SUCCESS, $exitCode, $tester->getDisplay());
         self::assertStringContainsString('none available', $tester->getDisplay());
+
+        // Nothing was compared with an external anchor, so the success line
+        // must not claim it (#549).
+        $display = $this->normalize($tester);
+        self::assertStringContainsString(
+            'Audit log integrity verified — hash chain intact. No external anchor was available to compare it against.',
+            $display,
+        );
+        self::assertStringNotContainsString('consistent with the external anchor', $display);
+    }
+
+    /**
+     * An anchor taken while the chain was still empty carries no chain tip, so
+     * the comparison does not run either; the success line says why.
+     */
+    #[Test]
+    public function aChainWhoseAnchorWasTakenEmptyDoesNotClaimAnchorConsistency(): void
+    {
+        $this->publishAnchor();
+        $this->seedChain(2);
+
+        $tester   = new CommandTester($this->get(VaultAuditVerifyCommand::class));
+        $exitCode = $tester->execute([]);
+
+        self::assertSame(Command::SUCCESS, $exitCode, $tester->getDisplay());
+
+        $display = $this->normalize($tester);
+        self::assertStringContainsString(
+            'Audit log integrity verified — hash chain intact. The external anchor was taken while the chain was empty, so there was nothing to compare it against.',
+            $display,
+        );
+        self::assertStringNotContainsString('consistent with the external anchor', $display);
     }
 
     #[Test]
