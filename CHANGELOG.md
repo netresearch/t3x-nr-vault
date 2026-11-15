@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-11-15
+
+### Added
+
+- `vault:audit-verify --as-auditor` verifies the audit chain from a shell as the backend user configured in the new `auditorBeUserUid` setting, whose group needs `tx_nrvault:audit.view`. Until now a shell could run the command only with `allowCliAccess` on and `audit.view` in `cliAllowedOperations`, which also opens reading the audit log with `vault:audit` to every shell, although the documentation recommended a named technical actor.
+
 ## [1.8.0] - 2026-11-15
 
 ### Added
@@ -2354,7 +2360,8 @@ upgrading.
 - Constructor property promotion
 - Modern PHP 8.x patterns (match, named arguments, attributes)
 
-[Unreleased]: https://github.com/netresearch/t3x-nr-vault/compare/v1.8.0...HEAD
+[Unreleased]: https://github.com/netresearch/t3x-nr-vault/compare/v1.9.0...HEAD
+[1.9.0]: https://github.com/netresearch/t3x-nr-vault/compare/v1.8.0...v1.9.0
 [1.8.0]: https://github.com/netresearch/t3x-nr-vault/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/netresearch/t3x-nr-vault/compare/v1.6.1...v1.7.0
 [1.6.1]: https://github.com/netresearch/t3x-nr-vault/compare/v1.6.0...v1.6.1
