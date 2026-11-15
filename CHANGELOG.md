@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-11-15
+
+### Added
+
+- The backend "Verify chain" view runs the same full verification as `vault:audit-verify`: reason codes (`HASH_MISMATCH`, `UID_GAP`, `TABLE_RESET`, `EPOCH_DOWNGRADE`) per finding, the verified range with epoch distribution and chain tip, and the comparison with the external anchor.
+- An administrator can acknowledge open integrity findings in the backend (ADR-055): the evidence export (JSON/CSV) comes first, then a mandatory reason, an optional ticket reference and an explicit confirmation. The acknowledgement is one chained audit entry of the new type `audit_findings_acknowledged`; the flagged rows stay as they are, and a new finding or another change to a flagged row fails again. `vault:audit-verify` and `audit.hash_chain` report acknowledged findings separately.
+
+### Fixed
+
+- `audit.hash_chain` reported one failed entry on every installation with more than 1000 audit rows while the full chain verified: a bounded verification linked its first row to the empty genesis hash instead of to the row before its range. `verifyHashChain()` now starts a range from the nearest earlier row.
+
 ## [1.7.0] - 2026-11-14
 
 ### Added
@@ -2343,7 +2354,8 @@ upgrading.
 - Constructor property promotion
 - Modern PHP 8.x patterns (match, named arguments, attributes)
 
-[Unreleased]: https://github.com/netresearch/t3x-nr-vault/compare/v1.7.0...HEAD
+[Unreleased]: https://github.com/netresearch/t3x-nr-vault/compare/v1.8.0...HEAD
+[1.8.0]: https://github.com/netresearch/t3x-nr-vault/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/netresearch/t3x-nr-vault/compare/v1.6.1...v1.7.0
 [1.6.1]: https://github.com/netresearch/t3x-nr-vault/compare/v1.6.0...v1.6.1
 [1.6.0]: https://github.com/netresearch/t3x-nr-vault/compare/v1.5.1...v1.6.0
