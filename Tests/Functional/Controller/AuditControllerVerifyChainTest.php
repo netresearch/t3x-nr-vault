@@ -156,6 +156,7 @@ final class AuditControllerVerifyChainTest extends AbstractVaultFunctionalTestCa
         self::assertStringContainsString('No open findings - every finding is acknowledged', $after);
         self::assertStringNotContainsString('no tampering detected', $after);
         self::assertStringContainsString('Acknowledged findings', $after);
+        self::assertStringContainsString('Download evidence (JSON)', $after, 'the evidence stays downloadable after the acknowledgement');
         self::assertStringContainsString('HASH_MISMATCH', $after);
         self::assertSame(1, $this->acknowledgementRowCount());
     }
