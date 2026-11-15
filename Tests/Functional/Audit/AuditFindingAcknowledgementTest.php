@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Functional\Audit;
 
+use Doctrine\DBAL\Platforms\AbstractMySQLPlatform;
 use Doctrine\DBAL\Platforms\PostgreSQLPlatform;
 use Doctrine\DBAL\Platforms\SQLitePlatform;
 use Netresearch\NrVault\Audit\Acknowledgement\AcknowledgementOutcome;
@@ -688,6 +689,11 @@ final class AuditFindingAcknowledgementTest extends AbstractVaultFunctionalTestC
         return $this->get(ConnectionPool::class)->getConnectionForTable(self::TABLE);
     }
 
+    /**
+     * Empty the table and restart its uid counter, as TRUNCATE does: the tests
+     * address the rebuilt chain's first row as uid 1. DELETE FROM keeps the
+     * counter on every platform, so each one needs its own reset.
+     */
     private function truncateAuditTable(): void
     {
         $connection = $this->getConnection();
@@ -698,6 +704,9 @@ final class AuditFindingAcknowledgementTest extends AbstractVaultFunctionalTestC
             $connection->executeStatement("DELETE FROM sqlite_sequence WHERE name = '" . self::TABLE . "'");
         } elseif ($platform instanceof PostgreSQLPlatform) {
             $connection->executeStatement("SELECT setval(pg_get_serial_sequence('" . self::TABLE . "', 'uid'), 1, false)");
+        } elseif ($platform instanceof AbstractMySQLPlatform) {
+            // InnoDB raises a value below max(uid)+1 to it; on an empty table that is 1.
+            $connection->executeStatement('ALTER TABLE ' . self::TABLE . ' AUTO_INCREMENT = 1');
         }
     }
 }
