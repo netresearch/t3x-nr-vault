@@ -164,8 +164,8 @@
         <target>Keine offenen Befunde - alle Befunde sind bestätigt</target>
       </trans-unit>
       <trans-unit id="audit.chain_acknowledged.description">
-        <source>An administrator acknowledged the findings listed under "Acknowledged findings". The affected rows and anchors are unchanged, so the verification itself still reports them.</source>
-        <target>Eine Administratorin oder ein Administrator hat die unter „Bestätigte Befunde“ aufgeführten Befunde bestätigt. Die betroffenen Zeilen und Anker sind unverändert, die Prüfung selbst meldet sie daher weiterhin.</target>
+        <source>An administrator acknowledged the findings listed under "Acknowledged findings". The affected rows are unchanged.</source>
+        <target>Eine Administratorin oder ein Administrator hat die unter „Bestätigte Befunde“ aufgeführten Befunde bestätigt. Die betroffenen Zeilen sind unverändert.</target>
       </trans-unit>
       <trans-unit id="audit.verify.ack.reason">
         <source>Reason (required)</source>

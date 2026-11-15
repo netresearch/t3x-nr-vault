@@ -241,7 +241,7 @@ final class VaultAuditVerifyCommand extends Command
         $acknowledged = $report->getAcknowledgedItems();
         if ($acknowledged !== []) {
             $io->note(sprintf(
-                '%d finding(s) acknowledged by an administrator. The affected rows and anchors are unchanged; the raw verification still reports them.',
+                '%d finding(s) acknowledged by an administrator. The affected rows are unchanged.',
                 count($acknowledged),
             ));
             $io->table(

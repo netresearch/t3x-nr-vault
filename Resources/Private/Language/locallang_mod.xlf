@@ -1381,7 +1381,7 @@
         <source>No open findings - every finding is acknowledged</source>
       </trans-unit>
       <trans-unit id="audit.chain_acknowledged.description">
-        <source>An administrator acknowledged the findings listed under "Acknowledged findings". The affected rows and anchors are unchanged, so the verification itself still reports them.</source>
+        <source>An administrator acknowledged the findings listed under "Acknowledged findings". The affected rows are unchanged.</source>
       </trans-unit>
       <trans-unit id="audit.verify.ack.reason">
         <source>Reason (required)</source>
