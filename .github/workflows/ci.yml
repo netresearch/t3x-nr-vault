@@ -37,9 +37,13 @@ jobs:
       # branch (ADR-051) that SQLite never reaches. One cell per TYPO3 major
       # keeps it under test; postgres:17 is the newest tag in the org's
       # mirror of the Docker official image (typo3-ci-workflows ci-mirror.yml).
+      # MySQL/MariaDB has its own branches as well (GET_LOCK for the audit
+      # chain, AUTO_INCREMENT handling); mariadb:12.3 is the newest tag in the
+      # same mirror.
       functional-db-matrix: >-
         [{"php":"8.5","typo3":"^14.3","db":"postgres","image":"ghcr.io/netresearch/ci-mirror/postgres:17-alpine"},
-         {"php":"8.2","typo3":"^13.4","db":"postgres","image":"ghcr.io/netresearch/ci-mirror/postgres:17-alpine"}]
+         {"php":"8.2","typo3":"^13.4","db":"postgres","image":"ghcr.io/netresearch/ci-mirror/postgres:17-alpine"},
+         {"php":"8.5","typo3":"^14.3","db":"mariadb","image":"ghcr.io/netresearch/ci-mirror/mariadb:12.3"}]
       compact-jobs: true
       upload-docs-artifact: true
       # Repo-specific checks (composer ci:test:repo: arch + doc-cli + its
