@@ -243,7 +243,7 @@ Netresearch\NrVault\Audit\AuditLogServiceInterface (interface)
   method verifyHashChain(?int $fromUid = …, ?int $toUid = …, ?int $minEpoch = …): Netresearch\NrVault\Audit\HashChainVerificationResult
 
 Netresearch\NrVault\Audit\HashChainVerificationResult (class)
-  constructor(bool $valid, array $errors = …, array $warnings = …, array $missingUids = …, int $missingUidCount = …, Netresearch\NrVault\Audit\AuditChainAnchorStatus $anchorStatus = …, array $epochCounts = …, array $gaps = …)
+  constructor(bool $valid, array $errors = …, array $warnings = …, array $missingUids = …, int $missingUidCount = …, Netresearch\NrVault\Audit\AuditChainAnchorStatus $anchorStatus = …, array $epochCounts = …, array $gaps = …, int $lastUid = …)
   method getErrorCount(): int
   method getMaxEpoch(): ?int
   method getMinEpoch(): ?int
@@ -251,13 +251,14 @@ Netresearch\NrVault\Audit\HashChainVerificationResult (class)
   method hasMissingUids(): bool
   method hasMixedEpochs(): bool
   method isValid(): bool
-  method static invalid(array $errors, array $warnings = …, array $missingUids = …, int $missingUidCount = …, Netresearch\NrVault\Audit\AuditChainAnchorStatus $anchorStatus = …, array $epochCounts = …, array $gaps = …): self
-  method static valid(array $warnings = …, array $missingUids = …, int $missingUidCount = …, Netresearch\NrVault\Audit\AuditChainAnchorStatus $anchorStatus = …, array $epochCounts = …, array $gaps = …): self
+  method static invalid(array $errors, array $warnings = …, array $missingUids = …, int $missingUidCount = …, Netresearch\NrVault\Audit\AuditChainAnchorStatus $anchorStatus = …, array $epochCounts = …, array $gaps = …, int $lastUid = …): self
+  method static valid(array $warnings = …, array $missingUids = …, int $missingUidCount = …, Netresearch\NrVault\Audit\AuditChainAnchorStatus $anchorStatus = …, array $epochCounts = …, array $gaps = …, int $lastUid = …): self
   method toArray(): array
   property readonly anchorStatus: Netresearch\NrVault\Audit\AuditChainAnchorStatus
   property readonly epochCounts: array
   property readonly errors: array
   property readonly gaps: array
+  property readonly lastUid: int
   property readonly missingUidCount: int
   property readonly missingUids: array
   property readonly valid: bool

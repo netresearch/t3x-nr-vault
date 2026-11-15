@@ -111,6 +111,46 @@ final class BoundedChainVerificationTest extends AbstractVaultFunctionalTestCase
         );
     }
 
+    /**
+     * The tail row re-signed with the keyless epoch 0 and linked to the stored
+     * hash before it verifies on its own. The range must still compare its
+     * epoch with the row before the range and report the downgrade.
+     */
+    #[Test]
+    public function aDowngradedFirstRowOfTheRangeFails(): void
+    {
+        $auditLogService = $this->get(AuditLogServiceInterface::class);
+        $this->writeEntries($auditLogService, 8);
+
+        $connection = $this->get(ConnectionPool::class)->getConnectionForTable('tx_nrvault_audit_log');
+        $row        = $connection->select(['*'], 'tx_nrvault_audit_log', ['uid' => 8])->fetchAssociative();
+        $before     = $connection->select(['entry_hash'], 'tx_nrvault_audit_log', ['uid' => 7])->fetchOne();
+        self::assertIsArray($row);
+        self::assertIsString($before);
+        self::assertGreaterThan(0, (int) $row['hmac_key_epoch'], 'precondition: the chain is HMAC-signed');
+        self::assertIsString($row['secret_identifier']);
+        self::assertIsString($row['action']);
+
+        $connection->update('tx_nrvault_audit_log', [
+            'hmac_key_epoch' => 0,
+            'previous_hash'  => $before,
+            'entry_hash'     => AuditLogService::calculateHash(
+                8,
+                $row['secret_identifier'],
+                $row['action'],
+                (int) $row['actor_uid'],
+                (int) $row['crdate'],
+                $before,
+            ),
+        ], ['uid' => 8]);
+
+        $result = $auditLogService->verifyHashChain(8);
+
+        self::assertFalse($result->isValid());
+        self::assertSame([8], array_keys($result->errors));
+        self::assertStringContainsString('downgrade', $result->errors[8]);
+    }
+
     private function writeEntries(AuditLogServiceInterface $auditLogService, int $count): void
     {
         for ($i = 0; $i < $count; ++$i) {

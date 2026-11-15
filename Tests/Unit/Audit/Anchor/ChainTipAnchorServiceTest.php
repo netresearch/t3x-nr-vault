@@ -630,12 +630,13 @@ final class ChainTipAnchorServiceTest extends TestCase
     }
 
     /**
-     * Both queries are point lookups: the highest uid and the single anchored
-     * row. Dropping the limit turns the first into a full-table scan on a table
-     * that grows without bound, and neither needs a second row.
+     * Every query is a point lookup: the highest uid, the single anchored row
+     * and the row at the reported tip. Dropping the limit turns the first into a
+     * full-table scan on a table that grows without bound, and none of them
+     * needs a second row.
      */
     #[Test]
-    public function bothLookupsAreLimitedToASingleRow(): void
+    public function everyLookupIsLimitedToASingleRow(): void
     {
         $anchorReader = self::createStub(AnchorReaderInterface::class);
         $anchorReader->method('readLatestAnchor')->willReturn(new ChainTipAnchor(2, 'tip-2', 1_750_000_000, 3));
@@ -646,7 +647,7 @@ final class ChainTipAnchorServiceTest extends TestCase
             rowAtAnchor: ['entry_hash' => 'tip-2', 'hmac_key_epoch' => 3],
         )->verify();
 
-        self::assertSame([1, 1], $this->setMaxResultsCalls);
+        self::assertSame([1, 1, 1], $this->setMaxResultsCalls);
     }
 
     /**

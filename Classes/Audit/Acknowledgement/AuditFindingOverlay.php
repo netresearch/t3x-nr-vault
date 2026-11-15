@@ -210,6 +210,9 @@ final readonly class AuditFindingOverlay implements AuditFindingOverlayInterface
                 $queryBuilder->expr()->eq('success', $queryBuilder->createNamedParameter(1, Connection::PARAM_INT)),
                 $queryBuilder->expr()->gte('hmac_key_epoch', $queryBuilder->createNamedParameter(self::MIN_ACKNOWLEDGEMENT_EPOCH, Connection::PARAM_INT)),
                 $queryBuilder->expr()->gte('uid', $queryBuilder->createNamedParameter($fromUid, Connection::PARAM_INT)),
+                // A row written after the walk has no verdict, so it cannot
+                // count as a verified acknowledgement.
+                $queryBuilder->expr()->lte('uid', $queryBuilder->createNamedParameter($raw->lastUid, Connection::PARAM_INT)),
             )
             ->orderBy('uid', 'ASC')
             ->setMaxResults(self::MAX_ACKNOWLEDGEMENT_ROWS)

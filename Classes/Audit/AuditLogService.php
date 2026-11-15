@@ -361,9 +361,12 @@ final readonly class AuditLogService implements AuditLogServiceInterface
         // every range that does not start at uid 1 fail on its first row, which
         // is how `audit.hash_chain` (newest 1000 rows) reported one failure on
         // every installation past 1000 audit rows.
-        $rowBefore     = $fromUid !== null && $fromUid > 1 ? $this->fetchRowBefore($connection, $fromUid) : null;
-        $previousHash  = $rowBefore['entryHash'] ?? '';
-        $previousEpoch = -1;
+        $rowBefore    = $fromUid !== null && $fromUid > 1 ? $this->fetchRowBefore($connection, $fromUid) : null;
+        $previousHash = $rowBefore['entryHash'] ?? '';
+        // The epoch of the row before the range, so a range whose first row
+        // was downgraded (re-signed with the keyless epoch 0 and linked to the
+        // stored hash before it) still fails the downgrade check below.
+        $previousEpoch = $rowBefore['epoch'] ?? -1;
         // Highest epoch observed across the chain (the "high-water mark"). Stays
         // -1 for an empty chain so the epoch-floor check below is skipped.
         $maxEpoch = -1;
@@ -385,6 +388,8 @@ final readonly class AuditLogService implements AuditLogServiceInterface
         $previousUid = $rowBefore['uid'] ?? ($fromUid !== null ? $fromUid - 1 : -1);
         /** @var int Cap on $missingUids enumeration — beyond this we count only */
         $missingUidCap = 1000;
+        // uid of the last row walked: rows above it carry no verdict.
+        $lastUid = 0;
 
         // Derive the HMAC key once for all HMAC-epoch entries
         $hmacKey = $this->getHmacKey();
@@ -438,6 +443,7 @@ final readonly class AuditLogService implements AuditLogServiceInterface
                 }
 
                 $previousUid = $uid;
+                $lastUid     = $uid;
 
                 // Detect epoch transitions.
                 //
@@ -548,8 +554,8 @@ final readonly class AuditLogService implements AuditLogServiceInterface
         ksort($epochCounts);
 
         return $errors === []
-            ? HashChainVerificationResult::valid($warnings, $missingUids, $missingUidCount, $anchorStatus, $epochCounts, $gaps)
-            : HashChainVerificationResult::invalid($errors, $warnings, $missingUids, $missingUidCount, $anchorStatus, $epochCounts, $gaps);
+            ? HashChainVerificationResult::valid($warnings, $missingUids, $missingUidCount, $anchorStatus, $epochCounts, $gaps, $lastUid)
+            : HashChainVerificationResult::invalid($errors, $warnings, $missingUids, $missingUidCount, $anchorStatus, $epochCounts, $gaps, $lastUid);
     }
 
     public function verifyChainForReseal(): ?HashChainVerificationResult
@@ -1216,20 +1222,20 @@ final readonly class AuditLogService implements AuditLogServiceInterface
     }
 
     /**
-     * uid and `entry_hash` of the newest row below `$uid`, or null when there
-     * is none.
+     * uid, `entry_hash` and `hmac_key_epoch` of the newest row below `$uid`,
+     * or null when there is none.
      *
      * The nearest row rather than `$uid - 1`: when the row just before a range
      * was deleted, the range's first row still links to the last row that
      * exists, and the gap itself is reported by the uid-sequence check.
      *
-     * @return array{uid: int, entryHash: string}|null
+     * @return array{uid: int, entryHash: string, epoch: int}|null
      */
     private function fetchRowBefore(Connection $connection, int $uid): ?array
     {
         $queryBuilder = $connection->createQueryBuilder();
         $row          = $queryBuilder
-            ->select('uid', 'entry_hash')
+            ->select('uid', 'entry_hash', 'hmac_key_epoch')
             ->from(self::TABLE_NAME)
             ->where(
                 $queryBuilder->expr()->lt(
@@ -1249,6 +1255,7 @@ final readonly class AuditLogService implements AuditLogServiceInterface
         return [
             'uid'       => (int) $row['uid'],
             'entryHash' => is_string($row['entry_hash'] ?? null) ? $row['entry_hash'] : '',
+            'epoch'     => is_numeric($row['hmac_key_epoch'] ?? null) ? (int) $row['hmac_key_epoch'] : 0,
         ];
     }
 

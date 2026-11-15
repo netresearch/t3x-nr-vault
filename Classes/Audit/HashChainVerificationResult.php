@@ -49,6 +49,9 @@ final readonly class HashChainVerificationResult
      *                                                                     sit directly before the surviving row `uid`. Unlike
      *                                                                     `$missingUids` it is not capped, so an acknowledgement
      *                                                                     can be bound to the exact gap.
+     * @param int                                         $lastUid         uid of the last row the walk verified (0 = no row or
+     *                                                                     not recorded). A row above it was written after the
+     *                                                                     walk and carries no verdict.
      */
     public function __construct(
         public bool $valid,
@@ -59,6 +62,7 @@ final readonly class HashChainVerificationResult
         public AuditChainAnchorStatus $anchorStatus = AuditChainAnchorStatus::NotChecked,
         public array $epochCounts = [],
         public array $gaps = [],
+        public int $lastUid = 0,
     ) {}
 
     /**
@@ -70,6 +74,7 @@ final readonly class HashChainVerificationResult
      * @param AuditChainAnchorStatus                      $anchorStatus    Outcome of the tip-anchor check
      * @param array<int, int>                             $epochCounts     Row count per `hmac_key_epoch` in the range
      * @param list<array{start: int, end: int, uid: int}> $gaps            Uid gaps as ranges
+     * @param int                                         $lastUid         uid of the last verified row (0 = none)
      */
     public static function valid(
         array $warnings = [],
@@ -78,6 +83,7 @@ final readonly class HashChainVerificationResult
         AuditChainAnchorStatus $anchorStatus = AuditChainAnchorStatus::NotChecked,
         array $epochCounts = [],
         array $gaps = [],
+        int $lastUid = 0,
     ): self {
         return new self(
             valid: true,
@@ -88,6 +94,7 @@ final readonly class HashChainVerificationResult
             anchorStatus: $anchorStatus,
             epochCounts: $epochCounts,
             gaps: $gaps,
+            lastUid: $lastUid,
         );
     }
 
@@ -101,6 +108,7 @@ final readonly class HashChainVerificationResult
      * @param AuditChainAnchorStatus                      $anchorStatus    Outcome of the tip-anchor check
      * @param array<int, int>                             $epochCounts     Row count per `hmac_key_epoch` in the range
      * @param list<array{start: int, end: int, uid: int}> $gaps            Uid gaps as ranges
+     * @param int                                         $lastUid         uid of the last verified row (0 = none)
      */
     public static function invalid(
         array $errors,
@@ -110,6 +118,7 @@ final readonly class HashChainVerificationResult
         AuditChainAnchorStatus $anchorStatus = AuditChainAnchorStatus::NotChecked,
         array $epochCounts = [],
         array $gaps = [],
+        int $lastUid = 0,
     ): self {
         return new self(
             valid: false,
@@ -120,6 +129,7 @@ final readonly class HashChainVerificationResult
             anchorStatus: $anchorStatus,
             epochCounts: $epochCounts,
             gaps: $gaps,
+            lastUid: $lastUid,
         );
     }
 

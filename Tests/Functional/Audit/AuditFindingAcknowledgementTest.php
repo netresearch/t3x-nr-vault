@@ -17,6 +17,7 @@ use Netresearch\NrVault\Audit\Acknowledgement\AuditFindingAcknowledger;
 use Netresearch\NrVault\Audit\Acknowledgement\AuditFindingAcknowledgerInterface;
 use Netresearch\NrVault\Audit\Acknowledgement\AuditFindingItem;
 use Netresearch\NrVault\Audit\Acknowledgement\AuditFindingOverlay;
+use Netresearch\NrVault\Audit\Acknowledgement\AuditFindingOverlayInterface;
 use Netresearch\NrVault\Audit\Anchor\ChainTipAnchorService;
 use Netresearch\NrVault\Audit\Anchor\ChainTipAnchorServiceInterface;
 use Netresearch\NrVault\Audit\AuditAction;
@@ -314,6 +315,46 @@ final class AuditFindingAcknowledgementTest extends AbstractVaultFunctionalTestC
         $report = $this->inspect();
         self::assertFalse($report->isValid());
         self::assertNotSame([], array_filter($report->getOpenItems(), static fn (AuditFindingItem $i): bool => $i->rangeStart === 5), 'the forged row did not acknowledge row 5');
+    }
+
+    /**
+     * A row appended after the chain walk carries no verdict: the walk never
+     * checked its hash. Inserted between the walk and the overlay lookup, a
+     * forged acknowledgement must not cover anything.
+     */
+    #[Test]
+    public function aForgedAcknowledgementAppendedAfterTheWalkIsIgnored(): void
+    {
+        $this->writeEntries(8);
+        $this->tamperRow(5);
+
+        $auditService = $this->get(AuditLogServiceInterface::class);
+        $raw          = $auditService->verifyHashChain();
+        $overlay      = $this->get(AuditFindingOverlayInterface::class);
+        $items        = $overlay->chainItems($raw);
+        self::assertSame(8, $raw->lastUid);
+        self::assertCount(1, $items);
+
+        $tip = $auditService->getLatestHash() ?? '';
+        $this->getConnection()->insert(self::TABLE, [
+            'pid'               => 0,
+            'secret_identifier' => '__audit_findings__',
+            'action'            => AuditAction::AuditFindingsAcknowledged->value,
+            'success'           => 1,
+            'reason'            => 'forged after the walk',
+            'actor_uid'         => 1,
+            'actor_type'        => 'backend',
+            'actor_username'    => 'admin',
+            'previous_hash'     => $tip,
+            'entry_hash'        => str_repeat('a', 64),
+            'hmac_key_epoch'    => 3,
+            'crdate'            => time(),
+            'context'           => json_encode(['findings' => $items[0]->key, 'tipHash' => $tip, 'tipUid' => 8], JSON_THROW_ON_ERROR),
+        ]);
+
+        $applied = $overlay->apply($items, $raw);
+
+        self::assertFalse($applied[0]->isAcknowledged(), 'a row the walk did not verify acknowledges nothing');
     }
 
     /**

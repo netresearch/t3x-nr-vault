@@ -181,7 +181,10 @@ final readonly class ChainTipAnchorService implements ChainTipAnchorServiceInter
             warnings: $chainResult->warnings,
             epochCounts: $chainResult->epochCounts,
             items: $items,
-            tipHash: $currentSequence > 0 ? ($this->auditLogService->getLatestHash() ?? '') : '',
+            // The hash of the row at the reported sequence, not the newest row:
+            // an append after fetchMaxUid() would otherwise pair sequence N
+            // with the hash of N+1.
+            tipHash: $currentSequence > 0 ? ($this->fetchRowAt($currentSequence)['entryHash'] ?? '') : '',
             anchorStatus: $chainResult->anchorStatus,
         );
     }
