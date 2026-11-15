@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# SPDX-FileCopyrightText: Netresearch DTT GmbH
+# Registers TransactionProbeSink as an audit sink. The class lives in the test
+# tree (composer-autoloaded), so the fixture needs no autoload of its own.
+services:
+  _defaults:
+    autowire: true
+    autoconfigure: true
+    public: false
+
+  Netresearch\NrVault\Tests\Functional\Fixtures\TransactionProbe\TransactionProbeSink:
+    tags: ['nr_vault.audit_sink']
