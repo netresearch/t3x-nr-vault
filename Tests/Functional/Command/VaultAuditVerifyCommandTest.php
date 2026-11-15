@@ -173,6 +173,8 @@ final class VaultAuditVerifyCommandTest extends AbstractVaultFunctionalTestCase
 
         self::assertStringContainsString('INVALID (all findings acknowledged)', $display);
         self::assertStringContainsString('2 finding(s) acknowledged by an administrator', $display);
+        self::assertStringContainsString('chain itself does not verify', $display);
+        self::assertStringNotContainsString('hash chain intact', $display);
         self::assertMatchesRegularExpression('/UID_GAP\s+2-3\s+7\s/', $display);
         self::assertMatchesRegularExpression('/HASH_MISMATCH\s+4\s+7\s/', $display);
     }

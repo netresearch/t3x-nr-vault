@@ -241,7 +241,7 @@ final class VaultAuditVerifyCommand extends Command
         $acknowledged = $report->getAcknowledgedItems();
         if ($acknowledged !== []) {
             $io->note(sprintf(
-                '%d finding(s) acknowledged by an administrator. The rows are unchanged and still fail their own hash.',
+                '%d finding(s) acknowledged by an administrator. The affected rows and anchors are unchanged; the raw verification still reports them.',
                 count($acknowledged),
             ));
             $io->table(
@@ -256,6 +256,14 @@ final class VaultAuditVerifyCommand extends Command
                     $acknowledged,
                 ),
             );
+        }
+
+        if ($report->isValid() && $acknowledged !== []) {
+            $io->success($report->chainValid
+                ? 'No open findings: every finding was acknowledged by an administrator.'
+                : 'No open findings: every finding was acknowledged by an administrator. The hash chain itself does not verify.');
+
+            return;
         }
 
         if ($report->isValid()) {

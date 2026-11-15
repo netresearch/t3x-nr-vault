@@ -1377,6 +1377,12 @@
       <trans-unit id="audit.verify.ack.evidence_csv">
         <source>Download evidence (CSV)</source>
       </trans-unit>
+      <trans-unit id="audit.chain_acknowledged">
+        <source>No open findings - every finding is acknowledged</source>
+      </trans-unit>
+      <trans-unit id="audit.chain_acknowledged.description">
+        <source>An administrator acknowledged the findings listed under "Acknowledged findings". The affected rows and anchors are unchanged, so the verification itself still reports them.</source>
+      </trans-unit>
       <trans-unit id="audit.verify.ack.reason">
         <source>Reason (required)</source>
       </trans-unit>
@@ -1393,7 +1399,7 @@
         <source>Acknowledge these findings</source>
       </trans-unit>
       <trans-unit id="audit.verify.ack.blocked_epoch">
-        <source>Findings can only be acknowledged with the audit HMAC epoch set to 3 or higher. Below it an acknowledgement could be edited in the database without the key. Raise the epoch and migrate the chain first.</source>
+        <source>Findings can only be acknowledged with the audit HMAC epoch set to 3 or higher. Below it an acknowledgement could be edited in the database without the key. Raise the configured epoch (auditHmacEpoch) first. The existing rows need no migration for this, and a chain that does not verify cannot be migrated.</source>
       </trans-unit>
     </body>
   </file>

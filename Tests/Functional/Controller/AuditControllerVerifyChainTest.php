@@ -150,7 +150,8 @@ final class AuditControllerVerifyChainTest extends AbstractVaultFunctionalTestCa
         self::assertStringContainsString('ackResult=acknowledged', $response->getHeaderLine('Location'));
 
         $after = $this->body($controller->verifyChainAction($this->request('verifyChain')->withQueryParams(['ackResult' => 'acknowledged'])));
-        self::assertStringContainsString('Hash chain is valid', $after);
+        self::assertStringContainsString('No open findings - every finding is acknowledged', $after);
+        self::assertStringNotContainsString('no tampering detected', $after);
         self::assertStringContainsString('Acknowledged findings', $after);
         self::assertStringContainsString('HASH_MISMATCH', $after);
         self::assertSame(1, $this->acknowledgementRowCount());
@@ -202,6 +203,24 @@ final class AuditControllerVerifyChainTest extends AbstractVaultFunctionalTestCa
 
         self::assertSame(403, $response->getStatusCode());
         self::assertSame(0, $this->acknowledgementRowCount());
+    }
+
+    /**
+     * A non-administrator who may view and export the audit log gets the
+     * evidence downloads although the acknowledgement form stays hidden.
+     */
+    #[Test]
+    public function aNonAdministratorWithExportPermissionSeesTheEvidenceDownloads(): void
+    {
+        $this->writeEntries(8);
+        $this->tamperRow(5);
+
+        $this->actAs(6);
+        $html = $this->body($this->get(AuditController::class)->verifyChainAction($this->request('verifyChain')));
+
+        self::assertStringContainsString('Download evidence (JSON)', $html);
+        self::assertStringContainsString('Download evidence (CSV)', $html);
+        self::assertStringNotContainsString('name="fingerprint"', $html);
     }
 
     #[Test]

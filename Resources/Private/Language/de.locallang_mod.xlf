@@ -159,6 +159,14 @@
         <source>Download evidence (CSV)</source>
         <target>Belege herunterladen (CSV)</target>
       </trans-unit>
+      <trans-unit id="audit.chain_acknowledged">
+        <source>No open findings - every finding is acknowledged</source>
+        <target>Keine offenen Befunde - alle Befunde sind bestätigt</target>
+      </trans-unit>
+      <trans-unit id="audit.chain_acknowledged.description">
+        <source>An administrator acknowledged the findings listed under "Acknowledged findings". The affected rows and anchors are unchanged, so the verification itself still reports them.</source>
+        <target>Eine Administratorin oder ein Administrator hat die unter „Bestätigte Befunde“ aufgeführten Befunde bestätigt. Die betroffenen Zeilen und Anker sind unverändert, die Prüfung selbst meldet sie daher weiterhin.</target>
+      </trans-unit>
       <trans-unit id="audit.verify.ack.reason">
         <source>Reason (required)</source>
         <target>Begründung (erforderlich)</target>
@@ -180,8 +188,8 @@
         <target>Diese Befunde bestätigen</target>
       </trans-unit>
       <trans-unit id="audit.verify.ack.blocked_epoch">
-        <source>Findings can only be acknowledged with the audit HMAC epoch set to 3 or higher. Below it an acknowledgement could be edited in the database without the key. Raise the epoch and migrate the chain first.</source>
-        <target>Befunde lassen sich nur bestätigen, wenn die Audit-HMAC-Epoche 3 oder höher ist. Darunter ließe sich eine Bestätigung ohne Schlüssel in der Datenbank ändern. Heben Sie zuerst die Epoche an und migrieren Sie die Kette.</target>
+        <source>Findings can only be acknowledged with the audit HMAC epoch set to 3 or higher. Below it an acknowledgement could be edited in the database without the key. Raise the configured epoch (auditHmacEpoch) first. The existing rows need no migration for this, and a chain that does not verify cannot be migrated.</source>
+        <target>Befunde lassen sich nur bestätigen, wenn die Audit-HMAC-Epoche 3 oder höher ist. Darunter ließe sich eine Bestätigung ohne Schlüssel in der Datenbank ändern. Heben Sie zuerst die konfigurierte Epoche (auditHmacEpoch) an. Die vorhandenen Zeilen müssen dafür nicht migriert werden, und eine Kette, die die Prüfung nicht besteht, lässt sich nicht migrieren.</target>
       </trans-unit>
     </body>
   </file>

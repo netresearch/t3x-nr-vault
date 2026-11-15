@@ -156,7 +156,8 @@ return [
                 'target' => AuditController::class . '::verifyChainAction',
             ],
             'acknowledgeFindings' => [
-                'target' => AuditController::class . '::acknowledgeFindingsAction',
+                'target'  => AuditController::class . '::acknowledgeFindingsAction',
+                'methods' => ['POST'],
             ],
             'evidence' => [
                 'target' => AuditController::class . '::evidenceAction',

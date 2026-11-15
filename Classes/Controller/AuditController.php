@@ -430,13 +430,14 @@ final readonly class AuditController
                 && $this->extensionConfiguration->getAuditHmacEpoch() >= AuditFindingOverlay::MIN_ACKNOWLEDGEMENT_EPOCH,
             'ackBlockedByEpoch' => $isAdmin && $open !== []
                 && $this->extensionConfiguration->getAuditHmacEpoch() < AuditFindingOverlay::MIN_ACKNOWLEDGEMENT_EPOCH,
-            'fingerprint'     => AuditFindingItem::fingerprint($open),
-            'acknowledgeUrl'  => (string) $this->uriBuilder->buildUriFromRoute(self::MODULE_NAME . '.acknowledgeFindings'),
-            'canExport'       => $this->accessGuard->isGranted(VaultPermission::AuditExport),
-            'evidenceJsonUrl' => (string) $this->uriBuilder->buildUriFromRoute(self::MODULE_NAME . '.evidence', ['format' => 'json']),
-            'evidenceCsvUrl'  => (string) $this->uriBuilder->buildUriFromRoute(self::MODULE_NAME . '.evidence', ['format' => 'csv']),
-            'ackResult'       => $ackResult?->value,
-            'ackResultOk'     => $ackResult === AcknowledgementStatus::Acknowledged,
+            'fingerprint'    => AuditFindingItem::fingerprint($open),
+            'acknowledgeUrl' => (string) $this->uriBuilder->buildUriFromRoute(self::MODULE_NAME . '.acknowledgeFindings'),
+            // Evidence is worth keeping whether or not this user may acknowledge.
+            'canExportEvidence' => $open !== [] && $this->accessGuard->isGranted(VaultPermission::AuditExport),
+            'evidenceJsonUrl'   => (string) $this->uriBuilder->buildUriFromRoute(self::MODULE_NAME . '.evidence', ['format' => 'json']),
+            'evidenceCsvUrl'    => (string) $this->uriBuilder->buildUriFromRoute(self::MODULE_NAME . '.evidence', ['format' => 'csv']),
+            'ackResult'         => $ackResult?->value,
+            'ackResultOk'       => $ackResult === AcknowledgementStatus::Acknowledged,
         ];
     }
 
