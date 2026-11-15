@@ -9,6 +9,8 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Functional\Controller;
 
+use Doctrine\DBAL\Platforms\PostgreSQLPlatform;
+use Doctrine\DBAL\Platforms\SQLitePlatform;
 use Netresearch\NrVault\Audit\Acknowledgement\AuditFindingItem;
 use Netresearch\NrVault\Audit\Anchor\ChainTipAnchorServiceInterface;
 use Netresearch\NrVault\Audit\AuditAction;
@@ -252,11 +254,29 @@ final class AuditControllerVerifyChainTest extends AbstractVaultFunctionalTestCa
             ->executeQuery()->fetchOne();
     }
 
+    /**
+     * Wipe the table and its auto-increment counter on every platform, so the
+     * rebuilt chain starts at uid 1 again.
+     */
     private function truncateAuditTable(): void
     {
         $connection = $this->get(ConnectionPool::class)->getConnectionForTable(AuditLogService::TABLE_NAME);
         $connection->executeStatement('DELETE FROM ' . AuditLogService::TABLE_NAME);
-        $connection->executeStatement("DELETE FROM sqlite_sequence WHERE name = '" . AuditLogService::TABLE_NAME . "'");
+
+        $platform = $connection->getDatabasePlatform();
+        if ($platform instanceof SQLitePlatform) {
+            $connection->executeStatement("DELETE FROM sqlite_sequence WHERE name = '" . AuditLogService::TABLE_NAME . "'");
+
+            return;
+        }
+
+        if ($platform instanceof PostgreSQLPlatform) {
+            $connection->executeStatement("SELECT setval(pg_get_serial_sequence('" . AuditLogService::TABLE_NAME . "', 'uid'), 1, false)");
+
+            return;
+        }
+
+        $connection->executeStatement('ALTER TABLE ' . AuditLogService::TABLE_NAME . ' AUTO_INCREMENT = 1');
     }
 
     private function body(ResponseInterface $response): string
