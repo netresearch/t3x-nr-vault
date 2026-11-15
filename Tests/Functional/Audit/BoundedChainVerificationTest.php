@@ -80,7 +80,8 @@ final class BoundedChainVerificationTest extends AbstractVaultFunctionalTestCase
 
     /**
      * A range that starts inside a gap continues from the nearest row before
-     * it, so it reports the gap with the bounds of the full pass. The gap's
+     * it, so it reports the gap with the bounds of the full pass whenever such
+     * a row exists (a gap at the head of the chain has none). The gap's
      * finding key carries those bounds: with a shorter gap the Doctor check,
      * which verifies only the newest rows, would reopen a gap an administrator
      * acknowledged against the full chain.

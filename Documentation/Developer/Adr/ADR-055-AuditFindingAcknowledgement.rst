@@ -187,3 +187,9 @@ Consequences
     example after a restore with the wrong master key) costs memory and queries
     in proportion to the number of failing rows. The cost has not been measured
     on large chains.
+*   When the oldest rows of the chain were deleted, the readiness check, which
+    verifies only the newest 1000 rows, reports a gap from the start of its
+    window to the first remaining row that the full pass does not report. An
+    acknowledgement made in the backend does not cover that gap, so the check
+    stays critical until the window has moved past the first remaining row.
+    This fails closed.

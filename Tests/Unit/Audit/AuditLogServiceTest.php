@@ -3766,9 +3766,9 @@ final class AuditLogServiceTest extends TestCase
     }
 
     /**
-     * A range verification starts one uid BELOW the requested start, so rows
-     * deleted between `$fromUid` and the first surviving row are still
-     * reported instead of falling outside the window unnoticed.
+     * Without a row below the requested start, a range verification starts one
+     * uid BELOW it, so rows deleted between `$fromUid` and the first surviving
+     * row are still reported instead of falling outside the window unnoticed.
      */
     #[Test]
     public function verifyHashChainDetectsAGapBelowTheFirstRowOfARequestedRange(): void
