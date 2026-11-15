@@ -47,6 +47,9 @@ final class AuditControllerVerifyChainTest extends AbstractVaultFunctionalTestCa
 {
     use AuditSinkSandboxTrait;
 
+    /** The hidden field that carries the fingerprint of the open findings. */
+    private const FINGERPRINT_FIELD = 'name="fingerprint"';
+
     protected ?string $backendUserFixture = __DIR__ . '/../Command/Fixtures/be_users_audit_permission.csv';
 
     /** @var array<string, mixed> */
@@ -106,7 +109,7 @@ final class AuditControllerVerifyChainTest extends AbstractVaultFunctionalTestCa
         // The forensic guidance block stays.
         self::assertStringContainsString('What to do now', $html);
         // An administrator can acknowledge; the form posts to the acknowledge route.
-        self::assertStringContainsString('name="fingerprint"', $html);
+        self::assertStringContainsString(self::FINGERPRINT_FIELD, $html);
         self::assertStringContainsString('acknowledgeFindings', $html);
     }
 
@@ -121,7 +124,7 @@ final class AuditControllerVerifyChainTest extends AbstractVaultFunctionalTestCa
         $html = $this->body($this->get(AuditController::class)->verifyChainAction($this->request('verifyChain')));
 
         self::assertStringContainsString('Hash chain is valid', $html);
-        self::assertStringNotContainsString('name="fingerprint"', $html);
+        self::assertStringNotContainsString(self::FINGERPRINT_FIELD, $html);
         self::assertStringContainsString('#1 &ndash; #4', $html);
     }
 
@@ -220,7 +223,7 @@ final class AuditControllerVerifyChainTest extends AbstractVaultFunctionalTestCa
 
         self::assertStringContainsString('Download evidence (JSON)', $html);
         self::assertStringContainsString('Download evidence (CSV)', $html);
-        self::assertStringNotContainsString('name="fingerprint"', $html);
+        self::assertStringNotContainsString(self::FINGERPRINT_FIELD, $html);
     }
 
     #[Test]

@@ -37,9 +37,15 @@ final class TransactionProbeSink implements AuditSinkInterface
         ];
     }
 
-    public function publishAnchor(ChainTipAnchor $anchor): void {}
+    public function publishAnchor(ChainTipAnchor $anchor): void
+    {
+        // Anchors carry no audit row, so there is no transaction to observe.
+    }
 
-    public function publishAlert(AuditIntegrityAlert $alert): void {}
+    public function publishAlert(AuditIntegrityAlert $alert): void
+    {
+        // Alerts carry no audit row, so there is no transaction to observe.
+    }
 
     public function getIdentifier(): string
     {
