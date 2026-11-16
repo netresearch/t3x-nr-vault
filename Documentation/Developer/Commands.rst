@@ -524,24 +524,32 @@ nothing. It reads the whole file into memory; the export itself is streamed.
 It reports **Whole chain: yes** only when it can confirm that itself, never
 because the file says so: the file claims ``chainComplete``, its first row
 starts the chain (empty ``previous_hash``), its last row is the declared
-``tipUid``, the newest external anchor neither lies beyond the export nor
+``tipUid``, no other check failed, the newest external anchor neither lies
+beyond the export nor
 differs from the exported row at its uid, and the installation stores the last
 row with the same ``entry_hash`` and no newer row. Anything it cannot check, or
 that differs (a master-key rotation or the HMAC migration re-seals every
-stored row), leaves the answer at "not confirmed" with the reason listed. An
-anchored uid inside the exported range that the file lacks is an error. An
+stored row), leaves the answer at "not confirmed" with the reason listed. For
+a file that claims ``chainComplete``, an anchored uid inside the exported range
+that the file lacks is an error; a filtered file may lack it. An
 export taken before newer entries were written therefore verifies, but not as
 the whole chain.
 
-Epoch 0 needs no key, so anyone who edits the file could relabel a row as
-epoch 0 and recompute its hash. The verifier therefore takes the rule for
-keyless rows from the installation it runs on, not from the file: when
+Epoch 0 needs no key, so anyone who edits the file could write any epoch-0
+row and recompute its hash. The verifier therefore takes the rule for keyless
+rows from the installation it runs on, not from the file: when
 :confval:`ext-nrvault-auditHmacEpoch` is 1 or higher, an epoch-0 row is
-accepted only up to the newest epoch-0 row the installation still stores, and
-at least one row must check against the key. An export with legitimate
-epoch-0 rows therefore no longer verifies on an installation whose audit table
-has been emptied, or after the HMAC migration has re-signed every stored row at
-a higher epoch.
+accepted only when the installation stores a keyless row with the same uid and
+the same ``entry_hash``. An export with legitimate epoch-0 rows therefore no
+longer verifies on an installation whose audit table has been emptied, or
+after the HMAC migration has re-signed every stored row at a higher epoch.
+
+A row that verifies proves the columns its epoch binds, not all of them: epoch
+0 and 1 bind ``uid``, ``secret_identifier``, ``action``, ``actor_uid``,
+``crdate`` and ``previous_hash``; epoch 2 adds the forensic columns; epoch 3
+also binds ``hmac_key_epoch`` and the actor and request columns (see
+:ref:`security-audit-evidence-epochs`). The verifier lists this when the file
+holds rows below epoch 3.
 
 **The verifier must supply one thing the file never contains: the audit HMAC
 key.** Entries at HMAC epoch 1 and above are HMAC-SHA256 over their fields,

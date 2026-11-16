@@ -263,6 +263,12 @@ final class VaultAuditCommand extends Command
         $exportFile       = $this->exportTarget($input);
         $verifyExportFile = $this->verifyExportTarget($input);
 
+        if ($exportFile !== null && $verifyExportFile !== null) {
+            $io->error('--export and --verify-export cannot be combined: write the export first, then verify the file.');
+
+            return Command::FAILURE;
+        }
+
         // One gate for the whole command, resolved from the mode the
         // invocation selects — the same mode the dispatch below uses, so no
         // branch can reach its work through an unasserted permission. The

@@ -182,6 +182,64 @@ final class VaultAuditCommandExportTest extends AbstractVaultFunctionalTestCase
     }
 
     /**
+     * Legacy epoch-0 rows left from before HMAC was switched on carry no key.
+     * In a file that does not claim the whole chain, removing one and
+     * recomputing the keyless hashes of its neighbours must still fail: each
+     * keyless row has to match the row the installation stores.
+     */
+    #[Test]
+    public function rewrittenLegacyKeylessRowsInAPartialFileFailVerification(): void
+    {
+        $this->seedEpochs([0, 0, 0, 3, 3]);
+        $file = $this->exportFile();
+        $this->executeAudit(['--export' => $file]);
+
+        $document = json_decode((string) file_get_contents($file), true, 512, JSON_THROW_ON_ERROR);
+        self::assertIsArray($document);
+        self::assertIsArray($document['export']);
+        $rows = $this->readRows($file);
+        unset($rows[2]);
+        $rows                         = array_values($rows);
+        $rows[0]['secret_identifier'] = 'forged';
+        $previous                     = '';
+        foreach ([0, 1] as $i) {
+            /** @var array<string, mixed> $row */
+            $row                  = $rows[$i];
+            $row['previous_hash'] = $previous;
+            $row['entry_hash']    = AuditLogService::calculateEntryHash($row, $previous, '');
+            $previous             = $row['entry_hash'];
+            $rows[$i]             = $row;
+        }
+
+        $document['rows']                    = $rows;
+        $document['export']['chainComplete'] = false;
+        $document['export']['count']         = count($rows);
+        file_put_contents($file, json_encode($document, JSON_THROW_ON_ERROR));
+
+        $verify = $this->executeAudit(['--verify-export' => $file]);
+
+        self::assertSame(Command::FAILURE, $verify->getStatusCode());
+        self::assertStringContainsString('differs from the keyless row this installation stores', $this->normalize($verify));
+    }
+
+    /**
+     * The honest counterpart: a filtered export of legacy rows only verifies,
+     * because each keyless row matches the stored one.
+     */
+    #[Test]
+    public function aFilteredExportOfLegacyKeylessRowsVerifies(): void
+    {
+        $this->seedEpochs([0, 0, 0, 3, 3]);
+        $file   = $this->exportFile();
+        $tester = $this->executeAudit(['--export' => $file, '--identifier' => 'export_epoch_1']);
+        self::assertSame(Command::SUCCESS, $tester->getStatusCode(), $tester->getDisplay());
+
+        $verify = $this->executeAudit(['--verify-export' => $file]);
+
+        self::assertSame(Command::SUCCESS, $verify->getStatusCode(), $verify->getDisplay());
+    }
+
+    /**
      * The listing shows 50 entries by default; an export must not inherit that.
      */
     #[Test]
@@ -247,7 +305,17 @@ final class VaultAuditCommandExportTest extends AbstractVaultFunctionalTestCase
      */
     private function seedTwoEpochs(): void
     {
-        foreach ([2, 2, 3, 3] as $i => $epoch) {
+        $this->seedEpochs([2, 2, 3, 3]);
+    }
+
+    /**
+     * One row per given epoch, each written by a service configured at it.
+     *
+     * @param list<int> $epochs
+     */
+    private function seedEpochs(array $epochs): void
+    {
+        foreach ($epochs as $i => $epoch) {
             $configuration = self::createStub(ExtensionConfigurationInterface::class);
             $configuration->method('getAuditHmacEpoch')->willReturn($epoch);
             $configuration->method('isAuditAnchorRequired')->willReturn(false);

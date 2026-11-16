@@ -154,19 +154,17 @@ final readonly class AuditChainExporter implements AuditChainExporterInterface
         $keyError    = null;
         $epochCounts = [];
         $checked     = 0;
-        $keyed       = 0;
         $previous    = null;
         // Every row that passed the shape check, in file order. The whole-chain
         // and anchor checks read these and nothing else, so no check can see a
         // value the hash check did not.
         $verifiedRows = [];
-        // The keyless epoch 0 needs no key, so whoever edits the file can
-        // relabel any row as epoch 0 and recompute its hash. Which rows may be
-        // keyless is therefore taken from the installation, never from the
-        // document: on an installation configured for HMAC, only uids up to
-        // the newest epoch-0 row it still stores.
-        $floorEpoch  = $this->configuration->getAuditHmacEpoch();
-        $keylessUpTo = null;
+        // The keyless epoch 0 needs no key, so whoever edits the file can write
+        // any epoch-0 row and recompute its hash. On an installation that signs
+        // its chain with HMAC, an epoch-0 row is therefore accepted only when
+        // the installation stores a keyless row with the same uid and the same
+        // entry hash: the stored chain is the only evidence such a row has.
+        $floorEpoch = $this->configuration->getAuditHmacEpoch();
 
         try {
             foreach ($rows as $index => $row) {
@@ -195,11 +193,17 @@ final readonly class AuditChainExporter implements AuditChainExporterInterface
                 }
 
                 if ($epoch === 0 && $floorEpoch > 0) {
-                    $keylessUpTo ??= $this->newestKeylessUid();
-                    if ($uid > $keylessUpTo) {
+                    try {
+                        $stored = $this->storedEntryHash($uid, keylessOnly: true);
+                    } catch (Throwable $e) {
+                        $stored  = null;
+                        $notes[] = 'The stored chain could not be consulted: ' . $e->getMessage();
+                    }
+
+                    if ($stored === null || !hash_equals($stored, (string) $row['entry_hash'])) {
                         $errors[] = sprintf(
-                            'uid %d is exported as keyless epoch 0, but this installation signs its audit chain at epoch %d '
-                            . 'and stores no keyless row at or after this uid.',
+                            'uid %d is exported as keyless epoch 0 and differs from the keyless row this installation stores '
+                            . '(or it stores none at that uid); with HMAC at epoch %d, a keyless row is only confirmed by the stored chain.',
                             $uid,
                             $floorEpoch,
                         );
@@ -216,9 +220,6 @@ final readonly class AuditChainExporter implements AuditChainExporterInterface
                     }
 
                     ++$checked;
-                    if ($epoch > 0) {
-                        ++$keyed;
-                    }
                 } else {
                     $errors[] = sprintf('uid %d was not checked: its HMAC epoch needs the master key.', $uid);
                 }
@@ -249,11 +250,19 @@ final readonly class AuditChainExporter implements AuditChainExporterInterface
             }
         }
 
-        $wholeChain = $chainComplete && $verifiedRows !== [] && count($verifiedRows) === count($rows)
+        // Never "whole chain" for a file that failed anywhere else.
+        $wholeChain = $errors === [] && $chainComplete && $verifiedRows !== [] && count($verifiedRows) === count($rows)
             && $this->isWholeChain($verifiedRows, $tipUid, $errors, $notes);
 
-        if ($floorEpoch > 0 && $rows !== [] && $keyed === 0) {
-            $errors[] = 'No row was checked with the HMAC key, although this installation signs its audit chain with it.';
+        // What the hash does not cover, so nobody reads a matching row as
+        // proof of every column (see the evidence docs on epochs).
+        if (isset($epochCounts[0]) || isset($epochCounts[1])) {
+            $notes[] = 'Rows at epoch 0 and 1 bind only uid, secret_identifier, action, actor_uid, crdate and previous_hash; '
+                . 'their other columns are not covered by the hash.';
+        }
+
+        if (isset($epochCounts[2])) {
+            $notes[] = 'Rows at epoch 2 do not bind hmac_key_epoch, actor_type, actor_username, actor_role and request_id.';
         }
 
         ksort($epochCounts);
@@ -333,7 +342,7 @@ final readonly class AuditChainExporter implements AuditChainExporterInterface
         }
 
         try {
-            $stored = $this->storedRow($lastUid);
+            $stored = $this->storedEntryHash($lastUid);
             if ($stored === null) {
                 $notes[] = sprintf('This installation does not store uid %d, so the end of the export cannot be confirmed.', $lastUid);
 
@@ -484,15 +493,18 @@ final readonly class AuditChainExporter implements AuditChainExporterInterface
         } while (count($chunk) === self::CHUNK_SIZE);
     }
 
-    private function storedRow(int $uid): ?string
+    private function storedEntryHash(int $uid, bool $keylessOnly = false): ?string
     {
         $queryBuilder = $this->queryBuilder();
-        $value        = $queryBuilder
+        $queryBuilder
             ->select('entry_hash')
             ->from(self::TABLE_NAME)
-            ->where($queryBuilder->expr()->eq('uid', $queryBuilder->createNamedParameter($uid, Connection::PARAM_INT)))
-            ->executeQuery()
-            ->fetchOne();
+            ->where($queryBuilder->expr()->eq('uid', $queryBuilder->createNamedParameter($uid, Connection::PARAM_INT)));
+        if ($keylessOnly) {
+            $queryBuilder->andWhere($queryBuilder->expr()->eq('hmac_key_epoch', $queryBuilder->createNamedParameter(0, Connection::PARAM_INT)));
+        }
+
+        $value = $queryBuilder->executeQuery()->fetchOne();
 
         return is_string($value) ? $value : null;
     }
@@ -506,19 +518,6 @@ final readonly class AuditChainExporter implements AuditChainExporterInterface
             ->where($queryBuilder->expr()->gt('uid', $queryBuilder->createNamedParameter($uid, Connection::PARAM_INT)))
             ->executeQuery()
             ->fetchOne();
-
-        return is_numeric($value) ? (int) $value : 0;
-    }
-
-    private function newestKeylessUid(): int
-    {
-        $queryBuilder = $this->queryBuilder();
-        $queryBuilder
-            ->selectLiteral('MAX(uid)')
-            ->from(self::TABLE_NAME)
-            ->where($queryBuilder->expr()->eq('hmac_key_epoch', $queryBuilder->createNamedParameter(0, Connection::PARAM_INT)));
-
-        $value = $queryBuilder->executeQuery()->fetchOne();
 
         return is_numeric($value) ? (int) $value : 0;
     }

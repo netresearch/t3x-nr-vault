@@ -184,8 +184,8 @@ final class AuditChainExporterTest extends TestCase
     #[Test]
     public function anExportLackingTheAnchoredRowIsNotValid(): void
     {
-        $rows   = $this->chain([0, 0, 0], [1, 2, 4]);
-        $anchor = new ChainTipAnchor(sequence: 3, chainTip: str_repeat('a', 64), timestamp: 1704067200, hmacEpoch: 0);
+        $rows   = $this->chain([3, 3, 3], [1, 2, 4]);
+        $anchor = new ChainTipAnchor(sequence: 3, chainTip: str_repeat('a', 64), timestamp: 1704067200, hmacEpoch: 3);
 
         $result = $this->exporterWithAnchor($anchor)->verify($this->document($rows));
 
