@@ -407,8 +407,8 @@ Verification
     #    it reads "Tip anchor: ok" — a re-key that left it UNREADABLE means
     #    the re-seal did not complete, and that is a finding, not a nuisance.
     #    Needs audit.view: on the CLI that is --as-audit-reader with a
-    #    configured auditReaderBeUserUid, or allowCliAccess = 1 AND audit.view
-    #    in cliAllowedOperations.
+    #    configured auditReaderBeUserUid, or, without the flag,
+    #    allowCliAccess = 1 AND audit.view in cliAllowedOperations.
     vendor/bin/typo3 vault:audit --verify --as-audit-reader
 
 Probe at least two secrets, and pick them from different encryption versions

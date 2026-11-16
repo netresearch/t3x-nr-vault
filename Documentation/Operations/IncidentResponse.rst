@@ -35,7 +35,7 @@ Step 1 — preserve, before you change anything
 ..  code-block:: bash
 
     # Chain state as it stands now, plus the anchor comparison.
-    vendor/bin/typo3 vault:audit-verify > incident-verify-before.txt
+    vendor/bin/typo3 vault:audit-verify --as-auditor > incident-verify-before.txt
 
     # Snapshot the external anchor file as it stands now.
     cp <auditSinkAnchorPath> incident-anchor-before.ndjson
@@ -71,7 +71,7 @@ Step 2 — determine scope from the audit log
 ..  code-block:: bash
 
     # Everything that happened to one identifier.
-    vendor/bin/typo3 vault:audit --identifier=<identifier>
+    vendor/bin/typo3 vault:audit --as-audit-reader --identifier=<identifier>
 
 ..  note::
 
@@ -170,7 +170,7 @@ Step 1 — freeze the evidence
     cp <auditSinkAnchorPath> incident-anchor.ndjson
 
     # The verification output, with the findings.
-    vendor/bin/typo3 vault:audit-verify > incident-verify.txt
+    vendor/bin/typo3 vault:audit-verify --as-auditor > incident-verify.txt
 
 Also pull the same period from the sinks the database owner cannot reach — the
 syslog archive, the SIEM. **That is the comparison that decides the case.** If
@@ -332,7 +332,7 @@ reviews is the admin override with extra steps.
 ..  code-block:: bash
 
     # The evidence: both rows live under the pseudo-identifier __break_glass__.
-    vendor/bin/typo3 vault:audit --identifier=__break_glass__
+    vendor/bin/typo3 vault:audit --as-audit-reader --identifier=__break_glass__
 
 *   [ ] An ``break_glass_activated`` row exists, with the actor, the reason,
       the ``ttlMinutes`` and the ``expiresAt`` in its context.
@@ -352,7 +352,7 @@ reviews is the admin override with extra steps.
 
       ..  code-block:: bash
 
-          vendor/bin/typo3 vault:audit-verify
+          vendor/bin/typo3 vault:audit-verify --as-auditor
 
 *   [ ] ``adminOverrideDisabledEffective`` reads ``yes`` again:
 

@@ -116,6 +116,11 @@ a verification run after key destruction proves nothing.
 
         vendor/bin/typo3 scheduler:run --task=<anchor-task-uid> --force
 
+    Confirm it published: the newest line of the anchor file
+    (:confval:`ext-nrvault-auditSinkAnchorPath`) carries as ``sequence`` the
+    chain length (max uid) the verification above reported. The scheduler skips a task that is still
+    running from its schedule; run the step again once that run has finished.
+
     ..  note::
 
         Both steps assert an operation permission (breaking change; they

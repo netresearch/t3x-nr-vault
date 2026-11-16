@@ -483,8 +483,9 @@ CLI access
    :bash:`vault:audit-verify --as-auditor` cover monitoring without it.
 
    Configure a dedicated non-admin user whose group carries
-   ``tx_nrvault:audit.view``, plus ``tx_nrvault:audit.export`` if exports are
-   wanted. The permission checks of :bash:`vault:audit` are evaluated for this
+   ``tx_nrvault:audit.view`` for listing and ``--verify``, and
+   ``tx_nrvault:audit.export`` for ``--export``; each mode checks only its own
+   permission. The permission checks of :bash:`vault:audit` are evaluated for this
    user. ``--reset-anchor`` is refused together with the option, whatever the
    user's groups grant: it writes into the audit chain. This is a separate
    setting from :confval:`ext-nrvault-auditorBeUserUid`, which opens the

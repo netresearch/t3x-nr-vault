@@ -207,8 +207,8 @@ final class VaultAuditCommand extends Command
         if ($readerUid === 0) {
             $io->error(
                 'No audit reader is configured. Set the nr_vault option "auditReaderBeUserUid" to a backend user '
-                . 'whose group carries the tx_nrvault:audit.view permission option (and tx_nrvault:audit.export '
-                . 'for --export).',
+                . 'whose group carries the tx_nrvault:audit.view permission option (listing, --verify) or '
+                . 'tx_nrvault:audit.export (--export).',
             );
 
             return Command::FAILURE;
