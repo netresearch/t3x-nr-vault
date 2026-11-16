@@ -1,1 +1,0 @@
-- `vault:audit-verify` no longer claims the hash chain is consistent with the external anchor when no anchor was available (or the anchor was taken on an empty chain); the success line now says that nothing was compared (#549).

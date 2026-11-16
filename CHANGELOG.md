@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.1] - 2026-11-16
+
+### Fixed
+
+- `vault:audit-verify` no longer claims the hash chain is consistent with the external anchor when no anchor was available (or the anchor was taken on an empty chain); the success line now says that nothing was compared (#549).
+
 ## [1.9.0] - 2026-11-15
 
 ### Added
@@ -2360,7 +2366,8 @@ upgrading.
 - Constructor property promotion
 - Modern PHP 8.x patterns (match, named arguments, attributes)
 
-[Unreleased]: https://github.com/netresearch/t3x-nr-vault/compare/v1.9.0...HEAD
+[Unreleased]: https://github.com/netresearch/t3x-nr-vault/compare/v1.9.1...HEAD
+[1.9.1]: https://github.com/netresearch/t3x-nr-vault/compare/v1.9.0...v1.9.1
 [1.9.0]: https://github.com/netresearch/t3x-nr-vault/compare/v1.8.0...v1.9.0
 [1.8.0]: https://github.com/netresearch/t3x-nr-vault/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/netresearch/t3x-nr-vault/compare/v1.6.1...v1.7.0
