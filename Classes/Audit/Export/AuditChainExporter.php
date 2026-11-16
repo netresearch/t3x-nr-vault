@@ -426,11 +426,19 @@ final readonly class AuditChainExporter implements AuditChainExporterInterface
             }
         }
 
-        // A uid gap whose link is intact holds no deleted row: the link proves
-        // the two rows were written one after the other (a rolled-back insert
-        // skips a uid). A deleted row breaks the link, which is reported above.
+        // A uid gap is tolerated only between keyed rows: there the HMAC link
+        // (previous_hash is part of every keyed row's MAC) proves the two rows
+        // were written one after the other, so the gap is a skipped uid (a
+        // rolled-back insert), not a removed row. A keyless row's hash can be
+        // recomputed by anyone, so a gap next to one proves nothing.
+        // Only in a file claiming the whole chain; a filtered or truncated one
+        // has gaps by selection.
         if ($chainComplete && $uid !== $previousUid + 1) {
-            $notes[] = sprintf('uid %d to %d are not in the chain; the link across them is checked above.', $previousUid + 1, $uid - 1);
+            if ((int) $previous['hmac_key_epoch'] === 0 || (int) $row['hmac_key_epoch'] === 0) {
+                $errors[] = sprintf('uid %d to %d are not in the export, next to a keyless row whose link can be recomputed.', $previousUid + 1, $uid - 1);
+            } else {
+                $notes[] = sprintf('uid %d to %d are not in the chain; the keyed link across them is intact.', $previousUid + 1, $uid - 1);
+            }
         }
 
         // A real chain never goes back to a lower epoch, in any selection of it.

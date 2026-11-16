@@ -211,6 +211,20 @@ final class AuditChainExporterTest extends TestCase
         self::assertStringContainsString('uid 2 differs from the external anchor', implode("\n", $result->notes));
     }
 
+    /**
+     * Keyless rows can be recomputed by anyone, so a link across a gap proves
+     * nothing there: removing the row between two epoch-0 rows and recomputing
+     * the unkeyed hashes must not pass as a rolled-back insert.
+     */
+    #[Test]
+    public function aGapBetweenKeylessRowsIsNotValid(): void
+    {
+        $result = $this->exporter()->verify($this->document($this->chain([0, 0, 0], [1, 2, 4])));
+
+        self::assertFalse($result->isValid());
+        self::assertStringContainsString('next to a keyless row', implode("\n", $result->errors));
+    }
+
     #[Test]
     public function aForeignDocumentIsNotValid(): void
     {

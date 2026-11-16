@@ -512,9 +512,12 @@ writer puts them, ``success`` 0 or 1). It then recomputes every row's
 ``entry_hash`` of the row before it (every row in a file that claims
 ``chainComplete``, rows with adjacent uids otherwise), reports any decrease of
 ``hmac_key_epoch`` from one row to the next, and checks the row count and the
-uid range against the ``export`` block. A uid gap whose link is intact is
-listed but is not an error: the link proves no row between them was removed,
-and a rolled-back insert skips a uid. It reports the file as verified only
+uid range against the ``export`` block. In a file that claims
+``chainComplete``, a uid gap between two keyed rows (epoch 1 and above) is
+listed but is not an error: ``previous_hash`` is inside every keyed row's
+HMAC, so an intact link proves the two rows were written one after the other
+and the gap is a skipped uid (a rolled-back insert). A gap next to a keyless
+epoch-0 row is an error, because anyone can recompute those hashes. It reports the file as verified only
 when it checked as many rows as the file declares, at least one, and found
 nothing. It reads the whole file into memory; the export itself is streamed.
 
