@@ -131,13 +131,18 @@ a verification run after key destruction proves nothing.
         :confval:`ext-nrvault-auditorBeUserUid`, and the export with
         ``vault:audit --as-audit-reader`` and
         :confval:`ext-nrvault-auditReaderBeUserUid`. None of these writes an
-        audit row, so the trail does not record who ran them. Sort the grant out before
-        the decommissioning window: after the master key is destroyed there is
-        no second chance at this output.
+        audit row, so the trail does not record who ran them. Sort the grant
+        out before the decommissioning window: after the master key is
+        destroyed there is no second chance at this output.
 
 #.  **Export the audit log** in full, over the entire retained period, with
     the hash columns included — ``uid``, ``previous_hash``, ``entry_hash``,
     ``hmac_key_epoch``. Without them the export is a log, not evidence.
+    ``vault:audit --export`` returns at most ``--limit`` rows (default 50),
+    so set ``--limit`` above the row count. It does not include
+    ``hmac_key_epoch`` yet (`#554
+    <https://github.com/netresearch/t3x-nr-vault/issues/554>`__); take that
+    column from a database dump of ``tx_nrvault_audit_log`` until it does.
 
 #.  **Collect the external evidence** from where it actually lives: the anchor
     file, the syslog archive, the SIEM's retained records. This is the half

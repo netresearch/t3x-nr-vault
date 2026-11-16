@@ -51,8 +51,8 @@ Step 1 — preserve, before you change anything
     Under time pressure this is the moment the command exits 1 — sort the grant
     out before the incident, not during it. ``vault:audit-verify`` runs as a
     named user with ``--as-auditor`` and
-    :confval:`ext-nrvault-auditorBeUserUid`. ``vault:audit`` (listing and
-    ``--export``) runs as one with ``--as-audit-reader`` and
+    :confval:`ext-nrvault-auditorBeUserUid`. ``vault:audit`` (listing,
+    ``--verify`` and ``--export``) runs as one with ``--as-audit-reader`` and
     :confval:`ext-nrvault-auditReaderBeUserUid`, which lets every shell read the
     log once set, so decide it before the incident too. Neither writes an audit
     row, so the trail does not record who read or verified. Re-anchoring runs
