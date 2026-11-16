@@ -928,7 +928,7 @@ final class VaultAuditCommandTest extends TestCase
         self::assertSame(1, $tester->execute(['--as-audit-reader' => true]));
         self::assertStringContainsString(
             'No audit reader is configured. Set the nr_vault option "auditReaderBeUserUid"',
-            (string) preg_replace('/\s+/', ' ', $tester->getDisplay()),
+            self::collapseWhitespace($tester->getDisplay()),
         );
     }
 
@@ -951,7 +951,7 @@ final class VaultAuditCommandTest extends TestCase
         self::assertSame(1, $tester->execute(['--as-audit-reader' => true, '--reset-anchor' => true, '--force' => true]));
         self::assertStringContainsString(
             '--as-audit-reader cannot be combined with --reset-anchor',
-            (string) preg_replace('/\s+/', ' ', $tester->getDisplay()),
+            self::collapseWhitespace($tester->getDisplay()),
         );
     }
 
@@ -972,7 +972,7 @@ final class VaultAuditCommandTest extends TestCase
         self::assertSame(1, $tester->execute(['--as-audit-reader' => true]));
         self::assertStringContainsString(
             'The audit log could not be read as the audit reader: database unavailable',
-            (string) preg_replace('/\s+/', ' ', $tester->getDisplay()),
+            self::collapseWhitespace($tester->getDisplay()),
         );
     }
 
@@ -1010,7 +1010,12 @@ final class VaultAuditCommandTest extends TestCase
      */
     private function normalizedDisplay(): string
     {
-        return (string) preg_replace('/\s+/', ' ', $this->commandTester->getDisplay());
+        return self::collapseWhitespace($this->commandTester->getDisplay());
+    }
+
+    private static function collapseWhitespace(string $display): string
+    {
+        return (string) preg_replace('/\s+/', ' ', $display);
     }
 
     /**
