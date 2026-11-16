@@ -398,16 +398,18 @@ Verification
     #    or allowCliAccess = 1 AND audit.view in cliAllowedOperations.
     vendor/bin/typo3 vault:audit-verify --as-auditor
 
-    # 4. Anchor the new tip; the old anchor's baseline is now stale. Needs
-    #    vault.configure, on the same terms as step 5 below.
-    vendor/bin/typo3 vault:audit-anchor
+    # 4. Anchor the new tip; the old anchor's baseline is now stale. Run the
+    #    anchoring scheduler task now (vault.configure for the scheduler's
+    #    identity; vault:audit-anchor has no technical-actor option).
+    vendor/bin/typo3 scheduler:run --task=<anchor-task-uid> --force
 
     # 5. The in-database anchor is re-sealed by the rotation itself. Confirm
     #    it reads "Tip anchor: ok" — a re-key that left it UNREADABLE means
     #    the re-seal did not complete, and that is a finding, not a nuisance.
-    #    Needs vault.configure: on the CLI that is allowCliAccess = 1 AND
-    #    vault.configure in cliAllowedOperations, or a named technical actor.
-    vendor/bin/typo3 vault:audit --verify
+    #    Needs audit.view: on the CLI that is --as-audit-reader with a
+    #    configured auditReaderBeUserUid, or, without the flag,
+    #    allowCliAccess = 1 AND audit.view in cliAllowedOperations.
+    vendor/bin/typo3 vault:audit --verify --as-audit-reader
 
 Probe at least two secrets, and pick them from different encryption versions
 if the installation has both — see

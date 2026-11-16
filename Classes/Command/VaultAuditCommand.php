@@ -17,8 +17,11 @@ use Netresearch\NrVault\Audit\AuditChainAnchorStoreInterface;
 use Netresearch\NrVault\Audit\AuditLogEntry;
 use Netresearch\NrVault\Audit\AuditLogFilter;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
+use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
+use Netresearch\NrVault\Exception\TechnicalActorException;
 use Netresearch\NrVault\Exception\VaultException;
 use Netresearch\NrVault\Security\AccessControlServiceInterface;
+use Netresearch\NrVault\Security\TechnicalActorContextInterface;
 use Netresearch\NrVault\Security\VaultPermission;
 use Netresearch\NrVault\Utility\CsvFormulaSanitizer;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -56,6 +59,16 @@ use function sprintf;
  * single permission, and, worse, `--verify` / `--reset-anchor` are the tools
  * for a chain that is already suspect: their denial path must not append to,
  * and re-anchor, the very chain the operator is about to inspect or reset.
+ *
+ * `--as-audit-reader` runs the command, gate included, as the technical
+ * backend user configured in `auditReaderBeUserUid`. The TYPO3 CLI never logs
+ * a user in, so without it a shell holds these permissions only through
+ * `allowCliAccess` and `cliAllowedOperations`. The UID comes from
+ * configuration, never from the command line, so setting it opens reading the
+ * log to every shell that can run the CLI; it is off by default. The actor is
+ * evaluated like any other user (`audit.view`, `audit.export` for `--export`).
+ * `--reset-anchor` is refused together with the option before the actor is
+ * entered: it writes into the chain, and the reader is a read-only identity.
  */
 #[AsCommand(
     name: 'vault:audit',
@@ -76,6 +89,8 @@ final class VaultAuditCommand extends Command
         private readonly AuditChainAnchorStoreInterface $anchorStore,
         private readonly ConnectionPool $connectionPool,
         private readonly AccessControlServiceInterface $accessControlService,
+        private readonly ExtensionConfigurationInterface $configuration,
+        private readonly TechnicalActorContextInterface $technicalActorContext,
     ) {
         parent::__construct();
     }
@@ -158,6 +173,14 @@ final class VaultAuditCommand extends Command
                 null,
                 InputOption::VALUE_NONE,
                 'Skip the interactive confirmation of --reset-anchor (for unattended runs)',
+            )
+            ->addOption(
+                'as-audit-reader',
+                null,
+                InputOption::VALUE_NONE,
+                'List, verify or export as the configured audit reader backend user (nr_vault option '
+                . '"auditReaderBeUserUid") instead of the unattributed CLI actor. The UID comes from '
+                . 'configuration, never from this command line. Not combinable with --reset-anchor.',
             );
     }
 
@@ -165,6 +188,55 @@ final class VaultAuditCommand extends Command
     {
         $io = new SymfonyStyle($input, $output);
 
+        if ($input->getOption('as-audit-reader') === false) {
+            return $this->executeForCurrentActor($input, $output, $io);
+        }
+
+        // Before the actor is entered: the reset writes into the chain, and the
+        // reader is configured as a read-only identity whatever its groups say.
+        if ((bool) $input->getOption('reset-anchor')) {
+            $io->error(
+                '--as-audit-reader cannot be combined with --reset-anchor: the reset writes into the audit chain, '
+                . 'and the audit reader is a read-only identity.',
+            );
+
+            return Command::FAILURE;
+        }
+
+        $readerUid = $this->configuration->getAuditReaderBeUserUid();
+        if ($readerUid === 0) {
+            $io->error(
+                'No audit reader is configured. Set the nr_vault option "auditReaderBeUserUid" to a backend user '
+                . 'whose group carries the tx_nrvault:audit.view permission option (listing, --verify) or '
+                . 'tx_nrvault:audit.export (--export).',
+            );
+
+            return Command::FAILURE;
+        }
+
+        try {
+            $exitCode = $this->technicalActorContext->runAs(
+                $readerUid,
+                fn (): int => $this->executeForCurrentActor($input, $output, $io),
+            );
+        } catch (TechnicalActorException $e) {
+            // Refused before the callable ran, so nothing has been read yet.
+            $io->error('The audit reader cannot be used: ' . $e->getMessage());
+
+            return Command::FAILURE;
+        } catch (Throwable $e) {
+            // Resolving the actor reads the database and can fail with something
+            // other than a refusal; so can the work inside the scope.
+            $io->error('The audit log could not be read as the audit reader: ' . $e->getMessage());
+
+            return Command::FAILURE;
+        }
+
+        return is_int($exitCode) ? $exitCode : Command::FAILURE;
+    }
+
+    private function executeForCurrentActor(InputInterface $input, OutputInterface $output, SymfonyStyle $io): int
+    {
         $resetAnchor = (bool) $input->getOption('reset-anchor');
         $verify      = (bool) $input->getOption('verify');
         $exportFile  = $this->exportTarget($input);

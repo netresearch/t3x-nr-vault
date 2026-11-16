@@ -195,7 +195,11 @@ ownership and group tiers still apply — see
     ``vault:audit-verify`` that is ``--as-auditor`` with
     :confval:`ext-nrvault-auditorBeUserUid`: any shell can still pass the
     flag, but ``vault:audit`` and the other ``audit.view`` commands stay
-    closed to it.
+    closed to it. Reading and exporting the log from a shell is
+    ``vault:audit --as-audit-reader`` with
+    :confval:`ext-nrvault-auditReaderBeUserUid`, off by default; setting it
+    lets every shell read the log, so leave it at 0 unless that is the intent.
+    Anchoring has no such option; it runs as the scheduler task.
     ``vault:doctor`` reports the list as ``cli.allowed_operations``.
 
 .. _operations-hardened-deployment-step4:
@@ -239,11 +243,16 @@ Two separate jobs, doing different things (see
 
 ..  code-block:: bash
 
-    vendor/bin/typo3 vault:audit-anchor    # publish the tip — hourly
-    vendor/bin/typo3 vault:audit-verify    # verify chain + anchor — every 15 min
+    # AuditAnchorTask (publish the tip — hourly) and AuditVerifyTask
+    # (verify chain + anchor — every 15 min), both run by the scheduler:
+    vendor/bin/typo3 scheduler:run
+    # or the verification directly, as the configured auditor:
+    vendor/bin/typo3 vault:audit-verify --as-auditor
 
 Register :php:`AuditAnchorTask` and :php:`AuditVerifyTask` in
-:guilabel:`Scheduler > Add task`, or run the commands from cron.
+:guilabel:`Scheduler > Add task` and run :bash:`scheduler:run` from cron.
+Verification can also run from cron directly with ``--as-auditor``; anchoring
+cannot, see the note.
 
 ..  note::
 
@@ -253,18 +262,19 @@ Register :php:`AuditAnchorTask` and :php:`AuditVerifyTask` in
     withdraws that bypass; the **cron** form is not, because it runs as the
     unattributed CLI actor and
     :confval:`ext-nrvault-cliAllowedOperations` excludes both permissions.
-    Prefer the scheduler tasks here, and read step 6 before you choose cron.
-    From cron or by hand, the verification runs as a named user with
-    ``vault:audit-verify --as-auditor`` and
+    Anchoring therefore runs as :php:`AuditAnchorTask`; the command has no
+    technical-actor option. From cron or by hand, the verification runs as a
+    named user with ``vault:audit-verify --as-auditor`` and
     :confval:`ext-nrvault-auditorBeUserUid`.
 
-Publish the first anchor by hand now, so verification has a baseline
-immediately rather than after the first scheduled run:
+Publish the first anchor now, so verification has a baseline immediately
+rather than after the first scheduled run. Run the anchoring task once by its
+uid (shown in the scheduler module):
 
 ..  code-block:: bash
 
-    vendor/bin/typo3 vault:audit-anchor
-    vendor/bin/typo3 vault:audit-verify
+    vendor/bin/typo3 scheduler:run --task=<anchor-task-uid> --force
+    vendor/bin/typo3 vault:audit-verify --as-auditor
 
 Wire the alerting at the same time — a scheduled check whose failures nobody
 receives is not a control. :ref:`operations-monitoring-what-to-page` says what
@@ -286,8 +296,10 @@ arms itself on the next audit write; confirm it did, then require it:
     listing form used further down — verification is a read of the chain.
     ``audit.view`` is not in the :confval:`ext-nrvault-cliAllowedOperations`
     default, and with the admin override disabled an admin no longer holds it
-    implicitly — grant it to the group these checks run as, or run them as a
-    named technical actor.
+    implicitly — grant it to the group these checks run as, or run them with
+    ``vault:audit --as-audit-reader`` and
+    :confval:`ext-nrvault-auditReaderBeUserUid` (which opens reading the log to
+    every shell; see step 3).
 
     The same applies to the two scheduled controls, and this is the profile
     where it bites. :bash:`scheduler:run` authenticates the ``_cli_``

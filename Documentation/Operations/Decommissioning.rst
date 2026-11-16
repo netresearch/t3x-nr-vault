@@ -107,34 +107,49 @@ a verification run after key destruction proves nothing.
 
     ..  code-block:: bash
 
-        vendor/bin/typo3 vault:audit-verify > decommission-verify.txt
+        vendor/bin/typo3 vault:audit-verify --as-auditor > decommission-verify.txt
 
 #.  **Publish a final anchor**, so the tip is witnessed externally at the
     moment of decommissioning:
 
     ..  code-block:: bash
 
-        vendor/bin/typo3 vault:audit-anchor
+        vendor/bin/typo3 scheduler:run --task=<anchor-task-uid> --force
+
+    Confirm it published: the newest line of the anchor file
+    (:confval:`ext-nrvault-auditSinkAnchorPath`) carries as ``sequence`` the
+    chain length (max uid) the verification above reported. The scheduler skips a task that is still
+    running from its schedule; run the step again once that run has finished.
 
     ..  note::
 
-        Both commands assert an operation permission (breaking change; they
+        Both steps assert an operation permission (breaking change; they
         previously asserted none): ``vault:audit-verify`` needs ``audit.view``,
-        ``vault:audit-anchor`` needs ``vault.configure``, and the export in the
-        next step needs ``audit.export``. All three are excluded from the
-        :confval:`ext-nrvault-cliAllowedOperations` default, so from a shell
-        they need ``allowCliAccess = 1`` **and** the operation in that
-        allowlist — or, better for an evidence run, a named technical actor, so
-        the record names who collected the evidence. ``vault:audit-verify``
-        runs as one with ``--as-auditor`` and
-        :confval:`ext-nrvault-auditorBeUserUid`; it writes no audit row, so
-        its run is not attributed. Sort the grant out before
-        the decommissioning window: after the master key is destroyed there is
-        no second chance at this output.
+        anchoring needs ``vault.configure``, and the export in the next step
+        needs ``audit.export``. All three are excluded from the
+        :confval:`ext-nrvault-cliAllowedOperations` default. The anchor is
+        published by the *Vault Audit Chain Anchoring* task, run once above:
+        :bash:`scheduler:run` authenticates the ``_cli_`` user, which holds
+        ``vault.configure`` through the admin bypass or, under
+        ``disableAdminOverride``, through its group. ``vault:audit-verify`` runs
+        as a named user with ``--as-auditor`` and
+        :confval:`ext-nrvault-auditorBeUserUid`, and the export with
+        ``vault:audit --as-audit-reader`` and
+        :confval:`ext-nrvault-auditReaderBeUserUid`. None of these writes an
+        audit row, so the trail does not record who ran them. Sort the grant
+        out before the decommissioning window: after the master key is
+        destroyed there is no second chance at this output.
 
 #.  **Export the audit log** in full, over the entire retained period, with
     the hash columns included — ``uid``, ``previous_hash``, ``entry_hash``,
     ``hmac_key_epoch``. Without them the export is a log, not evidence.
+    ``vault:audit --export`` returns at most ``--limit`` rows (default 50),
+    newest first, so set ``--limit`` above the row count (``SELECT COUNT(*)
+    FROM tx_nrvault_audit_log``) and compare it with the ``Exported N
+    entries`` line. It does not include
+    ``hmac_key_epoch`` yet (`#554
+    <https://github.com/netresearch/t3x-nr-vault/issues/554>`__); take that
+    column from a database dump of ``tx_nrvault_audit_log`` until it does.
 
 #.  **Collect the external evidence** from where it actually lives: the anchor
     file, the syslog archive, the SIEM's retained records. This is the half

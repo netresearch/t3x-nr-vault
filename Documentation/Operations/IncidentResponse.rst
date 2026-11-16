@@ -35,7 +35,7 @@ Step 1 — preserve, before you change anything
 ..  code-block:: bash
 
     # Chain state as it stands now, plus the anchor comparison.
-    vendor/bin/typo3 vault:audit-verify > incident-verify-before.txt
+    vendor/bin/typo3 vault:audit-verify --as-auditor > incident-verify-before.txt
 
     # Snapshot the external anchor file as it stands now.
     cp <auditSinkAnchorPath> incident-anchor-before.ndjson
@@ -46,13 +46,19 @@ Step 1 — preserve, before you change anything
     :confval:`ext-nrvault-cliAllowedOperations` excludes all of them:
     ``audit.view`` for reading and verifying (``vault:audit``,
     ``vault:audit-verify``), ``audit.export`` for ``--export``, and
-    ``vault.configure`` for re-anchoring (``vault:audit-anchor``) in step 5.
+    ``vault.configure`` for re-anchoring in step 5, which runs the anchoring
+    scheduler task.
     Under time pressure this is the moment the command exits 1 — sort the grant
-    out before the incident, not during it. A named technical actor for the
-    response runbook is the clean answer: the trail then names who responded.
-    ``vault:audit-verify`` runs as one with ``--as-auditor`` and
-    :confval:`ext-nrvault-auditorBeUserUid`; it writes no audit row, so its
-    run is not attributed.
+    out before the incident, not during it. ``vault:audit-verify`` runs as a
+    named user with ``--as-auditor`` and
+    :confval:`ext-nrvault-auditorBeUserUid`. ``vault:audit`` (listing,
+    ``--verify`` and ``--export``) runs as one with ``--as-audit-reader`` and
+    :confval:`ext-nrvault-auditReaderBeUserUid`, which lets every shell read the
+    log once set, so decide it before the incident too. Neither writes an audit
+    row, so the trail does not record who read or verified. Re-anchoring runs
+    the *Vault Audit Chain Anchoring* scheduler task, which needs no CLI
+    allowlist entry; under ``disableAdminOverride`` the ``_cli_`` user needs a
+    group carrying ``tx_nrvault:vault.configure`` (see step 5).
 
 Copy the audit rows for the affected identifiers and the suspected time window
 out of the system as well (see :ref:`auditor-evidence-collection` for the
@@ -65,7 +71,7 @@ Step 2 — determine scope from the audit log
 ..  code-block:: bash
 
     # Everything that happened to one identifier.
-    vendor/bin/typo3 vault:audit --identifier=<identifier>
+    vendor/bin/typo3 vault:audit --as-audit-reader --identifier=<identifier>
 
 ..  note::
 
@@ -128,8 +134,9 @@ Step 5 — record and re-anchor
 
 ..  code-block:: bash
 
-    vendor/bin/typo3 vault:audit-verify > incident-verify-after.txt
-    vendor/bin/typo3 vault:audit-anchor
+    vendor/bin/typo3 vault:audit-verify --as-auditor > incident-verify-after.txt
+    # Run the anchoring task now rather than waiting for its schedule.
+    vendor/bin/typo3 scheduler:run --task=<anchor-task-uid> --force
 
 Keep the before and after artefacts together with the scope notes.
 
@@ -163,7 +170,7 @@ Step 1 — freeze the evidence
     cp <auditSinkAnchorPath> incident-anchor.ndjson
 
     # The verification output, with the findings.
-    vendor/bin/typo3 vault:audit-verify > incident-verify.txt
+    vendor/bin/typo3 vault:audit-verify --as-auditor > incident-verify.txt
 
 Also pull the same period from the sinks the database owner cannot reach — the
 syslog archive, the SIEM. **That is the comparison that decides the case.** If
@@ -267,7 +274,7 @@ This writes one chained audit entry of the type ``audit_findings_acknowledged``
 with the reason, your account, the finding set and the old chain tip, and then
 tries to publish a new external anchor. That publication is best effort: when
 it fails, a row finding is still acknowledged, but the new segment has no
-external anchor until the next ``vault:audit-anchor`` run. An external-anchor
+external anchor until the next anchoring run. An external-anchor
 finding (``TABLE_RESET``) is only acknowledged once a fresh anchor was
 published. The acknowledgement repairs nothing: the flagged rows keep
 failing their own hash, ``vault:audit --verify`` still reports them, and every
@@ -325,7 +332,7 @@ reviews is the admin override with extra steps.
 ..  code-block:: bash
 
     # The evidence: both rows live under the pseudo-identifier __break_glass__.
-    vendor/bin/typo3 vault:audit --identifier=__break_glass__
+    vendor/bin/typo3 vault:audit --as-audit-reader --identifier=__break_glass__
 
 *   [ ] An ``break_glass_activated`` row exists, with the actor, the reason,
       the ``ttlMinutes`` and the ``expiresAt`` in its context.
@@ -345,7 +352,7 @@ reviews is the admin override with extra steps.
 
       ..  code-block:: bash
 
-          vendor/bin/typo3 vault:audit-verify
+          vendor/bin/typo3 vault:audit-verify --as-auditor
 
 *   [ ] ``adminOverrideDisabledEffective`` reads ``yes`` again:
 

@@ -146,7 +146,12 @@ Actors
             and the environment, so CLI is treated as trusted where it is
             trusted at all. Secret reads over CLI stay gated on
             ``allowCliAccess`` (off by default); break-glass deliberately is
-            not, because a shell already reaches the master key.
+            not, because a shell already reaches the master key. The
+            configured technical actors (``provisioningBeUserUid``,
+            ``auditorBeUserUid``, ``auditReaderBeUserUid``) are opt-in grants
+            to every shell: once a UID is set, any shell can pass the
+            matching flag, and ``auditReaderBeUserUid`` lets it read the audit
+            log.
 
 .. _security-threat-model-boundaries:
 

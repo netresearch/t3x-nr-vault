@@ -388,6 +388,18 @@ Options
 --export=FILE, -e FILE
    Export results to a file (format taken from ``--format``).
 
+--as-audit-reader
+   Run as the backend user configured in
+   :confval:`ext-nrvault-auditReaderBeUserUid` instead of the unattributed CLI
+   actor. Covers listing, ``--verify`` and ``--export``. The permission checks
+   below are evaluated for that user: ``tx_nrvault:audit.view`` for listing and
+   ``--verify``, ``tx_nrvault:audit.export`` for ``--export``.
+   The UID is read from configuration, never from the command line. Exits 1 when
+   no reader is configured or the user cannot be used (missing, disabled,
+   outside its start or end time, not at root level). Refused together with ``--reset-anchor``,
+   before the user is entered: the reset writes into the chain, and the reader
+   is a read-only identity.
+
 .. important::
 
    Every mode of this command asserts an operation permission: listing,
@@ -404,10 +416,21 @@ Options
 
    :confval:`ext-nrvault-cliAllowedOperations` excludes all three permissions
    by default, so for the unattributed CLI actor this command needs
-   ``allowCliAccess`` **and** the operation in that allowlist. Prefer a named
-   technical actor (:ref:`developer-technical-actor-context`) over widening the
-   allowlist — the audit trail then names the identity that read or exported
-   the log.
+   ``allowCliAccess`` **and** the operation in that allowlist. For listing,
+   ``--verify`` and ``--export``, ``--as-audit-reader`` is the narrower
+   alternative: it opens those modes, for one configured user, and nothing
+   else. Reading the log writes no audit row, so neither path records who read
+   or exported it.
+
+   Setting :confval:`ext-nrvault-auditReaderBeUserUid` is a decision to let
+   every shell that can run :bash:`vendor/bin/typo3` read the audit log (and
+   export it, if the user holds ``audit.export``). It is off by default.
+   :confval:`ext-nrvault-auditorBeUserUid` does not open this command; it
+   covers :ref:`command-audit-verify` only.
+
+   ``--reset-anchor`` has no technical actor. From a shell it needs
+   ``allowCliAccess`` with ``vault.configure`` in the allowlist; there is no
+   other path.
 
 .. _command-audit-example:
 
@@ -428,6 +451,11 @@ Example
 
    # Verify the chain, including the truncation tip anchor
    vendor/bin/typo3 vault:audit --verify
+
+   # List and export as the configured audit reader (auditReaderBeUserUid);
+   # --limit applies to the export too (default 50)
+   vendor/bin/typo3 vault:audit --as-audit-reader --since=2026-05-01
+   vendor/bin/typo3 vault:audit --as-audit-reader --format=json --limit=10000 --export=audit.json
 
    # Re-arm the anchor after a deliberate wipe of the audit log
    vendor/bin/typo3 vault:audit --reset-anchor --force
@@ -488,7 +516,14 @@ Options
 
    :confval:`ext-nrvault-cliAllowedOperations` excludes ``vault.configure`` by
    default, so from a shell this command needs ``allowCliAccess`` **and** that
-   operation in the allowlist. **Scheduled runs are unaffected on a default
+   operation in the allowlist. It has no technical-actor option: the
+   unattended path is the scheduler task, which already runs under an
+   authenticated identity (``_cli_``), and an anchor records no actor, so a
+   second configured identity holding ``vault.configure`` would add a grant
+   and no attribution. Note that wherever the task is registered, any shell
+   that can run :bash:`vendor/bin/typo3 scheduler:run --task=<uid> --force`
+   can trigger it.
+   **Scheduled runs are unaffected on a default
    installation**: the *Vault Audit Chain Anchoring* task runs under
    :bash:`scheduler:run`, which authenticates the ``_cli_`` administrator, and
    the admin bypass grants it. Under ``disableAdminOverride`` the bypass is gone

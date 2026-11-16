@@ -366,6 +366,7 @@ Netresearch\NrVault\Configuration\Dto\VaultServerConfig (class)
 Netresearch\NrVault\Configuration\ExtensionConfigurationInterface (interface)
   method getAuditHmacEpoch(): int
   method getAuditLogRetention(): int
+  method getAuditReaderBeUserUid(): int
   method getAuditSinkAnchorPath(): string
   method getAuditSinkFilePath(): string
   method getAuditSinkStaleDeliveryHours(): int

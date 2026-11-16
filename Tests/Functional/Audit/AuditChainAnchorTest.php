@@ -21,6 +21,7 @@ use Netresearch\NrVault\Command\VaultAuditMigrateCommand;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Crypto\MasterKeyProviderInterface;
 use Netresearch\NrVault\Security\AccessControlServiceInterface;
+use Netresearch\NrVault\Security\TechnicalActorContextInterface;
 use Netresearch\NrVault\Seeder\AuditChainSeeder;
 use Netresearch\NrVault\Tests\Functional\AbstractVaultFunctionalTestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -323,6 +324,8 @@ final class AuditChainAnchorTest extends AbstractVaultFunctionalTestCase
             $store,
             $this->get(ConnectionPool::class),
             $this->get(AccessControlServiceInterface::class),
+            $this->get(ExtensionConfigurationInterface::class),
+            $this->get(TechnicalActorContextInterface::class),
         );
         $command->setName('vault:audit');
 

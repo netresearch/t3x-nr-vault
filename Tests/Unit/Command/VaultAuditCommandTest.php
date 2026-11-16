@@ -14,8 +14,10 @@ use Netresearch\NrVault\Audit\AuditLogEntry;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
 use Netresearch\NrVault\Audit\HashChainVerificationResult;
 use Netresearch\NrVault\Command\VaultAuditCommand;
+use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Exception\VaultException;
 use Netresearch\NrVault\Security\AccessControlServiceInterface;
+use Netresearch\NrVault\Security\TechnicalActorContextInterface;
 use Netresearch\NrVault\Security\VaultPermission;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use org\bovigo\vfs\vfsStream;
@@ -24,6 +26,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
+use RuntimeException;
 use Symfony\Component\Console\Application;
 use Symfony\Component\Console\Tester\CommandTester;
 use TYPO3\CMS\Core\Database\Connection;
@@ -905,6 +908,88 @@ final class VaultAuditCommandTest extends TestCase
         }
     }
 
+    /**
+     * The audit verification actor is not the reader: configuring only
+     * `auditorBeUserUid` leaves `--as-audit-reader` refused, and no actor is
+     * entered.
+     */
+    #[Test]
+    public function asAuditReaderWithoutAConfiguredReaderIsRefused(): void
+    {
+        $configuration = self::createStub(ExtensionConfigurationInterface::class);
+        $configuration->method('getAuditorBeUserUid')->willReturn(3);
+        $configuration->method('getAuditReaderBeUserUid')->willReturn(0);
+        $actorContext = $this->createMock(TechnicalActorContextInterface::class);
+        $actorContext->expects($this->never())->method('runAs');
+        $this->auditLogService->expects($this->never())->method('query');
+
+        $tester = new CommandTester($this->createCommandWith($configuration, $actorContext));
+
+        self::assertSame(1, $tester->execute(['--as-audit-reader' => true]));
+        self::assertStringContainsString(
+            'No audit reader is configured. Set the nr_vault option "auditReaderBeUserUid"',
+            $this->collapseWhitespace($tester->getDisplay()),
+        );
+    }
+
+    /**
+     * `--reset-anchor` is refused before the actor is entered, so neither the
+     * actor lookup nor the permission check nor the reset runs.
+     */
+    #[Test]
+    public function asAuditReaderWithResetAnchorIsRefusedBeforeTheActorIsEntered(): void
+    {
+        $configuration = self::createStub(ExtensionConfigurationInterface::class);
+        $configuration->method('getAuditReaderBeUserUid')->willReturn(6);
+        $actorContext = $this->createMock(TechnicalActorContextInterface::class);
+        $actorContext->expects($this->never())->method('runAs');
+        $this->anchorStore->expects($this->never())->method('reset');
+        $this->auditLogService->expects($this->never())->method('log');
+
+        $tester = new CommandTester($this->createCommandWith($configuration, $actorContext));
+
+        self::assertSame(1, $tester->execute(['--as-audit-reader' => true, '--reset-anchor' => true, '--force' => true]));
+        self::assertStringContainsString(
+            '--as-audit-reader cannot be combined with --reset-anchor',
+            $this->collapseWhitespace($tester->getDisplay()),
+        );
+    }
+
+    /**
+     * Resolving the actor reads the database; a failure there is a failed run
+     * with the cause on screen, never an uncaught exception or an empty exit 0.
+     */
+    #[Test]
+    public function anActorLookupFailureFailsTheRun(): void
+    {
+        $configuration = self::createStub(ExtensionConfigurationInterface::class);
+        $configuration->method('getAuditReaderBeUserUid')->willReturn(6);
+        $actorContext = self::createStub(TechnicalActorContextInterface::class);
+        $actorContext->method('runAs')->willThrowException(new RuntimeException('database unavailable'));
+
+        $tester = new CommandTester($this->createCommandWith($configuration, $actorContext));
+
+        self::assertSame(1, $tester->execute(['--as-audit-reader' => true]));
+        self::assertStringContainsString(
+            'The audit log could not be read as the audit reader: database unavailable',
+            $this->collapseWhitespace($tester->getDisplay()),
+        );
+    }
+
+    private function createCommandWith(
+        ExtensionConfigurationInterface $configuration,
+        TechnicalActorContextInterface $actorContext,
+    ): VaultAuditCommand {
+        return new VaultAuditCommand(
+            $this->auditLogService,
+            $this->anchorStore,
+            $this->connectionPool,
+            $this->accessControlService,
+            $configuration,
+            $actorContext,
+        );
+    }
+
     private function createCommand(): VaultAuditCommand
     {
         return new VaultAuditCommand(
@@ -912,6 +997,8 @@ final class VaultAuditCommandTest extends TestCase
             $this->anchorStore,
             $this->connectionPool,
             $this->accessControlService,
+            self::createStub(ExtensionConfigurationInterface::class),
+            self::createStub(TechnicalActorContextInterface::class),
         );
     }
 
@@ -923,7 +1010,12 @@ final class VaultAuditCommandTest extends TestCase
      */
     private function normalizedDisplay(): string
     {
-        return (string) preg_replace('/\s+/', ' ', $this->commandTester->getDisplay());
+        return $this->collapseWhitespace($this->commandTester->getDisplay());
+    }
+
+    private function collapseWhitespace(string $display): string
+    {
+        return (string) preg_replace('/\s+/', ' ', $display);
     }
 
     /**

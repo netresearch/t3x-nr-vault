@@ -48,14 +48,15 @@ CLI commands and do exactly the same work.
         -   Findings were raised — subject to the ``nr_vault_tamper_only``
             switch below.
 
-Alternatively, run the commands from cron. The verify line runs as the user
-configured in :confval:`ext-nrvault-auditorBeUserUid`:
+Verification can also run from cron, as the user configured in
+:confval:`ext-nrvault-auditorBeUserUid`. Anchoring belongs in the scheduler
+task (see below):
 
 ..  code-block:: bash
     :caption: Example crontab
 
-    # Publish the chain tip hourly.
-    17 * * * *  cd /var/www/site && vendor/bin/typo3 vault:audit-anchor --format=json
+    # Run the scheduler, which carries the hourly AuditAnchorTask.
+    */5 * * * *  cd /var/www/site && vendor/bin/typo3 scheduler:run
     # Verify chain + anchor every 15 minutes.
     */15 * * * * cd /var/www/site && vendor/bin/typo3 vault:audit-verify --as-auditor --format=json
 
@@ -78,22 +79,33 @@ configured in :confval:`ext-nrvault-auditorBeUserUid`:
 
     **Scheduler tasks are unaffected on a default installation**:
     :bash:`scheduler:run` authenticates the ``_cli_`` administrator, who passes
-    through the admin bypass. **The cron anchor line above is affected**: it
-    runs as the unattributed CLI actor, which does not hold ``vault.configure``
-    unless ``allowCliAccess = 1`` **and** it is listed in
-    :confval:`ext-nrvault-cliAllowedOperations`. Prefer the scheduler tasks, or
-    run the cron entries as a named technical actor
-    (:ref:`developer-technical-actor-context`) so the audit trail names the
-    identity that anchored. ``vault:audit-verify`` runs as a named actor with
-    ``--as-auditor`` and :confval:`ext-nrvault-auditorBeUserUid`; it writes no
-    audit row, so nothing is attributed. A refusal
-    exits non-zero, and the JSON form of
-    ``vault:audit-verify`` reports ``valid: false`` — so an alert fires rather
-    than the check quietly reading as clean.
+    through the admin bypass. **Run anchoring unattended through**
+    :php:`AuditAnchorTask` **under** :bash:`scheduler:run`. A plain
+    :bash:`vault:audit-anchor` from cron runs as the unattributed CLI actor,
+    which does not hold ``vault.configure`` unless ``allowCliAccess = 1``
+    **and** it is listed in :confval:`ext-nrvault-cliAllowedOperations`, which
+    opens it to every shell. The command has no technical-actor option; the
+    task is its unattended path. Wherever the task is registered, any shell
+    that can run :bash:`scheduler:run --task=<uid> --force` can trigger it.
 
-    Under ``disableAdminOverride`` the scheduler loses the bypass too; see
-    :ref:`operations-hardened-deployment-step6` for the group grant that keeps
-    both tasks running.
+    An anchor names no actor. Each sink receives the sequence (highest audit
+    row uid), the chain tip hash, the HMAC epoch and the time it was taken —
+    nothing about who or what ran the anchoring — and anchoring writes no row
+    into the audit chain. The TYPO3 log receives the sequence and the number of
+    sinks that accepted it at ``info`` level, which the default log
+    configuration does not record; a run that reached no sink is logged as an
+    error.
+
+    ``vault:audit-verify`` runs as a named actor with ``--as-auditor`` and
+    :confval:`ext-nrvault-auditorBeUserUid`; it writes no audit row either. A
+    refusal exits non-zero, and the JSON form of ``vault:audit-verify`` reports
+    ``valid: false`` — so an alert fires rather than the check quietly reading
+    as clean.
+
+    Under ``disableAdminOverride`` the ``_cli_`` user loses the bypass too: give
+    it a backend group carrying ``tx_nrvault:vault.configure`` (anchoring) and
+    ``tx_nrvault:audit.view`` (verification), otherwise both tasks fail. See
+    :ref:`operations-hardened-deployment-step6` for the full grant.
 
 ``nr_vault_tamper_only``
 ------------------------
