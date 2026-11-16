@@ -10,6 +10,7 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Tests\Unit\Audit\Export;
 
 use Netresearch\NrVault\Audit\Anchor\AnchorReaderInterface;
+use Netresearch\NrVault\Audit\Anchor\ChainTipAnchor;
 use Netresearch\NrVault\Audit\AuditLogService;
 use Netresearch\NrVault\Audit\Export\AuditChainExporter;
 use Netresearch\NrVault\Audit\Export\AuditExportVerification;
@@ -17,6 +18,7 @@ use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Crypto\MasterKeyProviderInterface;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use RuntimeException;
 use TYPO3\CMS\Core\Database\ConnectionPool;
@@ -134,6 +136,81 @@ final class AuditChainExporterTest extends TestCase
         self::assertStringContainsString('does not start the chain', implode("\n", $result->notes));
     }
 
+    /**
+     * A value the writer never produces is refused rather than coerced:
+     * otherwise the file could carry content no hash covers.
+     *
+     * @return iterable<string, array{string, mixed}>
+     */
+    public static function foreignValueProvider(): iterable
+    {
+        yield 'array where a string was hashed' => ['reason', ['approved by CISO']];
+        yield 'integer where a string was hashed' => ['ip_address', 10];
+        yield 'truthy success' => ['success', 7];
+        yield 'unknown column' => ['approved_by', 'CISO'];
+    }
+
+    #[DataProvider('foreignValueProvider')]
+    #[Test]
+    public function aValueTheWriterNeverProducesIsNotValid(string $column, mixed $value): void
+    {
+        $rows             = $this->chain([3, 3]);
+        $rows[1][$column] = $value;
+
+        $result = $this->exporter()->verify($this->document($rows));
+
+        self::assertFalse($result->isValid());
+    }
+
+    /**
+     * A rolled-back insert skips a uid. The link across the gap is intact, so
+     * no row was removed, and the export still verifies.
+     */
+    #[Test]
+    public function aUidGapWithAnIntactLinkStillVerifies(): void
+    {
+        $result = $this->exporter()->verify($this->document($this->chain([3, 3, 3], [1, 2, 4])));
+
+        self::assertSame([], $result->errors);
+        self::assertTrue($result->isValid());
+        self::assertStringContainsString('uid 3 to 3 are not in the chain', implode("\n", $result->notes));
+    }
+
+    /**
+     * The anchor is taken on a row that exists. A complete-looking export that
+     * lacks the anchored uid (removed, with the neighbours renumbered around
+     * it) is an error, whatever the file claims.
+     */
+    #[Test]
+    public function anExportLackingTheAnchoredRowIsNotValid(): void
+    {
+        $rows   = $this->chain([0, 0, 0], [1, 2, 4]);
+        $anchor = new ChainTipAnchor(sequence: 3, chainTip: str_repeat('a', 64), timestamp: 1704067200, hmacEpoch: 0);
+
+        $result = $this->exporterWithAnchor($anchor)->verify($this->document($rows));
+
+        self::assertFalse($result->isValid());
+        self::assertFalse($result->chainComplete);
+        self::assertStringContainsString('anchor was taken at uid 3, which this export lacks', implode("\n", $result->errors));
+    }
+
+    /**
+     * The anchor check reads the same verified rows as the hash check: an
+     * exported row at the anchored uid whose hash differs from the anchor is
+     * never confirmed as the whole chain.
+     */
+    #[Test]
+    public function aRowDifferingFromTheAnchorIsNotTheWholeChain(): void
+    {
+        $rows   = $this->chain([0, 0, 0]);
+        $anchor = new ChainTipAnchor(sequence: 2, chainTip: str_repeat('b', 64), timestamp: 1704067200, hmacEpoch: 0);
+
+        $result = $this->exporterWithAnchor($anchor)->verify($this->document($rows));
+
+        self::assertFalse($result->chainComplete);
+        self::assertStringContainsString('uid 2 differs from the external anchor', implode("\n", $result->notes));
+    }
+
     #[Test]
     public function aForeignDocumentIsNotValid(): void
     {
@@ -164,21 +241,33 @@ final class AuditChainExporterTest extends TestCase
         return new AuditChainExporter(self::createStub(ConnectionPool::class), $provider, $this->legacyConfiguration(), self::createStub(AnchorReaderInterface::class));
     }
 
+    private function exporterWithAnchor(ChainTipAnchor $anchor): AuditChainExporter
+    {
+        $provider = self::createStub(MasterKeyProviderInterface::class);
+        $provider->method('getMasterKey')->willReturnCallback(static fn (): string => self::MASTER_KEY);
+        $reader = self::createStub(AnchorReaderInterface::class);
+        $reader->method('isAvailable')->willReturn(true);
+        $reader->method('readLatestAnchor')->willReturn($anchor);
+
+        return new AuditChainExporter(self::createStub(ConnectionPool::class), $provider, $this->legacyConfiguration(), $reader);
+    }
+
     /**
      * A correctly linked chain, one row per given epoch, uid 1 upwards.
      *
-     * @param list<int> $epochs
+     * @param list<int>      $epochs
+     * @param list<int>|null $uids   default 1 upwards
      *
      * @return list<array<string, int|string>>
      */
-    private function chain(array $epochs): array
+    private function chain(array $epochs, ?array $uids = null): array
     {
         $hmacKey  = AuditLogService::deriveHmacKeyFromMasterKey(self::MASTER_KEY);
         $previous = '';
         $rows     = [];
         foreach ($epochs as $index => $epoch) {
             $row = [
-                'uid'               => $index + 1,
+                'uid'               => $uids[$index] ?? $index + 1,
                 'secret_identifier' => 'secret_' . $index,
                 'action'            => 'read',
                 'success'           => 1,
@@ -198,7 +287,7 @@ final class AuditChainExporterTest extends TestCase
     }
 
     /**
-     * @param list<array<string, int|string>> $rows
+     * @param list<array<string, mixed>> $rows
      *
      * @return array<string, mixed>
      */

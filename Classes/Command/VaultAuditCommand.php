@@ -638,6 +638,12 @@ final class VaultAuditCommand extends Command
         string $file,
         string $format,
     ): int {
+        if ($limit !== null && $limit < 1) {
+            $io->error('--limit must be at least 1 for an export.');
+
+            return Command::FAILURE;
+        }
+
         try {
             $export = $this->chainExporter->select($filter, $limit);
         } catch (Throwable $e) {
@@ -689,11 +695,9 @@ final class VaultAuditCommand extends Command
 
         if ($written !== $export->count || !rename($temporary, $file)) {
             $this->removeTemporary($temporary);
-            $io->error(sprintf(
-                'The export failed and no file was written: %d of %d rows were read.',
-                $written,
-                $export->count,
-            ));
+            $io->error($written !== $export->count
+                ? sprintf('The export failed and no file was written: %d of %d rows were read.', $written, $export->count)
+                : sprintf('The export failed and no file was written: could not move it to %s.', $file));
 
             return Command::FAILURE;
         }

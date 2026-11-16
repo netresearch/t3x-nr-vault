@@ -400,8 +400,9 @@ Options
    selection holds. The file is marked ``"truncated": true``.
 
 --verify-export=FILE
-   Re-verify a JSON file written by ``--export``, without the database — see
-   :ref:`command-audit-export`. Asserts ``audit.view``.
+   Re-verify a JSON file written by ``--export`` from the file's own rows,
+   using this installation's master key and stored chain as the reference —
+   see :ref:`command-audit-export`. Asserts ``audit.view``.
 
 --as-audit-reader
    Run as the backend user configured in
@@ -504,24 +505,30 @@ between every pair of neighbours. A filtered export (``--identifier``,
 ``"chainComplete": false``: each row still proves itself, but entries outside
 the selection are not in the file.
 
-``--verify-export=FILE`` recomputes every row's ``entry_hash`` from the row
-alone, checks that each row's ``previous_hash`` is the ``entry_hash`` of the
-row before it (every row in a complete export, rows with adjacent uids
-otherwise), reports missing uids and epoch downgrades in a complete export,
-reports any decrease of ``hmac_key_epoch`` from one row to the next (in any
-export), and checks the row count and the uid range against the ``export``
-block.
+``--verify-export=FILE`` refuses any row that is not exactly what the export
+writes (the listed columns and no others, integers and strings where the
+writer puts them, ``success`` 0 or 1). It then recomputes every row's
+``entry_hash`` from the row, checks that each row's ``previous_hash`` is the
+``entry_hash`` of the row before it (every row in a file that claims
+``chainComplete``, rows with adjacent uids otherwise), reports any decrease of
+``hmac_key_epoch`` from one row to the next, and checks the row count and the
+uid range against the ``export`` block. A uid gap whose link is intact is
+listed but is not an error: the link proves no row between them was removed,
+and a rolled-back insert skips a uid. It reports the file as verified only
+when it checked as many rows as the file declares, at least one, and found
+nothing. It reads the whole file into memory; the export itself is streamed.
 
 It reports **Whole chain: yes** only when it can confirm that itself, never
 because the file says so: the file claims ``chainComplete``, its first row
 starts the chain (empty ``previous_hash``), its last row is the declared
-``tipUid``, the installation stores that row with the same ``entry_hash`` and
-no newer row, and the newest external anchor neither lies beyond the export
-nor disagrees with the exported row at its sequence. Anything it cannot check
-leaves the answer at "not confirmed" with the reason listed. A disagreement
-with the stored row or the anchor is an error. An export taken before newer
-entries were written therefore verifies, but not as the whole chain. It reports the file as verified only when it checked as many rows as
-the file declares, at least one, and found nothing.
+``tipUid``, the newest external anchor neither lies beyond the export nor
+differs from the exported row at its uid, and the installation stores the last
+row with the same ``entry_hash`` and no newer row. Anything it cannot check, or
+that differs (a master-key rotation or the HMAC migration re-seals every
+stored row), leaves the answer at "not confirmed" with the reason listed. An
+anchored uid inside the exported range that the file lacks is an error. An
+export taken before newer entries were written therefore verifies, but not as
+the whole chain.
 
 Epoch 0 needs no key, so anyone who edits the file could relabel a row as
 epoch 0 and recompute its hash. The verifier therefore takes the rule for
@@ -530,7 +537,8 @@ keyless rows from the installation it runs on, not from the file: when
 accepted only up to the newest epoch-0 row the installation still stores, and
 at least one row must check against the key. An export with legitimate
 epoch-0 rows therefore no longer verifies on an installation whose audit table
-has been emptied.
+has been emptied, or after the HMAC migration has re-signed every stored row at
+a higher epoch.
 
 **The verifier must supply one thing the file never contains: the audit HMAC
 key.** Entries at HMAC epoch 1 and above are HMAC-SHA256 over their fields,

@@ -150,13 +150,16 @@ final readonly class AuditChainExporter implements AuditChainExporterInterface
             $errors[] = sprintf('The metadata declares %d row(s), the document holds %d.', $declaredCount, count($rows));
         }
 
-        $columns     = self::columns();
         $hmacKey     = null;
         $keyError    = null;
         $epochCounts = [];
         $checked     = 0;
         $keyed       = 0;
         $previous    = null;
+        // Every row that passed the shape check, in file order. The whole-chain
+        // and anchor checks read these and nothing else, so no check can see a
+        // value the hash check did not.
+        $verifiedRows = [];
         // The keyless epoch 0 needs no key, so whoever edits the file can
         // relabel any row as epoch 0 and recompute its hash. Which rows may be
         // keyless is therefore taken from the installation, never from the
@@ -167,18 +170,16 @@ final readonly class AuditChainExporter implements AuditChainExporterInterface
 
         try {
             foreach ($rows as $index => $row) {
-                if (!is_array($row) || array_diff($columns, array_keys($row)) !== []) {
-                    $errors[] = sprintf('Row %d lacks one or more of the columns %s.', $index, implode(', ', $columns));
+                $shapeError = is_array($row) ? $this->shapeError($row) : 'is not an object';
+                if ($shapeError !== null) {
+                    $errors[] = sprintf('Row %d %s.', $index, $shapeError);
                     $previous = null;
 
                     continue;
                 }
 
-                // The typing the database path applies before hashing, so an
-                // exported value is judged exactly as the stored one would be.
-                /** @var array<string, mixed> $raw */
-                $raw                 = $row;
-                $row                 = self::exportRow($raw);
+                /** @var array<string, int|string> $row */
+                $verifiedRows[]      = $row;
                 $uid                 = (int) $row['uid'];
                 $epoch               = (int) $row['hmac_key_epoch'];
                 $epochCounts[$epoch] = ($epochCounts[$epoch] ?? 0) + 1;
@@ -223,7 +224,7 @@ final readonly class AuditChainExporter implements AuditChainExporterInterface
                 }
 
                 if ($previous !== null) {
-                    $this->checkNeighbours($previous, $row, $chainComplete, $errors);
+                    $this->checkNeighbours($previous, $row, $chainComplete, $errors, $notes);
                 }
 
                 $previous = $row;
@@ -248,8 +249,8 @@ final readonly class AuditChainExporter implements AuditChainExporterInterface
             }
         }
 
-        $wholeChain = $chainComplete && $rows !== [] && $previous !== null
-            && $this->isWholeChain($rows, $previous, $tipUid, $errors, $notes);
+        $wholeChain = $chainComplete && $verifiedRows !== [] && count($verifiedRows) === count($rows)
+            && $this->isWholeChain($verifiedRows, $tipUid, $errors, $notes);
 
         if ($floorEpoch > 0 && $rows !== [] && $keyed === 0) {
             $errors[] = 'No row was checked with the HMAC key, although this installation signs its audit chain with it.';
@@ -266,20 +267,22 @@ final readonly class AuditChainExporter implements AuditChainExporterInterface
      * genesis row, the last row is the declared tip, the installation stores
      * no newer row, and the newest external anchor neither lies beyond the
      * export nor disagrees with the exported row at its sequence. Anything that
-     * cannot be checked counts against it. A disagreement with the stored row
-     * or the anchor is an error, the rest only withholds "whole chain".
+     * cannot be checked counts against it, and so does a difference from the
+     * stored row or the anchor (a rotation or migration re-seals rows). An
+     * anchored uid inside the exported range that the export lacks is an
+     * error: anchors are taken on rows that exist.
      *
-     * @param array<mixed>              $rows
-     * @param array<string, int|string> $last   the last row, normalised
-     * @param list<string>              $errors
-     * @param list<string>              $notes
+     * @param non-empty-list<array<string, int|string>> $rows   the verified rows only
+     * @param list<string>                              $errors
+     * @param list<string>                              $notes
      */
-    private function isWholeChain(array $rows, array $last, int $tipUid, array &$errors, array &$notes): bool
+    private function isWholeChain(array $rows, int $tipUid, array &$errors, array &$notes): bool
     {
-        $first   = reset($rows);
+        $first   = $rows[0];
+        $last    = $rows[count($rows) - 1];
         $lastUid = (int) $last['uid'];
 
-        if (!is_array($first) || ($first['previous_hash'] ?? null) !== '') {
+        if ($first['previous_hash'] !== '') {
             $notes[] = 'The first row does not start the chain (its previous_hash is not empty).';
 
             return false;
@@ -287,32 +290,6 @@ final readonly class AuditChainExporter implements AuditChainExporterInterface
 
         if ($tipUid !== $lastUid) {
             $notes[] = sprintf('The export ends at uid %d, not at its declared tip uid %d.', $lastUid, $tipUid);
-
-            return false;
-        }
-
-        try {
-            $stored = $this->storedRow($lastUid);
-            if ($stored === null) {
-                $notes[] = sprintf('This installation does not store uid %d, so the end of the export cannot be confirmed.', $lastUid);
-
-                return false;
-            }
-
-            if (!hash_equals($stored, (string) $last['entry_hash'])) {
-                $errors[] = sprintf('uid %d differs from the row this installation stores.', $lastUid);
-
-                return false;
-            }
-
-            $newer = $this->countNewerThan($lastUid);
-            if ($newer > 0) {
-                $notes[] = sprintf('This installation stores %d entr%s after uid %d.', $newer, $newer === 1 ? 'y' : 'ies', $lastUid);
-
-                return false;
-            }
-        } catch (Throwable $e) {
-            $notes[] = 'The installation could not be consulted: ' . $e->getMessage();
 
             return false;
         }
@@ -332,25 +309,104 @@ final readonly class AuditChainExporter implements AuditChainExporterInterface
                 return false;
             }
 
+            $anchored = null;
             foreach ($rows as $row) {
-                if (is_array($row) && ($row['uid'] ?? null) === $anchor->sequence
-                    && !hash_equals($anchor->chainTip, is_string($row['entry_hash'] ?? null) ? $row['entry_hash'] : '')) {
-                    $errors[] = sprintf('uid %d differs from the external anchor taken at that uid.', $anchor->sequence);
+                if ((int) $row['uid'] === $anchor->sequence) {
+                    $anchored = $row;
 
-                    return false;
+                    break;
                 }
             }
+
+            if ($anchored === null && $anchor->sequence >= (int) $first['uid']) {
+                $errors[] = sprintf('The external anchor was taken at uid %d, which this export lacks.', $anchor->sequence);
+
+                return false;
+            }
+
+            if ($anchored !== null && !hash_equals($anchor->chainTip, (string) $anchored['entry_hash'])) {
+                $notes[] = sprintf('uid %d differs from the external anchor taken at that uid '
+                    . "(re-sealed since the anchor, or not this installation's chain).", $anchor->sequence);
+
+                return false;
+            }
+        }
+
+        try {
+            $stored = $this->storedRow($lastUid);
+            if ($stored === null) {
+                $notes[] = sprintf('This installation does not store uid %d, so the end of the export cannot be confirmed.', $lastUid);
+
+                return false;
+            }
+
+            if (!hash_equals($stored, (string) $last['entry_hash'])) {
+                // Not an error by itself: a master-key rotation or the HMAC
+                // migration re-seals every stored row. Tampering with the row
+                // fails its own hash check.
+                $notes[] = sprintf('uid %d carries a different entry hash than the row this installation stores '
+                    . "(re-sealed since the export, or not this installation's chain).", $lastUid);
+
+                return false;
+            }
+
+            $newer = $this->countNewerThan($lastUid);
+            if ($newer > 0) {
+                $notes[] = sprintf('This installation stores %d entr%s after uid %d.', $newer, $newer === 1 ? 'y' : 'ies', $lastUid);
+
+                return false;
+            }
+        } catch (Throwable $e) {
+            $notes[] = 'The installation could not be consulted: ' . $e->getMessage();
+
+            return false;
         }
 
         return true;
     }
 
     /**
+     * Why a decoded row is not an exported row, or null when it is one: exactly
+     * the exported columns, integers where the writer writes integers, strings
+     * where it writes strings, `success` 0 or 1. Coercing a value instead would
+     * let a file carry content no hash covers (an array where an empty string
+     * was hashed, any truthy `success`).
+     *
+     * @param array<mixed> $row
+     */
+    private function shapeError(array $row): ?string
+    {
+        $template = self::exportRow([]);
+        $missing  = array_diff(array_keys($template), array_keys($row));
+        if ($missing !== []) {
+            return 'lacks the column(s) ' . implode(', ', $missing);
+        }
+
+        $unknown = array_diff(array_keys($row), array_keys($template));
+        if ($unknown !== []) {
+            return 'carries the unknown column(s) ' . implode(', ', array_map(strval(...), $unknown));
+        }
+
+        foreach ($template as $column => $example) {
+            if (is_int($example) ? !is_int($row[$column]) : !is_string($row[$column])) {
+                return sprintf('has a %s in "%s", where the export writes %s', get_debug_type($row[$column]), $column, get_debug_type($example));
+            }
+        }
+
+        if ($row['success'] !== 0 && $row['success'] !== 1) {
+            return 'has a "success" other than 0 or 1';
+        }
+
+        return null;
+    }
+
+    /**
      * @param array<string, int|string> $previous
      * @param array<string, int|string> $row
      * @param list<string>              $errors
+     * @param list<string>              $notes
      */
-    private function checkNeighbours(array $previous, array $row, bool $chainComplete, array &$errors): void
+    private function checkNeighbours(array $previous, array $row, bool $chainComplete, array &$errors, array &$notes): void
     {
         $previousUid = (int) $previous['uid'];
         $uid         = (int) $row['uid'];
@@ -370,8 +426,11 @@ final readonly class AuditChainExporter implements AuditChainExporterInterface
             }
         }
 
+        // A uid gap whose link is intact holds no deleted row: the link proves
+        // the two rows were written one after the other (a rolled-back insert
+        // skips a uid). A deleted row breaks the link, which is reported above.
         if ($chainComplete && $uid !== $previousUid + 1) {
-            $errors[] = sprintf('uid %d to %d are missing from the chain.', $previousUid + 1, $uid - 1);
+            $notes[] = sprintf('uid %d to %d are not in the chain; the link across them is checked above.', $previousUid + 1, $uid - 1);
         }
 
         // A real chain never goes back to a lower epoch, in any selection of it.
