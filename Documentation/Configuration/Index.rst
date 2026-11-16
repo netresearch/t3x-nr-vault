@@ -358,7 +358,10 @@ CLI access
    **excluded by default** and must be added explicitly where a workflow
    genuinely needs them. Prefer a named
    technical actor (``TechnicalActorContext::runAs()``) over widening
-   this list: the audit trail then names the responsible identity.
+   this list: for operations that write audit rows (the secret
+   operations), the audit trail then names the responsible identity. Reading or
+   verifying the audit log writes no row, so there the actor narrows the
+   grant but records nothing.
    Note that the scheduled orphan cleanup deletes secrets and therefore
    needs ``secret.delete`` when it runs as the bare CLI actor.
 
@@ -370,7 +373,11 @@ CLI access
    ``audit.view`` covers three more — :bash:`vault:audit` for plain
    listing, :bash:`vault:audit --verify` and :bash:`vault:audit-verify` —
    so reading or verifying the audit log from an unattributed shell needs
-   it added here. ``secret.manage_policy`` gates the **backend** policy
+   it added here, unless the run uses a configured technical actor instead
+   (:confval:`ext-nrvault-auditorBeUserUid` for :bash:`vault:audit-verify`,
+   :confval:`ext-nrvault-auditReaderBeUserUid` for :bash:`vault:audit`).
+   Anchoring has no such actor; the *Vault Audit Chain Anchoring* scheduler
+   task is its unattended path. ``secret.manage_policy`` gates the **backend** policy
    edit rather than a command, and it is listed because it is the widest
    entry over time: it edits ``allowed_groups`` and ``write_groups``, so a
    shell holding it can widen its own per-secret reach and the widened
@@ -456,7 +463,33 @@ CLI access
    Use a different user than
    :confval:`ext-nrvault-provisioningBeUserUid`: one writes secrets, the other
    reads the audit trail. The UID is read from trusted configuration, never
-   from a CLI argument.
+   from a CLI argument. This user does not open :bash:`vault:audit`; that is
+   :confval:`ext-nrvault-auditReaderBeUserUid`.
+
+.. confval:: auditReaderBeUserUid
+   :name: ext-nrvault-auditReaderBeUserUid
+   :type: integer
+   :Default: 0
+
+   Backend user UID used by :bash:`vault:audit --as-audit-reader` for listing,
+   ``--verify`` and ``--export``. The default 0 disables this option.
+
+   **Setting it opens reading the audit log to every shell.** The UID comes
+   from configuration, so any process that can run :bash:`vendor/bin/typo3`
+   can pass the flag and read the log as this user — and export it, if the
+   user also holds ``audit.export``. Reading the log writes no audit row, so
+   such a read leaves no trace in the chain. Leave it at 0 unless shell access
+   to the log is intended; the audit module and
+   :bash:`vault:audit-verify --as-auditor` cover monitoring without it.
+
+   Configure a dedicated non-admin user whose group carries
+   ``tx_nrvault:audit.view``, plus ``tx_nrvault:audit.export`` if exports are
+   wanted. The permission checks of :bash:`vault:audit` are evaluated for this
+   user. ``--reset-anchor`` is refused together with the option, whatever the
+   user's groups grant: it writes into the audit chain. This is a separate
+   setting from :confval:`ext-nrvault-auditorBeUserUid`, which opens the
+   verification only, so configuring one never widens the other. The UID is
+   read from trusted configuration, never from a CLI argument.
 
 .. confval:: auditLogRetention
    :name: ext-nrvault-auditLogRetention

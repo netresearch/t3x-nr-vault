@@ -107,6 +107,25 @@ interface ExtensionConfigurationInterface
     public function getAuditorBeUserUid(): int;
 
     /**
+     * UID of the technical backend user that `vault:audit --as-audit-reader`
+     * enters via {@see TechnicalActorContextInterface::runAs()}.
+     *
+     * Opt-in and off by default: the UID comes from configuration, so once it
+     * is set every shell that can run the TYPO3 CLI can read (and, with
+     * `audit.export` on the actor, export) the audit log as this user. The
+     * permission checks of `vault:audit` are still evaluated for the actor.
+     * `--reset-anchor` is never run as the reader, because it writes into the
+     * chain.
+     *
+     * A separate setting rather than {@see getAuditorBeUserUid()}: that actor
+     * is documented to open the verification only, and reusing it would widen
+     * every installation that configured it to reading the log.
+     *
+     * @return int<0, max> 0 when no audit reader is configured
+     */
+    public function getAuditReaderBeUserUid(): int;
+
+    /**
      * Check if read operations should be written to the audit log.
      */
     public function isAuditReadsEnabled(): bool;

@@ -425,7 +425,14 @@ Notes on the model:
    ``vault:rotate-master-key`` (``master_key.rotate``) and the audit
    export require adding the respective operation to the allowlist — or,
    preferably, a named technical actor via
-   ``TechnicalActorContext::runAs()``.
+   ``TechnicalActorContext::runAs()``. These options enter one whose UID comes
+   from configuration: ``vault:store --as-provisioner``,
+   ``vault:audit-verify --as-auditor`` and ``vault:audit --as-audit-reader``.
+   Because the UID comes from configuration, any shell can pass these flags;
+   each setting is off by default and, once set, opens its command's modes to
+   every shell, as far as the user's groups grant them. :confval:`ext-nrvault-auditReaderBeUserUid` in
+   particular opens reading (and, with ``audit.export``, exporting) the audit
+   log. Anchoring and ``--reset-anchor`` have no such flag.
 -  **Frontend requests never hold operation permissions**, regardless of
    any backend session the visitor carries — frontend visibility remains
    a property of the secret (``frontend_accessible``) alone. For

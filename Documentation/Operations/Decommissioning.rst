@@ -114,21 +114,24 @@ a verification run after key destruction proves nothing.
 
     ..  code-block:: bash
 
-        vendor/bin/typo3 vault:audit-anchor
+        vendor/bin/typo3 scheduler:run --task=<anchor-task-uid> --force
 
     ..  note::
 
-        Both commands assert an operation permission (breaking change; they
+        Both steps assert an operation permission (breaking change; they
         previously asserted none): ``vault:audit-verify`` needs ``audit.view``,
-        ``vault:audit-anchor`` needs ``vault.configure``, and the export in the
-        next step needs ``audit.export``. All three are excluded from the
-        :confval:`ext-nrvault-cliAllowedOperations` default, so from a shell
-        they need ``allowCliAccess = 1`` **and** the operation in that
-        allowlist — or, better for an evidence run, a named technical actor, so
-        the record names who collected the evidence. ``vault:audit-verify``
-        runs as one with ``--as-auditor`` and
-        :confval:`ext-nrvault-auditorBeUserUid`; it writes no audit row, so
-        its run is not attributed. Sort the grant out before
+        anchoring needs ``vault.configure``, and the export in the next step
+        needs ``audit.export``. All three are excluded from the
+        :confval:`ext-nrvault-cliAllowedOperations` default. The anchor is
+        published by the *Vault Audit Chain Anchoring* task, run once above:
+        :bash:`scheduler:run` authenticates the ``_cli_`` user, which holds
+        ``vault.configure`` through the admin bypass or, under
+        ``disableAdminOverride``, through its group. ``vault:audit-verify`` runs
+        as a named user with ``--as-auditor`` and
+        :confval:`ext-nrvault-auditorBeUserUid`, and the export with
+        ``vault:audit --as-audit-reader`` and
+        :confval:`ext-nrvault-auditReaderBeUserUid`. None of these writes an
+        audit row, so the trail does not record who ran them. Sort the grant out before
         the decommissioning window: after the master key is destroyed there is
         no second chance at this output.
 

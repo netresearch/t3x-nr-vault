@@ -46,13 +46,19 @@ Step 1 — preserve, before you change anything
     :confval:`ext-nrvault-cliAllowedOperations` excludes all of them:
     ``audit.view`` for reading and verifying (``vault:audit``,
     ``vault:audit-verify``), ``audit.export`` for ``--export``, and
-    ``vault.configure`` for re-anchoring (``vault:audit-anchor``) in step 5.
+    ``vault.configure`` for re-anchoring in step 5, which runs the anchoring
+    scheduler task.
     Under time pressure this is the moment the command exits 1 — sort the grant
-    out before the incident, not during it. A named technical actor for the
-    response runbook is the clean answer: the trail then names who responded.
-    ``vault:audit-verify`` runs as one with ``--as-auditor`` and
-    :confval:`ext-nrvault-auditorBeUserUid`; it writes no audit row, so its
-    run is not attributed.
+    out before the incident, not during it. ``vault:audit-verify`` runs as a
+    named user with ``--as-auditor`` and
+    :confval:`ext-nrvault-auditorBeUserUid`. ``vault:audit`` (listing and
+    ``--export``) runs as one with ``--as-audit-reader`` and
+    :confval:`ext-nrvault-auditReaderBeUserUid`, which lets every shell read the
+    log once set, so decide it before the incident too. Neither writes an audit
+    row, so the trail does not record who read or verified. Re-anchoring runs
+    the *Vault Audit Chain Anchoring* scheduler task, which needs no CLI
+    allowlist entry; under ``disableAdminOverride`` the ``_cli_`` user needs a
+    group carrying ``tx_nrvault:vault.configure`` (see step 5).
 
 Copy the audit rows for the affected identifiers and the suspected time window
 out of the system as well (see :ref:`auditor-evidence-collection` for the
@@ -128,8 +134,9 @@ Step 5 — record and re-anchor
 
 ..  code-block:: bash
 
-    vendor/bin/typo3 vault:audit-verify > incident-verify-after.txt
-    vendor/bin/typo3 vault:audit-anchor
+    vendor/bin/typo3 vault:audit-verify --as-auditor > incident-verify-after.txt
+    # Run the anchoring task now rather than waiting for its schedule.
+    vendor/bin/typo3 scheduler:run --task=<anchor-task-uid> --force
 
 Keep the before and after artefacts together with the scope notes.
 

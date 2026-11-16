@@ -614,7 +614,9 @@ View the audit log:
    because it mutates tamper evidence. On the CLI all three additionally need
    ``allowCliAccess`` plus the operation in
    :confval:`ext-nrvault-cliAllowedOperations`, which excludes them by default
-   — see :ref:`command-audit`.
+   — or, for listing, ``--verify`` and ``--export``, ``--as-audit-reader`` with
+   a configured :confval:`ext-nrvault-auditReaderBeUserUid`, which opens
+   reading the log to every shell. See :ref:`command-audit`.
 
 Verify the tamper-evident chain:
 

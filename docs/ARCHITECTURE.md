@@ -151,7 +151,7 @@ vault:rotate               # Rotate (replace) a secret value
 vault:delete               # Delete a secret from the vault
 vault:scan                 # Scan database content for exposed secrets
 vault:migrate-field        # Migrate a database field value into the vault
-vault:audit                # View / export audit entries; --verify checks the hash chain and the in-DB anchor, --reset-anchor clears the anchor after a legitimate wipe
+vault:audit                # View / export audit entries; --verify checks the hash chain and the in-DB anchor, --reset-anchor clears the anchor after a legitimate wipe, --as-audit-reader runs as auditReaderBeUserUid (not with --reset-anchor)
 vault:audit-anchor         # Publish the audit chain tip to the external audit sinks (scheduled task wrapper)
 vault:audit-verify         # Verify the hash chain AND the external chain-tip anchor (scheduled task wrapper)
 vault:audit-migrate-hmac   # Migrate audit log hash chain from SHA-256 to HMAC-SHA256

@@ -246,6 +246,23 @@ final class ExtensionConfiguration implements ExtensionConfigurationInterface, S
     }
 
     /**
+     * UID of the technical backend user `vault:audit --as-audit-reader` acts
+     * as. Fail-closed exactly like {@see getProvisioningBeUserUid()}.
+     *
+     * @return int<0, max>
+     */
+    public function getAuditReaderBeUserUid(): int
+    {
+        $raw = $this->configuration['auditReaderBeUserUid'] ?? 0;
+
+        if (!is_numeric($raw)) {
+            return 0;
+        }
+
+        return max(0, (int) $raw);
+    }
+
+    /**
      * Get backend groups that can access secrets via CLI.
      *
      * @return int[]

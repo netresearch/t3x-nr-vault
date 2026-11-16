@@ -51,6 +51,9 @@ provisioningBeUserUid = 0
 # cat=Security; type=int+; label=Audit Verification Backend User: UID of the technical backend user that "vault:audit-verify --as-auditor" acts as. Lets a shell or a monitoring job verify the audit chain without adding audit.view to the CLI operation allowlist, which would also open reading the audit log (vault:audit) to every shell. Any shell can still run the verification. It reads no secret and writes no audit row; findings still go to the configured audit sinks. The user needs no admin flag, only a group carrying the tx_nrvault:audit.view permission option. Use a different user than the provisioning user. The UID is read from here and never from the command line. 0 disables the option.
 auditorBeUserUid = 0
 
+# cat=Security; type=int+; label=Audit Reader Backend User: UID of the technical backend user that "vault:audit --as-audit-reader" acts as, for listing, verifying and exporting the audit log from a shell. Opt-in and off by default: once set, every shell that can run the TYPO3 CLI can read the audit log as this user, and export it if the user also holds audit.export. The permission checks still apply to this user: a group carrying tx_nrvault:audit.view (and tx_nrvault:audit.export for --export); no admin flag. --reset-anchor is never run as this user. A separate setting from the audit verification user, which opens the verification only. The UID is read from here and never from the command line. 0 disables the option.
+auditReaderBeUserUid = 0
+
 # cat=Security; type=int+; label=Audit Retention Policy (days): Advisory policy reported by vault:doctor (0 = unlimited). No automatic purge is implemented; changing this value does not delete audit entries.
 auditLogRetention = 365
 

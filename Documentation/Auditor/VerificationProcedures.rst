@@ -36,7 +36,10 @@ Read-only evidence collection is in :ref:`auditor-evidence-collection`.
     actor running the procedure (see :ref:`auditor-evidence-collection`) or
     read the same rows through the audit module. ``vault:audit-verify`` runs
     as a named user with ``--as-auditor`` and
-    :confval:`ext-nrvault-auditorBeUserUid`.
+    :confval:`ext-nrvault-auditorBeUserUid`, and ``vault:audit`` with
+    ``--as-audit-reader`` and :confval:`ext-nrvault-auditReaderBeUserUid`.
+    The baseline anchor can also be published by running the *Vault Audit Chain
+    Anchoring* task once with :bash:`scheduler:run --task=<uid> --force`.
 
 .. _auditor-verify-reveal-audited:
 

@@ -221,6 +221,27 @@ final class ExtensionConfigurationTest extends TestCase
         self::assertSame($expected, $config->getAuditorBeUserUid());
     }
 
+    /**
+     * Same fail-closed contract, and a separate key: neither the provisioning
+     * nor the audit verification uid turns into the audit reader.
+     *
+     * @param mixed $configured the raw auditReaderBeUserUid value
+     */
+    #[DataProvider('provisioningUidProvider')]
+    #[Test]
+    public function getAuditReaderBeUserUidFailsClosed(mixed $configured, int $expected): void
+    {
+        $this->typo3Config->method('get')->willReturn([
+            'auditReaderBeUserUid'  => $configured,
+            'auditorBeUserUid'      => 8,
+            'provisioningBeUserUid' => 7,
+        ]);
+
+        $config = new ExtensionConfiguration($this->typo3Config);
+
+        self::assertSame($expected, $config->getAuditReaderBeUserUid());
+    }
+
     #[Test]
     public function getCliAccessGroupsParsesCommaString(): void
     {

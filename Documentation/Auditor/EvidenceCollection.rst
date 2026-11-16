@@ -28,14 +28,15 @@ artefact is the evidence, not the terminal.
     ``--reset-anchor`` — and the two scheduler-task wrappers,
     ``vault:audit-verify`` (``audit.view``) and ``vault:audit-anchor``
     (``vault.configure``).
-    The cleanest arrangement for an assessment is a named technical actor
-    holding exactly those, so every evidence command appears in the audit trail
-    under its own identity rather than as the anonymous CLI operator. For
-    ``vault:audit-verify`` that is ``--as-auditor`` with
-    :confval:`ext-nrvault-auditorBeUserUid`. It opens only the verification
-    to the shell, not the other ``audit.view`` commands such as reading the
-    log with ``vault:audit``. Verification itself writes no audit row, so the
-    trail does not record that it ran.
+    Two commands have a named technical actor for this. ``vault:audit-verify``
+    runs with ``--as-auditor`` and :confval:`ext-nrvault-auditorBeUserUid`; it
+    opens only the verification to the shell. ``vault:audit`` (listing,
+    ``--verify``, ``--export``) runs with ``--as-audit-reader`` and
+    :confval:`ext-nrvault-auditReaderBeUserUid`; once set, every shell can read
+    the log, so it is off by default. Neither reading nor verifying writes an
+    audit row, so the trail does not record that they ran.
+    ``vault:audit-anchor`` and ``--reset-anchor`` have no such option; the
+    anchor is published by the *Vault Audit Chain Anchoring* scheduler task.
 
     A refusal is not evidence about the vault's contents: the command exits 1
     before doing any work, and writes no audit row. Record it as a gap in the
