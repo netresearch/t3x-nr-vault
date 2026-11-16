@@ -283,6 +283,35 @@ final class VaultAuditCommandTest extends TestCase
      * An empty `--export=` is not an export — it falls through to the console
      * display, so it must be gated on `audit.view`, not `audit.export`.
      */
+    /**
+     * --verify-export next to another mode would run that mode and never open
+     * the file, so a "valid" line could be read as the file's verdict.
+     *
+     * @return iterable<string, array{array<string, string|bool>}>
+     */
+    public static function conflictingVerifyExportProvider(): iterable
+    {
+        yield 'with --export' => [['--export' => 'vfs://exports/a.json', '--verify-export' => 'vfs://exports/b.json']];
+        yield 'with --verify' => [['--verify' => true, '--verify-export' => 'vfs://exports/b.json']];
+        yield 'with --reset-anchor' => [['--reset-anchor' => true, '--force' => true, '--verify-export' => 'vfs://exports/b.json']];
+    }
+
+    /**
+     * @param array<string, string|bool> $arguments
+     */
+    #[DataProvider('conflictingVerifyExportProvider')]
+    #[Test]
+    public function verifyExportIsRefusedNextToAnotherMode(array $arguments): void
+    {
+        $this->chainExporter->expects($this->never())->method('verify');
+        $this->chainExporter->expects($this->never())->method('select');
+        $this->auditLogService->expects($this->never())->method('verifyHashChain');
+        $this->anchorStore->expects($this->never())->method('reset');
+
+        self::assertSame(1, $this->commandTester->execute($arguments));
+        self::assertStringContainsString('cannot be combined', $this->normalizedDisplay());
+    }
+
     #[Test]
     public function emptyExportOptionIsGatedAsDisplay(): void
     {

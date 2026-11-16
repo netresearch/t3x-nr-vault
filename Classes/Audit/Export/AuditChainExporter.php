@@ -159,11 +159,13 @@ final readonly class AuditChainExporter implements AuditChainExporterInterface
         // and anchor checks read these and nothing else, so no check can see a
         // value the hash check did not.
         $verifiedRows = [];
-        // The keyless epoch 0 needs no key, so whoever edits the file can write
-        // any epoch-0 row and recompute its hash. On an installation that signs
-        // its chain with HMAC, an epoch-0 row is therefore accepted only when
-        // the installation stores a keyless row with the same uid and the same
-        // entry hash: the stored chain is the only evidence such a row has.
+        // A row below the configured epoch is weaker than the chain it sits in:
+        // the keyless epoch 0 can be recomputed by anyone who edits the file,
+        // and epochs 1 and 2 leave columns out of their hash, and an old export
+        // still carries the rows from before the migration re-sealed them. On
+        // an installation that signs its chain with HMAC, such a row is accepted
+        // only when the installation stores the same row, column for column, at
+        // the same uid: the stored chain is the only evidence such a row has.
         $floorEpoch = $this->configuration->getAuditHmacEpoch();
 
         try {
@@ -192,19 +194,20 @@ final readonly class AuditChainExporter implements AuditChainExporterInterface
                     }
                 }
 
-                if ($epoch === 0 && $floorEpoch > 0) {
+                if ($epoch < $floorEpoch) {
                     try {
-                        $stored = $this->storedEntryHash($uid, keylessOnly: true);
+                        $stored = $this->storedExportRow($uid);
                     } catch (Throwable $e) {
                         $stored  = null;
                         $notes[] = 'The stored chain could not be consulted: ' . $e->getMessage();
                     }
 
-                    if ($stored === null || !hash_equals($stored, (string) $row['entry_hash'])) {
+                    if ($stored !== $row) {
                         $errors[] = sprintf(
-                            'uid %d is exported as keyless epoch 0 and differs from the keyless row this installation stores '
-                            . '(or it stores none at that uid); with HMAC at epoch %d, a keyless row is only confirmed by the stored chain.',
+                            'uid %d is exported at epoch %d and differs from the row this installation stores '
+                            . '(or it stores none at that uid); with HMAC at epoch %d, a row below that epoch is only confirmed by the stored chain.',
                             $uid,
+                            $epoch,
                             $floorEpoch,
                         );
                         $previous = $row;
@@ -225,7 +228,7 @@ final readonly class AuditChainExporter implements AuditChainExporterInterface
                 }
 
                 if ($previous !== null) {
-                    $this->checkNeighbours($previous, $row, $chainComplete, $errors, $notes);
+                    $this->checkNeighbours($previous, $row, $chainComplete, $floorEpoch, $errors, $notes);
                 }
 
                 $previous = $row;
@@ -415,7 +418,7 @@ final readonly class AuditChainExporter implements AuditChainExporterInterface
      * @param list<string>              $errors
      * @param list<string>              $notes
      */
-    private function checkNeighbours(array $previous, array $row, bool $chainComplete, array &$errors, array &$notes): void
+    private function checkNeighbours(array $previous, array $row, bool $chainComplete, int $floorEpoch, array &$errors, array &$notes): void
     {
         $previousUid = (int) $previous['uid'];
         $uid         = (int) $row['uid'];
@@ -435,15 +438,17 @@ final readonly class AuditChainExporter implements AuditChainExporterInterface
             }
         }
 
-        // A uid gap is tolerated only between keyed rows: there the HMAC link
-        // (previous_hash is part of every keyed row's MAC) proves the two rows
-        // were written one after the other, so the gap is a skipped uid (a
-        // rolled-back insert), not a removed row. A keyless row's hash can be
-        // recomputed by anyone, so a gap next to one proves nothing.
+        // A uid gap is tolerated only where both neighbours are proven: between
+        // keyed rows the HMAC link (previous_hash is part of every keyed row's
+        // MAC) proves the two rows were written one after the other, so the gap
+        // is a skipped uid (a rolled-back insert), not a removed row. A keyless
+        // row's hash can be recomputed by anyone, so a gap next to one proves
+        // nothing - unless the installation signs with HMAC, where every
+        // keyless row has already been confirmed against the stored row above.
         // Only in a file claiming the whole chain; a filtered or truncated one
         // has gaps by selection.
         if ($chainComplete && $uid !== $previousUid + 1) {
-            if ((int) $previous['hmac_key_epoch'] === 0 || (int) $row['hmac_key_epoch'] === 0) {
+            if ($floorEpoch === 0 && ((int) $previous['hmac_key_epoch'] === 0 || (int) $row['hmac_key_epoch'] === 0)) {
                 $errors[] = sprintf('uid %d to %d are not in the export, next to a keyless row whose link can be recomputed.', $previousUid + 1, $uid - 1);
             } else {
                 $notes[] = sprintf('uid %d to %d are not in the chain; the keyed link across them is intact.', $previousUid + 1, $uid - 1);
@@ -493,20 +498,35 @@ final readonly class AuditChainExporter implements AuditChainExporterInterface
         } while (count($chunk) === self::CHUNK_SIZE);
     }
 
-    private function storedEntryHash(int $uid, bool $keylessOnly = false): ?string
+    private function storedEntryHash(int $uid): ?string
     {
         $queryBuilder = $this->queryBuilder();
-        $queryBuilder
+        $value        = $queryBuilder
             ->select('entry_hash')
             ->from(self::TABLE_NAME)
-            ->where($queryBuilder->expr()->eq('uid', $queryBuilder->createNamedParameter($uid, Connection::PARAM_INT)));
-        if ($keylessOnly) {
-            $queryBuilder->andWhere($queryBuilder->expr()->eq('hmac_key_epoch', $queryBuilder->createNamedParameter(0, Connection::PARAM_INT)));
-        }
-
-        $value = $queryBuilder->executeQuery()->fetchOne();
+            ->where($queryBuilder->expr()->eq('uid', $queryBuilder->createNamedParameter($uid, Connection::PARAM_INT)))
+            ->executeQuery()
+            ->fetchOne();
 
         return is_string($value) ? $value : null;
+    }
+
+    /**
+     * The stored row at $uid in export form, or null when there is none.
+     *
+     * @return array<string, int|string>|null
+     */
+    private function storedExportRow(int $uid): ?array
+    {
+        $queryBuilder = $this->queryBuilder();
+        $row          = $queryBuilder
+            ->select('*')
+            ->from(self::TABLE_NAME)
+            ->where($queryBuilder->expr()->eq('uid', $queryBuilder->createNamedParameter($uid, Connection::PARAM_INT)))
+            ->executeQuery()
+            ->fetchAssociative();
+
+        return is_array($row) ? self::exportRow($row) : null;
     }
 
     private function countNewerThan(int $uid): int

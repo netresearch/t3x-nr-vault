@@ -517,7 +517,10 @@ uid range against the ``export`` block. In a file that claims
 listed but is not an error: ``previous_hash`` is inside every keyed row's
 HMAC, so an intact link proves the two rows were written one after the other
 and the gap is a skipped uid (a rolled-back insert). A gap next to a keyless
-epoch-0 row is an error, because anyone can recompute those hashes. It reports the file as verified only
+epoch-0 row is an error when :confval:`ext-nrvault-auditHmacEpoch` is 0,
+because anyone can recompute those hashes; at 1 or higher it is listed like a
+keyed gap, because every keyless row has then been confirmed against the
+stored row (see below). It reports the file as verified only
 when it checked as many rows as the file declares, at least one, and found
 nothing. It reads the whole file into memory; the export itself is streamed.
 
@@ -535,14 +538,17 @@ that the file lacks is an error; a filtered file may lack it. An
 export taken before newer entries were written therefore verifies, but not as
 the whole chain.
 
-Epoch 0 needs no key, so anyone who edits the file could write any epoch-0
-row and recompute its hash. The verifier therefore takes the rule for keyless
-rows from the installation it runs on, not from the file: when
-:confval:`ext-nrvault-auditHmacEpoch` is 1 or higher, an epoch-0 row is
-accepted only when the installation stores a keyless row with the same uid and
-the same ``entry_hash``. An export with legitimate epoch-0 rows therefore no
-longer verifies on an installation whose audit table has been emptied, or
-after the HMAC migration has re-signed every stored row at a higher epoch.
+A row below the configured epoch proves less than the chain it sits in:
+epoch 0 needs no key, so anyone who edits the file could write any epoch-0 row
+and recompute its hash, and epochs 1 and 2 leave columns out of their hash.
+The verifier therefore takes the rule for such rows from the installation it
+runs on, not from the file: a row whose ``hmac_key_epoch`` is below
+:confval:`ext-nrvault-auditHmacEpoch` is accepted only when the installation
+stores the same row, every exported column equal, at the same uid. An export
+with legitimate older rows therefore no longer verifies on an installation
+whose audit table has been emptied, or after the HMAC migration has re-signed
+the stored rows at a higher epoch: an export taken before the migration has to
+be verified on a copy of the installation from before it.
 
 A row that verifies proves the columns its epoch binds, not all of them: epoch
 0 and 1 bind ``uid``, ``secret_identifier``, ``action``, ``actor_uid``,
@@ -565,7 +571,8 @@ builds; it needs the derived key, not the master key itself.
 
 The CSV form (``--format=csv``) carries the same columns and the ``export``
 block as ``#`` comment lines in front of the header, but it is not byte-exact:
-values that start with ``=``, ``+``, ``-`` or ``@`` get a leading ``'`` so a
+values that start with ``=``, ``+``, ``-``, ``@``, a tab or a carriage return
+get a leading ``'`` so a
 spreadsheet does not run them as formulas, and a row whose value already
 starts with ``'`` cannot be told apart from one that was escaped. Use JSON for
 evidence that has to be re-verified.

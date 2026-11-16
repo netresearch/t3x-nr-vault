@@ -226,6 +226,39 @@ final class AuditChainExporterTest extends TestCase
     }
 
     #[Test]
+    public function rowsBelowEpochThreeListTheColumnsTheirHashLeavesUnbound(): void
+    {
+        $result = $this->exporter()->verify($this->document($this->chain([1, 2, 3])));
+
+        $notes = implode("\n", $result->notes);
+        self::assertStringContainsString('Rows at epoch 0 and 1 bind only', $notes);
+        self::assertStringContainsString('Rows at epoch 2 do not bind', $notes);
+    }
+
+    /**
+     * With HMAC on, a row below the configured epoch is confirmed against the
+     * stored chain. When the stored chain cannot be read, the row is refused,
+     * not waved through.
+     */
+    #[Test]
+    public function aRowBelowTheConfiguredEpochIsRefusedWhenTheStoredChainCannotBeRead(): void
+    {
+        $configuration = self::createStub(ExtensionConfigurationInterface::class);
+        $configuration->method('getAuditHmacEpoch')->willReturn(3);
+        $pool = self::createStub(ConnectionPool::class);
+        $pool->method('getConnectionForTable')->willThrowException(new RuntimeException('database down'));
+        $provider = self::createStub(MasterKeyProviderInterface::class);
+        $provider->method('getMasterKey')->willReturnCallback(static fn (): string => self::MASTER_KEY);
+        $exporter = new AuditChainExporter($pool, $provider, $configuration, self::createStub(AnchorReaderInterface::class));
+
+        $result = $exporter->verify($this->document($this->chain([0, 3])));
+
+        self::assertFalse($result->isValid());
+        self::assertStringContainsString('database down', implode("\n", $result->notes));
+        self::assertStringContainsString('uid 1', implode("\n", $result->errors));
+    }
+
+    #[Test]
     public function aForeignDocumentIsNotValid(): void
     {
         $document                     = $this->document($this->chain([0]));

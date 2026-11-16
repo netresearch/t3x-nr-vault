@@ -269,6 +269,14 @@ final class VaultAuditCommand extends Command
             return Command::FAILURE;
         }
 
+        // Each of these runs its own mode and never opens the file, so a
+        // "valid" line could be read as the file's verdict.
+        if ($verifyExportFile !== null && ($verify || $resetAnchor)) {
+            $io->error('--verify-export cannot be combined with --verify or --reset-anchor: run it on its own.');
+
+            return Command::FAILURE;
+        }
+
         // One gate for the whole command, resolved from the mode the
         // invocation selects — the same mode the dispatch below uses, so no
         // branch can reach its work through an unasserted permission. The

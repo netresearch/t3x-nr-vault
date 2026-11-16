@@ -13,6 +13,7 @@ use Netresearch\NrVault\Audit\AuditAction;
 use Netresearch\NrVault\Audit\AuditChainAnchorStore;
 use Netresearch\NrVault\Audit\AuditLogService;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
+use Netresearch\NrVault\Audit\Export\AuditChainExporter;
 use Netresearch\NrVault\Audit\GenericContext;
 use Netresearch\NrVault\Command\VaultAuditCommand;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
@@ -139,8 +140,11 @@ final class VaultAuditCommandExportTest extends AbstractVaultFunctionalTestCase
 
         $document = json_decode((string) file_get_contents($file), true, 512, JSON_THROW_ON_ERROR);
         self::assertIsArray($document);
-        $rows               = $this->readRows($file);
-        $rows[1]['success'] = $rows[1]['success'] === 1 ? 0 : 1;
+        $rows = $this->readRows($file);
+        // An epoch-3 row: rows below the configured epoch are compared with
+        // the stored row first, this one reaches the hash check.
+        self::assertSame(3, $rows[2]['hmac_key_epoch']);
+        $rows[2]['success'] = $rows[2]['success'] === 1 ? 0 : 1;
         $document['rows']   = $rows;
         file_put_contents($file, json_encode($document, JSON_THROW_ON_ERROR));
 
@@ -148,6 +152,9 @@ final class VaultAuditCommandExportTest extends AbstractVaultFunctionalTestCase
 
         self::assertSame(Command::FAILURE, $verify->getStatusCode());
         self::assertStringContainsString('entry hash does not match', $this->normalize($verify));
+        // Genesis, tip and the stored tip row are all intact, so every
+        // whole-chain condition holds; the error alone withholds the verdict.
+        self::assertMatchesRegularExpression('/Whole chain\s+not confirmed/', $this->normalize($verify));
     }
 
     /**
@@ -178,7 +185,7 @@ final class VaultAuditCommandExportTest extends AbstractVaultFunctionalTestCase
         $verify = $this->executeAudit(['--verify-export' => $file]);
 
         self::assertSame(Command::FAILURE, $verify->getStatusCode());
-        self::assertStringContainsString('keyless epoch 0', $this->normalize($verify));
+        self::assertStringContainsString('is exported at epoch 0', $this->normalize($verify));
     }
 
     /**
@@ -219,7 +226,72 @@ final class VaultAuditCommandExportTest extends AbstractVaultFunctionalTestCase
         $verify = $this->executeAudit(['--verify-export' => $file]);
 
         self::assertSame(Command::FAILURE, $verify->getStatusCode());
-        self::assertStringContainsString('differs from the keyless row this installation stores', $this->normalize($verify));
+        self::assertStringContainsString('differs from the row this installation stores', $this->normalize($verify));
+    }
+
+    /**
+     * Epoch 2 does not bind the actor columns, so the row hash still matches
+     * after actor_username is edited. Rows below epoch 3 are therefore compared
+     * column by column with the stored row.
+     */
+    #[Test]
+    public function anEditedColumnThatEpochTwoLeavesUnboundFailsVerification(): void
+    {
+        $this->seedTwoEpochs();
+        $file = $this->exportFile();
+        $this->executeAudit(['--export' => $file, '--identifier' => 'export_epoch_0']);
+
+        $document = json_decode((string) file_get_contents($file), true, 512, JSON_THROW_ON_ERROR);
+        self::assertIsArray($document);
+        $rows = $this->readRows($file);
+        self::assertSame(2, $rows[0]['hmac_key_epoch']);
+        $rows[0]['actor_username'] = 'someone_else';
+        $document['rows']          = $rows;
+        file_put_contents($file, json_encode($document, JSON_THROW_ON_ERROR));
+
+        $verify = $this->executeAudit(['--verify-export' => $file]);
+
+        self::assertSame(Command::FAILURE, $verify->getStatusCode());
+        self::assertStringContainsString('differs from the row this installation stores', $this->normalize($verify));
+    }
+
+    /**
+     * A uid gap next to keyless rows is a note, not an error, once the
+     * installation signs with HMAC: every keyless row has been confirmed
+     * against the stored row, so the gap is in the stored chain too.
+     */
+    #[Test]
+    public function aGapNextToConfirmedKeylessRowsVerifiesAsTheWholeChain(): void
+    {
+        $hmacKey    = AuditLogService::deriveHmacKey($this->get(MasterKeyProviderInterface::class));
+        $connection = $this->get(ConnectionPool::class)->getConnectionForTable('tx_nrvault_audit_log');
+        $previous   = '';
+        foreach ([[1, 0], [2, 0], [4, 3]] as $index => [$uid, $epoch]) {
+            $row = [
+                'uid'               => $uid,
+                'secret_identifier' => 'gap_' . $index,
+                'action'            => 'read',
+                'success'           => 1,
+                'actor_uid'         => 1,
+                'crdate'            => 1704067200 + $index,
+                'context'           => '{}',
+                'reason'            => '',
+                'hmac_key_epoch'    => $epoch,
+                'previous_hash'     => $previous,
+            ];
+            $row['entry_hash'] = AuditLogService::calculateEntryHash($row, $previous, $epoch === 0 ? '' : $hmacKey);
+            $previous          = $row['entry_hash'];
+            $connection->insert('tx_nrvault_audit_log', AuditChainExporter::exportRow($row));
+        }
+
+        $file = $this->exportFile();
+        self::assertSame(Command::SUCCESS, $this->executeAudit(['--export' => $file])->getStatusCode());
+
+        $verify = $this->executeAudit(['--verify-export' => $file]);
+
+        self::assertSame(Command::SUCCESS, $verify->getStatusCode(), $this->normalize($verify));
+        self::assertStringContainsString('uid 3 to 3 are not in the chain', $this->normalize($verify));
+        self::assertMatchesRegularExpression('/Whole chain\s+yes/', $this->normalize($verify));
     }
 
     /**
