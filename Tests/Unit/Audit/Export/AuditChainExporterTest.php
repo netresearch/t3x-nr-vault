@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Unit\Audit\Export;
 
+use Netresearch\NrVault\Audit\Anchor\AnchorReaderInterface;
 use Netresearch\NrVault\Audit\AuditLogService;
 use Netresearch\NrVault\Audit\Export\AuditChainExporter;
 use Netresearch\NrVault\Audit\Export\AuditExportVerification;
@@ -90,7 +91,7 @@ final class AuditChainExporterTest extends TestCase
     {
         $provider = self::createStub(MasterKeyProviderInterface::class);
         $provider->method('getMasterKey')->willThrowException(new RuntimeException('no key'));
-        $exporter = new AuditChainExporter(self::createStub(ConnectionPool::class), $provider, $this->legacyConfiguration());
+        $exporter = new AuditChainExporter(self::createStub(ConnectionPool::class), $provider, $this->legacyConfiguration(), self::createStub(AnchorReaderInterface::class));
 
         $result = $exporter->verify($this->document($this->chain([0, 3])));
 
@@ -114,6 +115,23 @@ final class AuditChainExporterTest extends TestCase
 
         self::assertFalse($result->isValid());
         self::assertStringContainsString('epoch downgrade 3 -> 2', implode("\n", $result->errors));
+    }
+
+    /**
+     * Cutting the head and rewriting the header to match leaves a consistent
+     * file; it still does not start the chain, so it is never "whole chain".
+     */
+    #[Test]
+    public function aHeadCutWithARewrittenHeaderIsNotTheWholeChain(): void
+    {
+        $rows                         = array_values(array_slice($this->chain([0, 0, 0, 0]), 1));
+        $document                     = $this->document($rows);
+        $document['export']['tipUid'] = 4;
+
+        $result = $this->exporter()->verify($document);
+
+        self::assertFalse($result->chainComplete);
+        self::assertStringContainsString('does not start the chain', implode("\n", $result->notes));
     }
 
     #[Test]
@@ -143,7 +161,7 @@ final class AuditChainExporterTest extends TestCase
         $provider = self::createStub(MasterKeyProviderInterface::class);
         $provider->method('getMasterKey')->willReturnCallback(static fn (): string => self::MASTER_KEY);
 
-        return new AuditChainExporter(self::createStub(ConnectionPool::class), $provider, $this->legacyConfiguration());
+        return new AuditChainExporter(self::createStub(ConnectionPool::class), $provider, $this->legacyConfiguration(), self::createStub(AnchorReaderInterface::class));
     }
 
     /**
@@ -193,6 +211,7 @@ final class AuditChainExporterTest extends TestCase
                 'count'         => $declaredCount ?? count($rows),
                 'firstUid'      => $firstUid ?? ($rows === [] ? 0 : $rows[0]['uid']),
                 'lastUid'       => $lastUid ?? ($rows === [] ? 0 : $rows[count($rows) - 1]['uid']),
+                'tipUid'        => $rows === [] ? 0 : $rows[count($rows) - 1]['uid'],
                 'chainComplete' => true,
                 'truncated'     => false,
             ],

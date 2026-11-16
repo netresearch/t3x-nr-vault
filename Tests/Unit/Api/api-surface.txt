@@ -261,7 +261,7 @@ Netresearch\NrVault\Audit\Export\AuditChainExporterInterface (interface)
   method verify(array $document): Netresearch\NrVault\Audit\Export\AuditExportVerification
 
 Netresearch\NrVault\Audit\Export\AuditExportVerification (class)
-  constructor(int $rowsChecked, int $declaredCount, array $errors, array $epochCounts, bool $chainComplete, bool $truncated, int $firstUid, int $lastUid)
+  constructor(int $rowsChecked, int $declaredCount, array $errors, array $epochCounts, bool $chainComplete, bool $truncated, int $firstUid, int $lastUid, array $notes = …)
   method isValid(): bool
   property readonly chainComplete: bool
   property readonly declaredCount: int
@@ -269,6 +269,7 @@ Netresearch\NrVault\Audit\Export\AuditExportVerification (class)
   property readonly errors: array
   property readonly firstUid: int
   property readonly lastUid: int
+  property readonly notes: array
   property readonly rowsChecked: int
   property readonly truncated: bool
 

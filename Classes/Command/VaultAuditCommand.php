@@ -814,7 +814,7 @@ final class VaultAuditCommand extends Command
         $io->definitionList(
             ['Rows checked' => sprintf('%d of %d declared', $result->rowsChecked, $result->declaredCount)],
             ['Uid range' => sprintf('%d to %d', $result->firstUid, $result->lastUid)],
-            ['Whole chain' => $result->chainComplete ? 'yes' : 'no (filtered or truncated)'],
+            ['Whole chain' => $result->chainComplete ? 'yes' : 'not confirmed'],
             ['HMAC epochs' => $result->epochCounts === []
                 ? '(none)'
                 : implode(', ', array_map(
@@ -824,10 +824,14 @@ final class VaultAuditCommand extends Command
                 ))],
         );
 
+        foreach ($result->notes as $note) {
+            $io->writeln(' * ' . $note);
+        }
+
         if ($result->isValid()) {
             $io->success($result->chainComplete
                 ? 'Export verified: every row matches its entry hash and links to its predecessor.'
-                : 'Export verified: every row matches its entry hash. It is not the whole chain, so missing rows cannot be detected.');
+                : 'Export verified: every row matches its entry hash. It is not confirmed as the whole chain, so missing rows cannot be ruled out.');
 
             return Command::SUCCESS;
         }

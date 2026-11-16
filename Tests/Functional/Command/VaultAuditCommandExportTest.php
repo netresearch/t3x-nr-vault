@@ -96,6 +96,38 @@ final class VaultAuditCommandExportTest extends AbstractVaultFunctionalTestCase
         $verify = $this->executeAudit(['--verify-export' => $file]);
         self::assertSame(Command::SUCCESS, $verify->getStatusCode(), $verify->getDisplay());
         self::assertStringContainsString('Export verified', $this->normalize($verify));
+        self::assertStringContainsString('Whole chain yes', $this->normalize($verify));
+    }
+
+    /**
+     * Cutting the tail and rewriting the header to match leaves a consistent
+     * file; the installation still stores the cut row, so the file is never
+     * reported as the whole chain.
+     */
+    #[Test]
+    public function aTailCutWithARewrittenHeaderIsNotTheWholeChain(): void
+    {
+        $this->seedTwoEpochs();
+        $file = $this->exportFile();
+        $this->executeAudit(['--export' => $file]);
+
+        $document = json_decode((string) file_get_contents($file), true, 512, JSON_THROW_ON_ERROR);
+        self::assertIsArray($document);
+        self::assertIsArray($document['export']);
+        $rows                          = array_slice($this->readRows($file), 0, -1);
+        $last                          = $rows[count($rows) - 1];
+        $document['rows']              = $rows;
+        $document['export']['count']   = count($rows);
+        $document['export']['total']   = count($rows);
+        $document['export']['lastUid'] = $last['uid'];
+        $document['export']['tipUid']  = $last['uid'];
+        file_put_contents($file, json_encode($document, JSON_THROW_ON_ERROR));
+
+        $verify = $this->executeAudit(['--verify-export' => $file]);
+
+        self::assertStringContainsString('Whole chain not confirmed', $this->normalize($verify));
+        self::assertStringContainsString('stores 1 entry after uid', $this->normalize($verify));
+        self::assertStringNotContainsString('links to its predecessor', $this->normalize($verify));
     }
 
     #[Test]

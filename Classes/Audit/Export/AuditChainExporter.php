@@ -10,6 +10,8 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Audit\Export;
 
 use Generator;
+use Netresearch\NrVault\Audit\Anchor\AnchorReaderInterface;
+use Netresearch\NrVault\Audit\Anchor\ChainTipAnchor;
 use Netresearch\NrVault\Audit\AuditLogFilter;
 use Netresearch\NrVault\Audit\AuditLogService;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
@@ -55,6 +57,7 @@ final readonly class AuditChainExporter implements AuditChainExporterInterface
         private ConnectionPool $connectionPool,
         private MasterKeyProviderInterface $masterKeyProvider,
         private ExtensionConfigurationInterface $configuration,
+        private AnchorReaderInterface $anchorReader,
     ) {}
 
     public function select(?AuditLogFilter $filter = null, ?int $limit = null): AuditChainExport
@@ -63,7 +66,7 @@ final readonly class AuditChainExporter implements AuditChainExporterInterface
             $filter = null;
         }
 
-        $tipUid = $this->aggregateUid('MAX', null, PHP_INT_MAX);
+        $tipUid = $this->aggregateUid('MAX', null, null);
         $total  = $this->countUpTo($filter, $tipUid);
         $count  = $limit === null ? $total : min($total, max(0, $limit));
 
@@ -117,8 +120,13 @@ final readonly class AuditChainExporter implements AuditChainExporterInterface
         $meta = is_array($document['export'] ?? null) ? $document['export'] : [];
         $rows = is_array($document['rows'] ?? null) ? $document['rows'] : null;
 
+        // What the file claims. The result's "whole chain" is derived below
+        // from the rows and the installation; the claim only selects how
+        // strictly neighbours are checked.
         $chainComplete = ($meta['chainComplete'] ?? null) === true;
         $truncated     = ($meta['truncated'] ?? null) === true;
+        $tipUid        = is_int($meta['tipUid'] ?? null) ? $meta['tipUid'] : -1;
+        $notes         = [];
         $firstUid      = is_int($meta['firstUid'] ?? null) ? $meta['firstUid'] : 0;
         $lastUid       = is_int($meta['lastUid'] ?? null) ? $meta['lastUid'] : 0;
 
@@ -130,7 +138,7 @@ final readonly class AuditChainExporter implements AuditChainExporterInterface
         if ($rows === null) {
             $errors[] = 'The document has no "rows" list.';
 
-            return new AuditExportVerification(0, -1, $errors, [], $chainComplete, $truncated, $firstUid, $lastUid);
+            return new AuditExportVerification(0, -1, $errors, [], false, $truncated, $firstUid, $lastUid, $notes);
         }
 
         $declaredCount = is_int($meta['count'] ?? null) ? $meta['count'] : -1;
@@ -240,13 +248,101 @@ final readonly class AuditChainExporter implements AuditChainExporterInterface
             }
         }
 
+        $wholeChain = $chainComplete && $rows !== [] && $previous !== null
+            && $this->isWholeChain($rows, $previous, $tipUid, $errors, $notes);
+
         if ($floorEpoch > 0 && $rows !== [] && $keyed === 0) {
             $errors[] = 'No row was checked with the HMAC key, although this installation signs its audit chain with it.';
         }
 
         ksort($epochCounts);
 
-        return new AuditExportVerification($checked, $declaredCount, $errors, $epochCounts, $chainComplete, $truncated, $firstUid, $lastUid);
+        return new AuditExportVerification($checked, $declaredCount, $errors, $epochCounts, $wholeChain, $truncated, $firstUid, $lastUid, $notes);
+    }
+
+    /**
+     * Whether the export is the whole chain, judged from the rows and the
+     * installation rather than from the file's own claim: the first row is the
+     * genesis row, the last row is the declared tip, the installation stores
+     * no newer row, and the newest external anchor neither lies beyond the
+     * export nor disagrees with the exported row at its sequence. Anything that
+     * cannot be checked counts against it. A disagreement with the stored row
+     * or the anchor is an error, the rest only withholds "whole chain".
+     *
+     * @param array<mixed>              $rows
+     * @param array<string, int|string> $last   the last row, normalised
+     * @param list<string>              $errors
+     * @param list<string>              $notes
+     */
+    private function isWholeChain(array $rows, array $last, int $tipUid, array &$errors, array &$notes): bool
+    {
+        $first   = reset($rows);
+        $lastUid = (int) $last['uid'];
+
+        if (!is_array($first) || ($first['previous_hash'] ?? null) !== '') {
+            $notes[] = 'The first row does not start the chain (its previous_hash is not empty).';
+
+            return false;
+        }
+
+        if ($tipUid !== $lastUid) {
+            $notes[] = sprintf('The export ends at uid %d, not at its declared tip uid %d.', $lastUid, $tipUid);
+
+            return false;
+        }
+
+        try {
+            $stored = $this->storedRow($lastUid);
+            if ($stored === null) {
+                $notes[] = sprintf('This installation does not store uid %d, so the end of the export cannot be confirmed.', $lastUid);
+
+                return false;
+            }
+
+            if (!hash_equals($stored, (string) $last['entry_hash'])) {
+                $errors[] = sprintf('uid %d differs from the row this installation stores.', $lastUid);
+
+                return false;
+            }
+
+            $newer = $this->countNewerThan($lastUid);
+            if ($newer > 0) {
+                $notes[] = sprintf('This installation stores %d entr%s after uid %d.', $newer, $newer === 1 ? 'y' : 'ies', $lastUid);
+
+                return false;
+            }
+        } catch (Throwable $e) {
+            $notes[] = 'The installation could not be consulted: ' . $e->getMessage();
+
+            return false;
+        }
+
+        try {
+            $anchor = $this->anchorReader->isAvailable() ? $this->anchorReader->readLatestAnchor() : null;
+        } catch (Throwable $e) {
+            $notes[] = 'The external anchor could not be read: ' . $e->getMessage();
+
+            return false;
+        }
+
+        if ($anchor instanceof ChainTipAnchor && !$anchor->isEmpty()) {
+            if ($anchor->sequence > $lastUid) {
+                $notes[] = sprintf('The newest external anchor is at uid %d, beyond the end of the export.', $anchor->sequence);
+
+                return false;
+            }
+
+            foreach ($rows as $row) {
+                if (is_array($row) && ($row['uid'] ?? null) === $anchor->sequence
+                    && !hash_equals($anchor->chainTip, is_string($row['entry_hash'] ?? null) ? $row['entry_hash'] : '')) {
+                    $errors[] = sprintf('uid %d differs from the external anchor taken at that uid.', $anchor->sequence);
+
+                    return false;
+                }
+            }
+        }
+
+        return true;
     }
 
     /**
@@ -321,6 +417,32 @@ final readonly class AuditChainExporter implements AuditChainExporterInterface
         } while (count($chunk) === self::CHUNK_SIZE);
     }
 
+    private function storedRow(int $uid): ?string
+    {
+        $queryBuilder = $this->queryBuilder();
+        $value        = $queryBuilder
+            ->select('entry_hash')
+            ->from(self::TABLE_NAME)
+            ->where($queryBuilder->expr()->eq('uid', $queryBuilder->createNamedParameter($uid, Connection::PARAM_INT)))
+            ->executeQuery()
+            ->fetchOne();
+
+        return is_string($value) ? $value : null;
+    }
+
+    private function countNewerThan(int $uid): int
+    {
+        $queryBuilder = $this->queryBuilder();
+        $value        = $queryBuilder
+            ->count('uid')
+            ->from(self::TABLE_NAME)
+            ->where($queryBuilder->expr()->gt('uid', $queryBuilder->createNamedParameter($uid, Connection::PARAM_INT)))
+            ->executeQuery()
+            ->fetchOne();
+
+        return is_numeric($value) ? (int) $value : 0;
+    }
+
     private function newestKeylessUid(): int
     {
         $queryBuilder = $this->queryBuilder();
@@ -352,14 +474,19 @@ final readonly class AuditChainExporter implements AuditChainExporterInterface
 
     /**
      * @param 'MAX'|'MIN' $function
+     * @param int|null    $tipUid   null: no upper bound (the tip query itself;
+     *                              PostgreSQL rejects PHP_INT_MAX for an int column)
      */
-    private function aggregateUid(string $function, ?AuditLogFilter $filter, int $tipUid): int
+    private function aggregateUid(string $function, ?AuditLogFilter $filter, ?int $tipUid): int
     {
         $queryBuilder = $this->queryBuilder();
         $queryBuilder
             ->selectLiteral(sprintf('%s(uid)', $function))
-            ->from(self::TABLE_NAME)
-            ->where($queryBuilder->expr()->lte('uid', $queryBuilder->createNamedParameter($tipUid, Connection::PARAM_INT)));
+            ->from(self::TABLE_NAME);
+        if ($tipUid !== null) {
+            $queryBuilder->where($queryBuilder->expr()->lte('uid', $queryBuilder->createNamedParameter($tipUid, Connection::PARAM_INT)));
+        }
+
         if ($filter instanceof AuditLogFilter) {
             AuditLogService::applyFilterToQuery($queryBuilder, $filter);
         }

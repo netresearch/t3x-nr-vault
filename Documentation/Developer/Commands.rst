@@ -510,7 +510,17 @@ row before it (every row in a complete export, rows with adjacent uids
 otherwise), reports missing uids and epoch downgrades in a complete export,
 reports any decrease of ``hmac_key_epoch`` from one row to the next (in any
 export), and checks the row count and the uid range against the ``export``
-block. It reports the file as verified only when it checked as many rows as
+block.
+
+It reports **Whole chain: yes** only when it can confirm that itself, never
+because the file says so: the file claims ``chainComplete``, its first row
+starts the chain (empty ``previous_hash``), its last row is the declared
+``tipUid``, the installation stores that row with the same ``entry_hash`` and
+no newer row, and the newest external anchor neither lies beyond the export
+nor disagrees with the exported row at its sequence. Anything it cannot check
+leaves the answer at "not confirmed" with the reason listed. A disagreement
+with the stored row or the anchor is an error. An export taken before newer
+entries were written therefore verifies, but not as the whole chain. It reports the file as verified only when it checked as many rows as
 the file declares, at least one, and found nothing.
 
 Epoch 0 needs no key, so anyone who edits the file could relabel a row as

@@ -21,7 +21,10 @@ final readonly class AuditExportVerification
 {
     /**
      * @param list<string>    $errors
-     * @param array<int, int> $epochCounts rows per hmac_key_epoch
+     * @param array<int, int> $epochCounts   rows per hmac_key_epoch
+     * @param bool            $chainComplete derived from the rows and the installation,
+     *                                       never from the file's own claim
+     * @param list<string>    $notes         why the export is not confirmed as the whole chain
      */
     public function __construct(
         public int $rowsChecked,
@@ -32,6 +35,7 @@ final readonly class AuditExportVerification
         public bool $truncated,
         public int $firstUid,
         public int $lastUid,
+        public array $notes = [],
     ) {}
 
     public function isValid(): bool
