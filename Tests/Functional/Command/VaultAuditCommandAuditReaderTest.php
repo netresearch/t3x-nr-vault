@@ -189,6 +189,7 @@ final class VaultAuditCommandAuditReaderTest extends AbstractVaultFunctionalTest
         $tester = $this->executeAudit(['--as-audit-reader' => true, '--format' => 'json']);
 
         self::assertSame(Command::FAILURE, $tester->getStatusCode());
+        self::assertStringContainsString('The audit reader cannot be used:', $this->normalize($tester));
         self::assertStringContainsString('disabled', $this->normalize($tester));
         self::assertStringNotContainsString($this->seededIdentifier, $tester->getDisplay());
     }

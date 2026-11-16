@@ -429,8 +429,8 @@ Options
    covers :ref:`command-audit-verify` only.
 
    ``--reset-anchor`` has no technical actor. From a shell it needs
-   ``allowCliAccess`` with ``vault.configure`` in the allowlist, or a backend
-   user with that permission.
+   ``allowCliAccess`` with ``vault.configure`` in the allowlist; there is no
+   other path.
 
 .. _command-audit-example:
 
