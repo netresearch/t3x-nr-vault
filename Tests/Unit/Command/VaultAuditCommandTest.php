@@ -280,10 +280,6 @@ final class VaultAuditCommandTest extends TestCase
     }
 
     /**
-     * An empty `--export=` is not an export — it falls through to the console
-     * display, so it must be gated on `audit.view`, not `audit.export`.
-     */
-    /**
      * --verify-export next to another mode would run that mode and never open
      * the file, so a "valid" line could be read as the file's verdict.
      *
@@ -312,6 +308,10 @@ final class VaultAuditCommandTest extends TestCase
         self::assertStringContainsString('cannot be combined', $this->normalizedDisplay());
     }
 
+    /**
+     * An empty `--export=` is not an export — it falls through to the console
+     * display, so it must be gated on `audit.view`, not `audit.export`.
+     */
     #[Test]
     public function emptyExportOptionIsGatedAsDisplay(): void
     {

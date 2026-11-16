@@ -263,26 +263,7 @@ final class VaultAuditCommandExportTest extends AbstractVaultFunctionalTestCase
     #[Test]
     public function aGapNextToConfirmedKeylessRowsVerifiesAsTheWholeChain(): void
     {
-        $hmacKey    = AuditLogService::deriveHmacKey($this->get(MasterKeyProviderInterface::class));
-        $connection = $this->get(ConnectionPool::class)->getConnectionForTable('tx_nrvault_audit_log');
-        $previous   = '';
-        foreach ([[1, 0], [2, 0], [4, 3]] as $index => [$uid, $epoch]) {
-            $row = [
-                'uid'               => $uid,
-                'secret_identifier' => 'gap_' . $index,
-                'action'            => 'read',
-                'success'           => 1,
-                'actor_uid'         => 1,
-                'crdate'            => 1704067200 + $index,
-                'context'           => '{}',
-                'reason'            => '',
-                'hmac_key_epoch'    => $epoch,
-                'previous_hash'     => $previous,
-            ];
-            $row['entry_hash'] = AuditLogService::calculateEntryHash($row, $previous, $epoch === 0 ? '' : $hmacKey);
-            $previous          = $row['entry_hash'];
-            $connection->insert('tx_nrvault_audit_log', AuditChainExporter::exportRow($row));
-        }
+        $this->insertChain([[1, 0], [2, 0], [4, 3]]);
 
         $file = $this->exportFile();
         self::assertSame(Command::SUCCESS, $this->executeAudit(['--export' => $file])->getStatusCode());
@@ -292,6 +273,59 @@ final class VaultAuditCommandExportTest extends AbstractVaultFunctionalTestCase
         self::assertSame(Command::SUCCESS, $verify->getStatusCode(), $this->normalize($verify));
         self::assertStringContainsString('uid 3 to 3 are not in the chain', $this->normalize($verify));
         self::assertMatchesRegularExpression('/Whole chain\s+yes/', $this->normalize($verify));
+    }
+
+    /**
+     * The other half of the gap rule: removing a confirmed keyless row from a
+     * file that claims the whole chain still breaks the link across it.
+     */
+    #[Test]
+    public function aConfirmedKeylessRowRemovedFromTheWholeChainFailsVerification(): void
+    {
+        $this->insertChain([[1, 0], [2, 0], [3, 3]]);
+        $file = $this->exportFile();
+        self::assertSame(Command::SUCCESS, $this->executeAudit(['--export' => $file])->getStatusCode());
+
+        $document = json_decode((string) file_get_contents($file), true, 512, JSON_THROW_ON_ERROR);
+        self::assertIsArray($document);
+        self::assertIsArray($document['export']);
+        $rows = $this->readRows($file);
+        unset($rows[1]);
+        $document['rows']            = array_values($rows);
+        $document['export']['count'] = 2;
+        file_put_contents($file, json_encode($document, JSON_THROW_ON_ERROR));
+
+        $verify = $this->executeAudit(['--verify-export' => $file]);
+
+        self::assertSame(Command::FAILURE, $verify->getStatusCode());
+        self::assertStringContainsString('uid 3 does not link to uid 1', $this->normalize($verify));
+    }
+
+    /**
+     * A legitimate export re-serialised with sorted keys (jq -S, sort_keys)
+     * holds the same rows and still verifies.
+     */
+    #[Test]
+    public function anExportWithSortedKeysStillVerifies(): void
+    {
+        $this->seedTwoEpochs();
+        $file = $this->exportFile();
+        $this->executeAudit(['--export' => $file]);
+
+        $document = json_decode((string) file_get_contents($file), true, 512, JSON_THROW_ON_ERROR);
+        self::assertIsArray($document);
+        $rows = $this->readRows($file);
+        foreach ($rows as &$row) {
+            ksort($row);
+        }
+
+        unset($row);
+        $document['rows'] = $rows;
+        file_put_contents($file, json_encode($document, JSON_THROW_ON_ERROR));
+
+        $verify = $this->executeAudit(['--verify-export' => $file]);
+
+        self::assertSame(Command::SUCCESS, $verify->getStatusCode(), $this->normalize($verify));
     }
 
     /**
@@ -375,6 +409,35 @@ final class VaultAuditCommandExportTest extends AbstractVaultFunctionalTestCase
      * Two epochs written by two service instances: epoch 2 first, then the
      * configured epoch 3.
      */
+    /**
+     * Writes a chain with the given uids and epochs straight into the table.
+     *
+     * @param list<array{int, int}> $uidsAndEpochs
+     */
+    private function insertChain(array $uidsAndEpochs): void
+    {
+        $hmacKey    = AuditLogService::deriveHmacKey($this->get(MasterKeyProviderInterface::class));
+        $connection = $this->get(ConnectionPool::class)->getConnectionForTable('tx_nrvault_audit_log');
+        $previous   = '';
+        foreach ($uidsAndEpochs as $index => [$uid, $epoch]) {
+            $row = [
+                'uid'               => $uid,
+                'secret_identifier' => 'chain_' . $index,
+                'action'            => 'read',
+                'success'           => 1,
+                'actor_uid'         => 1,
+                'crdate'            => 1704067200 + $index,
+                'context'           => '{}',
+                'reason'            => '',
+                'hmac_key_epoch'    => $epoch,
+                'previous_hash'     => $previous,
+            ];
+            $row['entry_hash'] = AuditLogService::calculateEntryHash($row, $previous, $epoch === 0 ? '' : $hmacKey);
+            $previous          = $row['entry_hash'];
+            $connection->insert('tx_nrvault_audit_log', AuditChainExporter::exportRow($row));
+        }
+    }
+
     private function seedTwoEpochs(): void
     {
         $this->seedEpochs([2, 2, 3, 3]);

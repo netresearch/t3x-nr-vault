@@ -402,7 +402,9 @@ Options
 --verify-export=FILE
    Re-verify a JSON file written by ``--export`` from the file's own rows,
    using this installation's master key and stored chain as the reference —
-   see :ref:`command-audit-export`. Asserts ``audit.view``.
+   see :ref:`command-audit-export`. Asserts ``audit.view``. Refused together
+   with ``--export``, ``--verify`` or ``--reset-anchor``, because those modes
+   never open the file.
 
 --as-audit-reader
    Run as the backend user configured in
@@ -523,6 +525,9 @@ keyed gap, because every keyless row has then been confirmed against the
 stored row (see below). It reports the file as verified only
 when it checked as many rows as the file declares, at least one, and found
 nothing. It reads the whole file into memory; the export itself is streamed.
+The online ``--verify`` reports every uid gap as ``UID_GAP`` (an administrator
+can acknowledge it), so the two can disagree on the same gap: ``--verify``
+fails until the gap is acknowledged, ``--verify-export`` lists it.
 
 It reports **Whole chain: yes** only when it can confirm that itself, never
 because the file says so: the file claims ``chainComplete``, its first row
@@ -538,24 +543,28 @@ that the file lacks is an error; a filtered file may lack it. An
 export taken before newer entries were written therefore verifies, but not as
 the whole chain.
 
-A row below the configured epoch proves less than the chain it sits in:
-epoch 0 needs no key, so anyone who edits the file could write any epoch-0 row
-and recompute its hash, and epochs 1 and 2 leave columns out of their hash.
-The verifier therefore takes the rule for such rows from the installation it
-runs on, not from the file: a row whose ``hmac_key_epoch`` is below
-:confval:`ext-nrvault-auditHmacEpoch` is accepted only when the installation
-stores the same row, every exported column equal, at the same uid. An export
-with legitimate older rows therefore no longer verifies on an installation
-whose audit table has been emptied, or after the HMAC migration has re-signed
-the stored rows at a higher epoch: an export taken before the migration has to
-be verified on a copy of the installation from before it.
+A row below epoch 3 proves less than its columns: epoch 0 needs no key, so
+anyone who edits the file could write any epoch-0 row and recompute its hash,
+and epochs 1 and 2 leave columns out of their hash (epoch 0 and 1 bind
+``uid``, ``secret_identifier``, ``action``, ``actor_uid``, ``crdate`` and
+``previous_hash``; epoch 2 adds the forensic columns; epoch 3 also binds
+``hmac_key_epoch`` and the actor and request columns, see
+:ref:`security-audit-evidence-epochs`). The verifier therefore takes the rule
+for such rows from the installation it runs on, not from the file: when
+:confval:`ext-nrvault-auditHmacEpoch` is 1 or higher, a row below epoch 3 is
+accepted only when the installation stores the same row, every exported column
+equal, at the same uid. This applies at any configured epoch from 1 up,
+including installations still configured at 1 or 2. An export with legitimate
+older rows therefore no longer verifies on an installation whose audit table
+has been emptied, or after the HMAC migration has re-signed the stored rows at
+a higher epoch: an export taken before the migration has to be verified on a
+copy of the installation from before it.
 
-A row that verifies proves the columns its epoch binds, not all of them: epoch
-0 and 1 bind ``uid``, ``secret_identifier``, ``action``, ``actor_uid``,
-``crdate`` and ``previous_hash``; epoch 2 adds the forensic columns; epoch 3
-also binds ``hmac_key_epoch`` and the actor and request columns (see
-:ref:`security-audit-evidence-epochs`). The verifier lists this when the file
-holds rows below epoch 3.
+When :confval:`ext-nrvault-auditHmacEpoch` is 0, the chain carries no tamper
+evidence (see :ref:`security-audit-evidence-epochs`): nothing is compared with
+the stored chain, so whoever edits the file can recompute every hash and the
+file still verifies. The verifier then lists which columns the rows' epochs
+leave unbound.
 
 **The verifier must supply one thing the file never contains: the audit HMAC
 key.** Entries at HMAC epoch 1 and above are HMAC-SHA256 over their fields,

@@ -53,6 +53,9 @@ final readonly class AuditChainExporter implements AuditChainExporterInterface
 
     private const CHUNK_SIZE = 1000;
 
+    /** The first epoch whose hash binds every exported column. */
+    private const FULL_BINDING_EPOCH = 3;
+
     public function __construct(
         private ConnectionPool $connectionPool,
         private MasterKeyProviderInterface $masterKeyProvider,
@@ -159,14 +162,19 @@ final readonly class AuditChainExporter implements AuditChainExporterInterface
         // and anchor checks read these and nothing else, so no check can see a
         // value the hash check did not.
         $verifiedRows = [];
-        // A row below the configured epoch is weaker than the chain it sits in:
-        // the keyless epoch 0 can be recomputed by anyone who edits the file,
-        // and epochs 1 and 2 leave columns out of their hash, and an old export
-        // still carries the rows from before the migration re-sealed them. On
-        // an installation that signs its chain with HMAC, such a row is accepted
-        // only when the installation stores the same row, column for column, at
-        // the same uid: the stored chain is the only evidence such a row has.
-        $floorEpoch = $this->configuration->getAuditHmacEpoch();
+        // A row below epoch 3 proves less than its columns: the keyless epoch 0
+        // can be recomputed by anyone who edits the file, and epochs 1 and 2
+        // leave columns out of their hash. That holds whatever epoch the
+        // installation is configured at (installations set up before epoch 3
+        // was the default still run at 1 or 2). On an installation that signs
+        // its chain with HMAC, such a row is therefore accepted only when the
+        // installation stores the same row, column for column, at the same
+        // uid: the stored chain is the only evidence such a row has. This also
+        // stops the replay of an export taken before the HMAC migration
+        // re-sealed the rows. At epoch 0 the chain carries no tamper evidence
+        // at all (see ADR-034), and nothing is confirmed.
+        $floorEpoch   = $this->configuration->getAuditHmacEpoch();
+        $confirmBelow = $floorEpoch > 0 ? self::FULL_BINDING_EPOCH : 0;
 
         try {
             foreach ($rows as $index => $row) {
@@ -194,7 +202,7 @@ final readonly class AuditChainExporter implements AuditChainExporterInterface
                     }
                 }
 
-                if ($epoch < $floorEpoch) {
+                if ($epoch < $confirmBelow) {
                     try {
                         $stored = $this->storedExportRow($uid);
                     } catch (Throwable $e) {
@@ -202,13 +210,22 @@ final readonly class AuditChainExporter implements AuditChainExporterInterface
                         $notes[] = 'The stored chain could not be consulted: ' . $e->getMessage();
                     }
 
-                    if ($stored !== $row) {
+                    // Same columns and values, in any key order: a file that
+                    // was re-serialised with sorted keys is still the same row.
+                    $exported = $row;
+                    ksort($exported);
+                    if ($stored !== null) {
+                        ksort($stored);
+                    }
+
+                    if ($stored !== $exported) {
                         $errors[] = sprintf(
                             'uid %d is exported at epoch %d and differs from the row this installation stores '
-                            . '(or it stores none at that uid); with HMAC at epoch %d, a row below that epoch is only confirmed by the stored chain.',
+                            . '(or it stores none at that uid); with HMAC at epoch %d, a row below epoch %d is only confirmed by the stored chain.',
                             $uid,
                             $epoch,
                             $floorEpoch,
+                            self::FULL_BINDING_EPOCH,
                         );
                         $previous = $row;
 
@@ -258,13 +275,14 @@ final readonly class AuditChainExporter implements AuditChainExporterInterface
             && $this->isWholeChain($verifiedRows, $tipUid, $errors, $notes);
 
         // What the hash does not cover, so nobody reads a matching row as
-        // proof of every column (see the evidence docs on epochs).
-        if (isset($epochCounts[0]) || isset($epochCounts[1])) {
+        // proof of every column (see the evidence docs on epochs). Only where
+        // such rows were not compared with the stored row column by column.
+        if ($confirmBelow === 0 && (isset($epochCounts[0]) || isset($epochCounts[1]))) {
             $notes[] = 'Rows at epoch 0 and 1 bind only uid, secret_identifier, action, actor_uid, crdate and previous_hash; '
                 . 'their other columns are not covered by the hash.';
         }
 
-        if (isset($epochCounts[2])) {
+        if ($confirmBelow === 0 && isset($epochCounts[2])) {
             $notes[] = 'Rows at epoch 2 do not bind hmac_key_epoch, actor_type, actor_username, actor_role and request_id.';
         }
 
@@ -432,10 +450,9 @@ final readonly class AuditChainExporter implements AuditChainExporterInterface
         // In a complete export every row follows its predecessor in the chain,
         // gap or not. In a filtered or truncated one only rows with adjacent
         // uids are known to be neighbours.
-        if ($chainComplete || $uid === $previousUid + 1) {
-            if (!hash_equals((string) $previous['entry_hash'], (string) $row['previous_hash'])) {
-                $errors[] = sprintf('uid %d does not link to uid %d: previous_hash differs from its entry_hash.', $uid, $previousUid);
-            }
+        $linked = hash_equals((string) $previous['entry_hash'], (string) $row['previous_hash']);
+        if (($chainComplete || $uid === $previousUid + 1) && !$linked) {
+            $errors[] = sprintf('uid %d does not link to uid %d: previous_hash differs from its entry_hash.', $uid, $previousUid);
         }
 
         // A uid gap is tolerated only where both neighbours are proven: between
@@ -445,13 +462,14 @@ final readonly class AuditChainExporter implements AuditChainExporterInterface
         // row's hash can be recomputed by anyone, so a gap next to one proves
         // nothing - unless the installation signs with HMAC, where every
         // keyless row has already been confirmed against the stored row above.
+        // A broken link across the gap is already an error.
         // Only in a file claiming the whole chain; a filtered or truncated one
         // has gaps by selection.
         if ($chainComplete && $uid !== $previousUid + 1) {
             if ($floorEpoch === 0 && ((int) $previous['hmac_key_epoch'] === 0 || (int) $row['hmac_key_epoch'] === 0)) {
                 $errors[] = sprintf('uid %d to %d are not in the export, next to a keyless row whose link can be recomputed.', $previousUid + 1, $uid - 1);
-            } else {
-                $notes[] = sprintf('uid %d to %d are not in the chain; the keyed link across them is intact.', $previousUid + 1, $uid - 1);
+            } elseif ($linked) {
+                $notes[] = sprintf('uid %d to %d are not in the chain; the link across them is intact.', $previousUid + 1, $uid - 1);
             }
         }
 

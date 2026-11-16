@@ -258,6 +258,28 @@ final class AuditChainExporterTest extends TestCase
         self::assertStringContainsString('uid 1', implode("\n", $result->errors));
     }
 
+    /**
+     * Installations set up while the default was epoch 1 or 2 still run
+     * there. Their rows at the configured epoch leave columns out of the
+     * hash, so they too are confirmed against the stored chain.
+     */
+    #[Test]
+    public function rowsAtAConfiguredEpochBelowThreeAreConfirmedByTheStoredChain(): void
+    {
+        $configuration = self::createStub(ExtensionConfigurationInterface::class);
+        $configuration->method('getAuditHmacEpoch')->willReturn(2);
+        $pool = self::createStub(ConnectionPool::class);
+        $pool->method('getConnectionForTable')->willThrowException(new RuntimeException('database down'));
+        $provider = self::createStub(MasterKeyProviderInterface::class);
+        $provider->method('getMasterKey')->willReturnCallback(static fn (): string => self::MASTER_KEY);
+        $exporter = new AuditChainExporter($pool, $provider, $configuration, self::createStub(AnchorReaderInterface::class));
+
+        $result = $exporter->verify($this->document($this->chain([2, 2])));
+
+        self::assertFalse($result->isValid());
+        self::assertStringContainsString('uid 1 is exported at epoch 2', implode("\n", $result->errors));
+    }
+
     #[Test]
     public function aForeignDocumentIsNotValid(): void
     {
