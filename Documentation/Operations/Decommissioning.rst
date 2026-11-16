@@ -107,7 +107,7 @@ a verification run after key destruction proves nothing.
 
     ..  code-block:: bash
 
-        vendor/bin/typo3 vault:audit-verify > decommission-verify.txt
+        vendor/bin/typo3 vault:audit-verify --as-auditor > decommission-verify.txt
 
 #.  **Publish a final anchor**, so the tip is witnessed externally at the
     moment of decommissioning:

@@ -392,11 +392,11 @@ Options
    Run as the backend user configured in
    :confval:`ext-nrvault-auditReaderBeUserUid` instead of the unattributed CLI
    actor. Covers listing, ``--verify`` and ``--export``. The permission checks
-   below are evaluated for that user, so it needs a group carrying
-   ``tx_nrvault:audit.view``, and ``tx_nrvault:audit.export`` for ``--export``.
+   below are evaluated for that user: ``tx_nrvault:audit.view`` for listing and
+   ``--verify``, ``tx_nrvault:audit.export`` for ``--export``.
    The UID is read from configuration, never from the command line. Exits 1 when
    no reader is configured or the user cannot be used (missing, disabled,
-   expired, not at root level). Refused together with ``--reset-anchor``,
+   outside its start or end time, not at root level). Refused together with ``--reset-anchor``,
    before the user is entered: the reset writes into the chain, and the reader
    is a read-only identity.
 
@@ -452,9 +452,10 @@ Example
    # Verify the chain, including the truncation tip anchor
    vendor/bin/typo3 vault:audit --verify
 
-   # List and export as the configured audit reader (auditReaderBeUserUid)
+   # List and export as the configured audit reader (auditReaderBeUserUid);
+   # --limit applies to the export too (default 50)
    vendor/bin/typo3 vault:audit --as-audit-reader --since=2026-05-01
-   vendor/bin/typo3 vault:audit --as-audit-reader --format=json --export=audit.json
+   vendor/bin/typo3 vault:audit --as-audit-reader --format=json --limit=10000 --export=audit.json
 
    # Re-arm the anchor after a deliberate wipe of the audit log
    vendor/bin/typo3 vault:audit --reset-anchor --force
@@ -521,8 +522,7 @@ Options
    second configured identity holding ``vault.configure`` would add a grant
    and no attribution. Note that wherever the task is registered, any shell
    that can run :bash:`vendor/bin/typo3 scheduler:run --task=<uid> --force`
-   can trigger it. Re-anchoring after a truncation does not hide it:
-   verification compares against the anchor with the highest sequence.
+   can trigger it.
    **Scheduled runs are unaffected on a default
    installation**: the *Vault Audit Chain Anchoring* task runs under
    :bash:`scheduler:run`, which authenticates the ``_cli_`` administrator, and
