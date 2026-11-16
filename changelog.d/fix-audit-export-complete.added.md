@@ -1,0 +1,1 @@
+- `vault:audit --verify-export=FILE` re-verifies a JSON export without the database: every row against its entry hash, the links between rows, missing uids in a whole-chain export, and the declared row count. Rows at HMAC epoch 1 and above need the master key that was in effect when the export was taken.

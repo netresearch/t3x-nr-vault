@@ -16,6 +16,7 @@ use Netresearch\NrVault\Audit\AuditChainAnchorStore;
 use Netresearch\NrVault\Audit\AuditChainAnchorStoreInterface;
 use Netresearch\NrVault\Audit\AuditLogService;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
+use Netresearch\NrVault\Audit\Export\AuditChainExporterInterface;
 use Netresearch\NrVault\Command\VaultAuditCommand;
 use Netresearch\NrVault\Command\VaultAuditMigrateCommand;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
@@ -326,6 +327,7 @@ final class AuditChainAnchorTest extends AbstractVaultFunctionalTestCase
             $this->get(AccessControlServiceInterface::class),
             $this->get(ExtensionConfigurationInterface::class),
             $this->get(TechnicalActorContextInterface::class),
+            $this->get(AuditChainExporterInterface::class),
         );
         $command->setName('vault:audit');
 

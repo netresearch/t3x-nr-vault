@@ -1,0 +1,398 @@
+<?php
+
+/*
+ * Copyright (c) 2025-2026 Netresearch DTT GmbH
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ */
+
+declare(strict_types=1);
+
+namespace Netresearch\NrVault\Audit\Export;
+
+use Generator;
+use Netresearch\NrVault\Audit\AuditLogFilter;
+use Netresearch\NrVault\Audit\AuditLogService;
+use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
+use Netresearch\NrVault\Crypto\MasterKeyProviderInterface;
+use Throwable;
+use TYPO3\CMS\Core\Database\Connection;
+use TYPO3\CMS\Core\Database\ConnectionPool;
+use TYPO3\CMS\Core\Database\Query\QueryBuilder;
+
+use function count;
+use function is_array;
+use function is_int;
+use function is_string;
+use function sprintf;
+
+/**
+ * Exports the audit chain so that it can be re-verified without the database.
+ *
+ * Each exported row carries exactly the values the entry hash is computed
+ * over — {@see AuditLogService::extractV3HashRow()}, which is a superset of
+ * every epoch's payload — plus `previous_hash` and `entry_hash`, so
+ * {@see AuditLogService::calculateEntryHash()} recomputes the stored hash from
+ * the exported row alone. The one input that is never exported is the audit
+ * HMAC key (rows at epoch 1 and above): it is derived from the master key, and
+ * the verifier has to supply it.
+ *
+ * Rows are read in ascending uid order with keyset paging, `CHUNK_SIZE` at a
+ * time, so memory stays bounded and rows written during the export can neither
+ * shift a page boundary nor enter the selection (it ends at the tip uid taken
+ * before the first read).
+ */
+final readonly class AuditChainExporter implements AuditChainExporterInterface
+{
+    public const FORMAT = 'nr-vault-audit-chain-export';
+
+    public const FORMAT_VERSION = 1;
+
+    private const TABLE_NAME = 'tx_nrvault_audit_log';
+
+    private const CHUNK_SIZE = 1000;
+
+    public function __construct(
+        private ConnectionPool $connectionPool,
+        private MasterKeyProviderInterface $masterKeyProvider,
+        private ExtensionConfigurationInterface $configuration,
+    ) {}
+
+    public function select(?AuditLogFilter $filter = null, ?int $limit = null): AuditChainExport
+    {
+        if ($filter instanceof AuditLogFilter && $filter->isEmpty()) {
+            $filter = null;
+        }
+
+        $tipUid = $this->aggregateUid('MAX', null, PHP_INT_MAX);
+        $total  = $this->countUpTo($filter, $tipUid);
+        $count  = $limit === null ? $total : min($total, max(0, $limit));
+
+        if ($count === 0) {
+            return new AuditChainExport($tipUid, $total, 0, 0, 0, $filter, $limit, []);
+        }
+
+        $lastUid  = $this->aggregateUid('MAX', $filter, $tipUid);
+        $firstUid = $count === $total
+            ? $this->aggregateUid('MIN', $filter, $tipUid)
+            : $this->nthNewestUid($filter, $tipUid, $count);
+
+        return new AuditChainExport(
+            $tipUid,
+            $total,
+            $count,
+            $firstUid,
+            $lastUid,
+            $filter,
+            $limit,
+            $this->streamRows($filter, $firstUid, $lastUid),
+        );
+    }
+
+    /**
+     * The exported form of one stored row: the verbatim hash inputs, the
+     * stored link to the previous row and the stored entry hash.
+     *
+     * @param array<string, mixed> $row
+     *
+     * @return array<string, int|string>
+     */
+    public static function exportRow(array $row): array
+    {
+        return AuditLogService::extractV3HashRow($row) + [
+            'previous_hash' => is_string($row['previous_hash'] ?? null) ? $row['previous_hash'] : '',
+            'entry_hash'    => is_string($row['entry_hash'] ?? null) ? $row['entry_hash'] : '',
+        ];
+    }
+
+    /**
+     * @return list<string>
+     */
+    public static function columns(): array
+    {
+        return array_keys(self::exportRow([]));
+    }
+
+    public function verify(array $document): AuditExportVerification
+    {
+        $meta = is_array($document['export'] ?? null) ? $document['export'] : [];
+        $rows = is_array($document['rows'] ?? null) ? $document['rows'] : null;
+
+        $chainComplete = ($meta['chainComplete'] ?? null) === true;
+        $truncated     = ($meta['truncated'] ?? null) === true;
+        $firstUid      = is_int($meta['firstUid'] ?? null) ? $meta['firstUid'] : 0;
+        $lastUid       = is_int($meta['lastUid'] ?? null) ? $meta['lastUid'] : 0;
+
+        $errors = [];
+        if (($meta['format'] ?? null) !== self::FORMAT || ($meta['version'] ?? null) !== self::FORMAT_VERSION) {
+            $errors[] = sprintf('Not a %s document of version %d.', self::FORMAT, self::FORMAT_VERSION);
+        }
+
+        if ($rows === null) {
+            $errors[] = 'The document has no "rows" list.';
+
+            return new AuditExportVerification(0, -1, $errors, [], $chainComplete, $truncated, $firstUid, $lastUid);
+        }
+
+        $declaredCount = is_int($meta['count'] ?? null) ? $meta['count'] : -1;
+        if ($rows === []) {
+            $errors[] = 'The export holds no rows, so nothing was verified.';
+        }
+
+        if ($declaredCount !== count($rows)) {
+            $errors[] = sprintf('The metadata declares %d row(s), the document holds %d.', $declaredCount, count($rows));
+        }
+
+        $columns     = self::columns();
+        $hmacKey     = null;
+        $keyError    = null;
+        $epochCounts = [];
+        $checked     = 0;
+        $keyed       = 0;
+        $previous    = null;
+        // The keyless epoch 0 needs no key, so whoever edits the file can
+        // relabel any row as epoch 0 and recompute its hash. Which rows may be
+        // keyless is therefore taken from the installation, never from the
+        // document: on an installation configured for HMAC, only uids up to
+        // the newest epoch-0 row it still stores.
+        $floorEpoch  = $this->configuration->getAuditHmacEpoch();
+        $keylessUpTo = null;
+
+        try {
+            foreach ($rows as $index => $row) {
+                if (!is_array($row) || array_diff($columns, array_keys($row)) !== []) {
+                    $errors[] = sprintf('Row %d lacks one or more of the columns %s.', $index, implode(', ', $columns));
+                    $previous = null;
+
+                    continue;
+                }
+
+                // The typing the database path applies before hashing, so an
+                // exported value is judged exactly as the stored one would be.
+                /** @var array<string, mixed> $raw */
+                $raw                 = $row;
+                $row                 = self::exportRow($raw);
+                $uid                 = (int) $row['uid'];
+                $epoch               = (int) $row['hmac_key_epoch'];
+                $epochCounts[$epoch] = ($epochCounts[$epoch] ?? 0) + 1;
+
+                if ($epoch > 0 && $hmacKey === null && $keyError === null) {
+                    try {
+                        $hmacKey = AuditLogService::deriveHmacKey($this->masterKeyProvider);
+                    } catch (Throwable $e) {
+                        $keyError = 'The master key is not available, so rows at HMAC epoch 1 and above cannot be checked: '
+                            . $e->getMessage();
+                        $errors[] = $keyError;
+                    }
+                }
+
+                if ($epoch === 0 && $floorEpoch > 0) {
+                    $keylessUpTo ??= $this->newestKeylessUid();
+                    if ($uid > $keylessUpTo) {
+                        $errors[] = sprintf(
+                            'uid %d is exported as keyless epoch 0, but this installation signs its audit chain at epoch %d '
+                            . 'and stores no keyless row at or after this uid.',
+                            $uid,
+                            $floorEpoch,
+                        );
+                        $previous = $row;
+
+                        continue;
+                    }
+                }
+
+                if ($epoch === 0 || $hmacKey !== null) {
+                    $expected = AuditLogService::calculateEntryHash($row, (string) $row['previous_hash'], $hmacKey ?? '');
+                    if (!hash_equals($expected, (string) $row['entry_hash'])) {
+                        $errors[] = sprintf('uid %d: entry hash does not match its exported fields.', $uid);
+                    }
+
+                    ++$checked;
+                    if ($epoch > 0) {
+                        ++$keyed;
+                    }
+                } else {
+                    $errors[] = sprintf('uid %d was not checked: its HMAC epoch needs the master key.', $uid);
+                }
+
+                if ($previous !== null) {
+                    $this->checkNeighbours($previous, $row, $chainComplete, $errors);
+                }
+
+                $previous = $row;
+            }
+        } finally {
+            if (is_string($hmacKey)) {
+                sodium_memzero($hmacKey);
+            }
+        }
+
+        if ($rows !== []) {
+            $first       = $rows[array_key_first($rows)];
+            $last        = $rows[array_key_last($rows)];
+            $actualFirst = is_array($first) && is_int($first['uid'] ?? null) ? $first['uid'] : null;
+            $actualLast  = is_array($last) && is_int($last['uid'] ?? null) ? $last['uid'] : null;
+            if ($actualFirst !== $firstUid) {
+                $errors[] = sprintf('The metadata declares first uid %d, the first row is uid %s.', $firstUid, $actualFirst ?? '?');
+            }
+
+            if ($actualLast !== $lastUid) {
+                $errors[] = sprintf('The metadata declares last uid %d, the last row is uid %s.', $lastUid, $actualLast ?? '?');
+            }
+        }
+
+        if ($floorEpoch > 0 && $rows !== [] && $keyed === 0) {
+            $errors[] = 'No row was checked with the HMAC key, although this installation signs its audit chain with it.';
+        }
+
+        ksort($epochCounts);
+
+        return new AuditExportVerification($checked, $declaredCount, $errors, $epochCounts, $chainComplete, $truncated, $firstUid, $lastUid);
+    }
+
+    /**
+     * @param array<string, int|string> $previous
+     * @param array<string, int|string> $row
+     * @param list<string>              $errors
+     */
+    private function checkNeighbours(array $previous, array $row, bool $chainComplete, array &$errors): void
+    {
+        $previousUid = (int) $previous['uid'];
+        $uid         = (int) $row['uid'];
+
+        if ($uid <= $previousUid) {
+            $errors[] = sprintf('uid %d follows uid %d: rows are not in ascending uid order.', $uid, $previousUid);
+
+            return;
+        }
+
+        // In a complete export every row follows its predecessor in the chain,
+        // gap or not. In a filtered or truncated one only rows with adjacent
+        // uids are known to be neighbours.
+        if ($chainComplete || $uid === $previousUid + 1) {
+            if (!hash_equals((string) $previous['entry_hash'], (string) $row['previous_hash'])) {
+                $errors[] = sprintf('uid %d does not link to uid %d: previous_hash differs from its entry_hash.', $uid, $previousUid);
+            }
+        }
+
+        if ($chainComplete && $uid !== $previousUid + 1) {
+            $errors[] = sprintf('uid %d to %d are missing from the chain.', $previousUid + 1, $uid - 1);
+        }
+
+        // A real chain never goes back to a lower epoch, in any selection of it.
+        if ((int) $row['hmac_key_epoch'] < (int) $previous['hmac_key_epoch']) {
+            $errors[] = sprintf(
+                'uid %d: HMAC key epoch downgrade %d -> %d.',
+                $uid,
+                (int) $previous['hmac_key_epoch'],
+                (int) $row['hmac_key_epoch'],
+            );
+        }
+    }
+
+    /**
+     * @return Generator<int, array<string, int|string>>
+     */
+    private function streamRows(?AuditLogFilter $filter, int $firstUid, int $lastUid): Generator
+    {
+        $after = $firstUid - 1;
+
+        do {
+            $queryBuilder = $this->queryBuilder();
+            $queryBuilder
+                ->select('*')
+                ->from(self::TABLE_NAME)
+                ->where(
+                    $queryBuilder->expr()->gt('uid', $queryBuilder->createNamedParameter($after, Connection::PARAM_INT)),
+                    $queryBuilder->expr()->lte('uid', $queryBuilder->createNamedParameter($lastUid, Connection::PARAM_INT)),
+                )
+                ->orderBy('uid', 'ASC')
+                ->setMaxResults(self::CHUNK_SIZE);
+            if ($filter instanceof AuditLogFilter) {
+                AuditLogService::applyFilterToQuery($queryBuilder, $filter);
+            }
+
+            $chunk = $queryBuilder->executeQuery()->fetchAllAssociative();
+            foreach ($chunk as $row) {
+                $exported = self::exportRow($row);
+                $after    = (int) $exported['uid'];
+
+                yield $exported;
+            }
+        } while (count($chunk) === self::CHUNK_SIZE);
+    }
+
+    private function newestKeylessUid(): int
+    {
+        $queryBuilder = $this->queryBuilder();
+        $queryBuilder
+            ->selectLiteral('MAX(uid)')
+            ->from(self::TABLE_NAME)
+            ->where($queryBuilder->expr()->eq('hmac_key_epoch', $queryBuilder->createNamedParameter(0, Connection::PARAM_INT)));
+
+        $value = $queryBuilder->executeQuery()->fetchOne();
+
+        return is_numeric($value) ? (int) $value : 0;
+    }
+
+    private function countUpTo(?AuditLogFilter $filter, int $tipUid): int
+    {
+        $queryBuilder = $this->queryBuilder();
+        $queryBuilder
+            ->count('uid')
+            ->from(self::TABLE_NAME)
+            ->where($queryBuilder->expr()->lte('uid', $queryBuilder->createNamedParameter($tipUid, Connection::PARAM_INT)));
+        if ($filter instanceof AuditLogFilter) {
+            AuditLogService::applyFilterToQuery($queryBuilder, $filter);
+        }
+
+        $value = $queryBuilder->executeQuery()->fetchOne();
+
+        return is_numeric($value) ? (int) $value : 0;
+    }
+
+    /**
+     * @param 'MAX'|'MIN' $function
+     */
+    private function aggregateUid(string $function, ?AuditLogFilter $filter, int $tipUid): int
+    {
+        $queryBuilder = $this->queryBuilder();
+        $queryBuilder
+            ->selectLiteral(sprintf('%s(uid)', $function))
+            ->from(self::TABLE_NAME)
+            ->where($queryBuilder->expr()->lte('uid', $queryBuilder->createNamedParameter($tipUid, Connection::PARAM_INT)));
+        if ($filter instanceof AuditLogFilter) {
+            AuditLogService::applyFilterToQuery($queryBuilder, $filter);
+        }
+
+        $value = $queryBuilder->executeQuery()->fetchOne();
+
+        return is_numeric($value) ? (int) $value : 0;
+    }
+
+    private function nthNewestUid(?AuditLogFilter $filter, int $tipUid, int $n): int
+    {
+        $queryBuilder = $this->queryBuilder();
+        $queryBuilder
+            ->select('uid')
+            ->from(self::TABLE_NAME)
+            ->where($queryBuilder->expr()->lte('uid', $queryBuilder->createNamedParameter($tipUid, Connection::PARAM_INT)))
+            ->orderBy('uid', 'DESC')
+            ->setFirstResult($n - 1)
+            ->setMaxResults(1);
+        if ($filter instanceof AuditLogFilter) {
+            AuditLogService::applyFilterToQuery($queryBuilder, $filter);
+        }
+
+        $value = $queryBuilder->executeQuery()->fetchOne();
+
+        return is_numeric($value) ? (int) $value : 0;
+    }
+
+    private function queryBuilder(): QueryBuilder
+    {
+        $queryBuilder = $this->connectionPool->getConnectionForTable(self::TABLE_NAME)->createQueryBuilder();
+        $queryBuilder->getRestrictions()->removeAll();
+
+        return $queryBuilder;
+    }
+}

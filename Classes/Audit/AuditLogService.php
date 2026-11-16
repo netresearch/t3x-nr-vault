@@ -935,6 +935,68 @@ final readonly class AuditLogService implements AuditLogServiceInterface
     }
 
     /**
+     * Restrict an audit-log query to the rows a filter selects. Shared with
+     * {@see Export\AuditChainExporter}, so a filtered listing and a filtered
+     * export can never select different rows.
+     */
+    public static function applyFilterToQuery(QueryBuilder $queryBuilder, AuditLogFilter $filter): void
+    {
+        if ($filter->secretIdentifier !== null) {
+            $queryBuilder->andWhere(
+                $queryBuilder->expr()->eq(
+                    'secret_identifier',
+                    $queryBuilder->createNamedParameter($filter->secretIdentifier),
+                ),
+            );
+        }
+
+        if ($filter->action !== null) {
+            $queryBuilder->andWhere(
+                $queryBuilder->expr()->eq(
+                    'action',
+                    $queryBuilder->createNamedParameter($filter->action),
+                ),
+            );
+        }
+
+        if ($filter->actorUid !== null) {
+            $queryBuilder->andWhere(
+                $queryBuilder->expr()->eq(
+                    'actor_uid',
+                    $queryBuilder->createNamedParameter($filter->actorUid, Connection::PARAM_INT),
+                ),
+            );
+        }
+
+        if ($filter->success !== null) {
+            $queryBuilder->andWhere(
+                $queryBuilder->expr()->eq(
+                    'success',
+                    $queryBuilder->createNamedParameter($filter->success ? 1 : 0, Connection::PARAM_INT),
+                ),
+            );
+        }
+
+        if ($filter->since instanceof DateTimeInterface) {
+            $queryBuilder->andWhere(
+                $queryBuilder->expr()->gte(
+                    'crdate',
+                    $queryBuilder->createNamedParameter($filter->since->getTimestamp(), Connection::PARAM_INT),
+                ),
+            );
+        }
+
+        if ($filter->until instanceof DateTimeInterface) {
+            $queryBuilder->andWhere(
+                $queryBuilder->expr()->lte(
+                    'crdate',
+                    $queryBuilder->createNamedParameter($filter->until->getTimestamp(), Connection::PARAM_INT),
+                ),
+            );
+        }
+    }
+
+    /**
      * The anchor half of the re-seal gate, for chains whose rows carry no HMAC
      * evidence of their own. Returns null when the anchor raises no error —
      * `Unanchored` (or `Disabled`) is a warning, so a pre-anchor install still
@@ -1584,59 +1646,7 @@ final readonly class AuditLogService implements AuditLogServiceInterface
      */
     private function applyFilter(QueryBuilder $queryBuilder, AuditLogFilter $filter): void
     {
-        if ($filter->secretIdentifier !== null) {
-            $queryBuilder->andWhere(
-                $queryBuilder->expr()->eq(
-                    'secret_identifier',
-                    $queryBuilder->createNamedParameter($filter->secretIdentifier),
-                ),
-            );
-        }
-
-        if ($filter->action !== null) {
-            $queryBuilder->andWhere(
-                $queryBuilder->expr()->eq(
-                    'action',
-                    $queryBuilder->createNamedParameter($filter->action),
-                ),
-            );
-        }
-
-        if ($filter->actorUid !== null) {
-            $queryBuilder->andWhere(
-                $queryBuilder->expr()->eq(
-                    'actor_uid',
-                    $queryBuilder->createNamedParameter($filter->actorUid, Connection::PARAM_INT),
-                ),
-            );
-        }
-
-        if ($filter->success !== null) {
-            $queryBuilder->andWhere(
-                $queryBuilder->expr()->eq(
-                    'success',
-                    $queryBuilder->createNamedParameter($filter->success ? 1 : 0, Connection::PARAM_INT),
-                ),
-            );
-        }
-
-        if ($filter->since instanceof DateTimeInterface) {
-            $queryBuilder->andWhere(
-                $queryBuilder->expr()->gte(
-                    'crdate',
-                    $queryBuilder->createNamedParameter($filter->since->getTimestamp(), Connection::PARAM_INT),
-                ),
-            );
-        }
-
-        if ($filter->until instanceof DateTimeInterface) {
-            $queryBuilder->andWhere(
-                $queryBuilder->expr()->lte(
-                    'crdate',
-                    $queryBuilder->createNamedParameter($filter->until->getTimestamp(), Connection::PARAM_INT),
-                ),
-            );
-        }
+        self::applyFilterToQuery($queryBuilder, $filter);
     }
 
     private function getCurrentUserRole(): string

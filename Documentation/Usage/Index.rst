@@ -603,8 +603,10 @@ View the audit log:
    # Filter by secret
    vendor/bin/typo3 vault:audit --identifier=stripe_api_key
 
-   # Export to JSON
-   vendor/bin/typo3 vault:audit --format=json > audit.json
+   # Export the whole chain to a file (all entries, not the newest 50),
+   # then re-verify the file
+   vendor/bin/typo3 vault:audit --export=audit.json
+   vendor/bin/typo3 vault:audit --verify-export=audit.json
 
 .. important::
 

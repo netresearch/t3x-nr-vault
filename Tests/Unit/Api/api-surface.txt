@@ -242,6 +242,36 @@ Netresearch\NrVault\Audit\AuditLogServiceInterface (interface)
   method verifyChainForReseal(): ?Netresearch\NrVault\Audit\HashChainVerificationResult
   method verifyHashChain(?int $fromUid = …, ?int $toUid = …, ?int $minEpoch = …): Netresearch\NrVault\Audit\HashChainVerificationResult
 
+Netresearch\NrVault\Audit\Export\AuditChainExport (class)
+  constructor(int $tipUid, int $total, int $count, int $firstUid, int $lastUid, ?Netresearch\NrVault\Audit\AuditLogFilter $filter, ?int $limit, iterable $rows)
+  method isChainComplete(): bool
+  method isTruncated(): bool
+  method metadata(string $generatedAt): array
+  property readonly count: int
+  property readonly filter: ?Netresearch\NrVault\Audit\AuditLogFilter
+  property readonly firstUid: int
+  property readonly lastUid: int
+  property readonly limit: ?int
+  property readonly rows: iterable
+  property readonly tipUid: int
+  property readonly total: int
+
+Netresearch\NrVault\Audit\Export\AuditChainExporterInterface (interface)
+  method select(?Netresearch\NrVault\Audit\AuditLogFilter $filter = …, ?int $limit = …): Netresearch\NrVault\Audit\Export\AuditChainExport
+  method verify(array $document): Netresearch\NrVault\Audit\Export\AuditExportVerification
+
+Netresearch\NrVault\Audit\Export\AuditExportVerification (class)
+  constructor(int $rowsChecked, int $declaredCount, array $errors, array $epochCounts, bool $chainComplete, bool $truncated, int $firstUid, int $lastUid)
+  method isValid(): bool
+  property readonly chainComplete: bool
+  property readonly declaredCount: int
+  property readonly epochCounts: array
+  property readonly errors: array
+  property readonly firstUid: int
+  property readonly lastUid: int
+  property readonly rowsChecked: int
+  property readonly truncated: bool
+
 Netresearch\NrVault\Audit\HashChainVerificationResult (class)
   constructor(bool $valid, array $errors = …, array $warnings = …, array $missingUids = …, int $missingUidCount = …, Netresearch\NrVault\Audit\AuditChainAnchorStatus $anchorStatus = …, array $epochCounts = …, array $gaps = …, int $lastUid = …)
   method getErrorCount(): int

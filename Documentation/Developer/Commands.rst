@@ -362,10 +362,14 @@ Options
    Filter by success status (``true``/``false``).
 
 --limit=N, -l N
-   Maximum number of results (default: 50).
+   Maximum number of entries listed (default: 50). The default never applies
+   to ``--export``. Typed together with ``--export``, it exports only the
+   newest N entries, and the command refuses (exit 1, no file) when that is
+   fewer than the selection holds, unless ``--allow-partial`` is given.
 
 --format=FORMAT, -f FORMAT
-   Output format: ``table`` (default), ``json``, ``csv``.
+   Output format: ``table`` (default), ``json``, ``csv``. ``--export`` writes
+   ``json`` unless ``csv`` is given.
 
 --verify
    Verify hash chain integrity instead of listing entries. The output includes
@@ -386,7 +390,18 @@ Options
    Skip the interactive confirmation of ``--reset-anchor`` (for unattended runs).
 
 --export=FILE, -e FILE
-   Export results to a file (format taken from ``--format``).
+   Export every entry the filters select, up to the newest entry when the
+   export starts, to a file — see :ref:`command-audit-export`. Rows are
+   streamed in ascending uid order, so memory use does not grow with the log.
+   The file appears only once every row is written.
+
+--allow-partial
+   Let ``--export`` with an explicit ``--limit`` write fewer entries than the
+   selection holds. The file is marked ``"truncated": true``.
+
+--verify-export=FILE
+   Re-verify a JSON file written by ``--export``, without the database — see
+   :ref:`command-audit-export`. Asserts ``audit.view``.
 
 --as-audit-reader
    Run as the backend user configured in
@@ -403,7 +418,8 @@ Options
 .. important::
 
    Every mode of this command asserts an operation permission: listing,
-   console output and ``--verify`` assert ``audit.view``, ``--export`` asserts
+   console output, ``--verify`` and ``--verify-export`` assert ``audit.view``,
+   ``--export`` asserts
    ``audit.export``, and ``--reset-anchor`` asserts ``vault.configure``. A
    refusal exits 1 before any work happens: nothing is queried, no chain is
    read, no export file is written, and the tip anchor is left untouched.
@@ -446,19 +462,84 @@ Example
    # Filter by secret
    vendor/bin/typo3 vault:audit --identifier=stripe_api_key
 
-   # Export to JSON
-   vendor/bin/typo3 vault:audit --format=json > audit.json
+   # Export the whole chain to a file, then re-verify the file
+   vendor/bin/typo3 vault:audit --export=audit.json
+   vendor/bin/typo3 vault:audit --verify-export=audit.json
 
    # Verify the chain, including the truncation tip anchor
    vendor/bin/typo3 vault:audit --verify
 
-   # List and export as the configured audit reader (auditReaderBeUserUid);
-   # --limit applies to the export too (default 50)
+   # List and export as the configured audit reader (auditReaderBeUserUid)
    vendor/bin/typo3 vault:audit --as-audit-reader --since=2026-05-01
-   vendor/bin/typo3 vault:audit --as-audit-reader --format=json --limit=10000 --export=audit.json
+   vendor/bin/typo3 vault:audit --as-audit-reader --export=audit.json
 
    # Re-arm the anchor after a deliberate wipe of the audit log
    vendor/bin/typo3 vault:audit --reset-anchor --force
+
+.. _command-audit-export:
+
+Exporting the chain and verifying the export
+--------------------------------------------
+
+An export is a JSON object with two keys. ``export`` describes the selection:
+``format`` (``nr-vault-audit-chain-export``), ``version``, ``generatedAt``,
+``tipUid`` (the newest uid when the export started), ``total`` (entries the
+filters select up to ``tipUid``), ``count`` (entries in the file),
+``firstUid``, ``lastUid``, ``chainComplete``, ``truncated``, ``limit`` and
+``filter``. ``rows`` holds one object per entry, oldest first.
+
+Each row carries the stored values the entry hash is computed over, unchanged:
+``uid``, ``secret_identifier``, ``action``, ``success``, ``actor_uid``,
+``crdate``, ``error_message``, ``reason``, ``ip_address``, ``user_agent``,
+``hash_before``, ``hash_after``, ``context`` (the stored JSON string, not a
+re-encoding), ``hmac_key_epoch``, ``actor_type``, ``actor_username``,
+``actor_role``, ``request_id``, plus ``previous_hash`` and ``entry_hash``.
+Which of these an entry's hash covers depends on its ``hmac_key_epoch``; see
+:ref:`security-audit-evidence-epochs`.
+
+``chainComplete`` is true when the file holds every entry up to ``tipUid``: no
+filter and no truncation. Only such a file shows missing entries and the link
+between every pair of neighbours. A filtered export (``--identifier``,
+``--since`` and the other filters) is written and exits 0, marked
+``"chainComplete": false``: each row still proves itself, but entries outside
+the selection are not in the file.
+
+``--verify-export=FILE`` recomputes every row's ``entry_hash`` from the row
+alone, checks that each row's ``previous_hash`` is the ``entry_hash`` of the
+row before it (every row in a complete export, rows with adjacent uids
+otherwise), reports missing uids and epoch downgrades in a complete export,
+reports any decrease of ``hmac_key_epoch`` from one row to the next (in any
+export), and checks the row count and the uid range against the ``export``
+block. It reports the file as verified only when it checked as many rows as
+the file declares, at least one, and found nothing.
+
+Epoch 0 needs no key, so anyone who edits the file could relabel a row as
+epoch 0 and recompute its hash. The verifier therefore takes the rule for
+keyless rows from the installation it runs on, not from the file: when
+:confval:`ext-nrvault-auditHmacEpoch` is 1 or higher, an epoch-0 row is
+accepted only up to the newest epoch-0 row the installation still stores, and
+at least one row must check against the key. An export with legitimate
+epoch-0 rows therefore no longer verifies on an installation whose audit table
+has been emptied.
+
+**The verifier must supply one thing the file never contains: the audit HMAC
+key.** Entries at HMAC epoch 1 and above are HMAC-SHA256 over their fields,
+keyed with ``hash_hkdf('sha256', <master key>, 32,
+'nr-vault-audit-hmac-v1')``. ``--verify-export`` derives it from the master key
+of the installation it runs on, so it has to run where the master key that was
+in effect when the export was taken is configured. A master-key rotation
+re-keys the whole chain, so an export taken before a rotation verifies only
+against the master key from before it. Epoch-0 entries (keyless SHA-256) need
+no key. A third party can verify with its own code by computing the same
+HMAC over the JSON payloads that :php:`AuditLogService::calculateEntryHash()`
+builds; it needs the derived key, not the master key itself.
+
+The CSV form (``--format=csv``) carries the same columns and the ``export``
+block as ``#`` comment lines in front of the header, but it is not byte-exact:
+values that start with ``=``, ``+``, ``-`` or ``@`` get a leading ``'`` so a
+spreadsheet does not run them as formulas, and a row whose value already
+starts with ``'`` cannot be told apart from one that was escaped. Use JSON for
+evidence that has to be re-verified.
 
 .. _command-audit-anchor:
 
