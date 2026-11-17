@@ -875,6 +875,23 @@ Netresearch\NrVault\Hook\RecordCreationOutcome (enum)
 Netresearch\NrVault\Http\AdditionalSecretHttpClientInterface (interface)
   method withAdditionalBodyField(string $secretIdentifier, string $bodyField): static
 
+Netresearch\NrVault\Http\AuthScheme (class)
+  method static apiKey(): self
+  method static basicAuth(?string $usernameSecret = …): self
+  method static bearer(): self
+  method static bodyField(string $field = …): self
+  method static header(string $name = …, ?string $prefix = …): self
+  method static queryParam(string $name = …): self
+  property readonly bodyField: ?string
+  property readonly headerName: ?string
+  property readonly placement: Netresearch\NrVault\Http\SecretPlacement
+  property readonly prefix: ?string
+  property readonly queryParam: ?string
+  property readonly usernameSecret: ?string
+
+Netresearch\NrVault\Http\AuthSchemeHttpClientInterface (interface)
+  method withAuthScheme(string $secretIdentifier, Netresearch\NrVault\Http\AuthScheme $scheme): static
+
 Netresearch\NrVault\Http\CancellableHttpClientInterface (interface)
   method sendCancellable(Psr\Http\Message\RequestInterface $request, Netresearch\NrVault\Http\CancellationSignalInterface $signal): Psr\Http\Message\ResponseInterface
   method supportsCancellation(): bool

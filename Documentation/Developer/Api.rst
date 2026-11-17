@@ -557,7 +557,8 @@ Vault HTTP client
 
 The vault provides a PSR-18 compatible HTTP client that can inject secrets
 into requests without exposing them to your code. Configure authentication
-with :php:`withAuthentication()`, then use standard :php:`sendRequest()`.
+with :php:`withAuthScheme()` (see :ref:`api-http-auth-scheme`), then use
+standard :php:`sendRequest()`.
 
 .. _api-http-direct-injection:
 
@@ -568,7 +569,8 @@ Direct injection (recommended)
    :caption: Inject VaultHttpClientInterface
 
    use GuzzleHttp\Psr7\Request;
-   use Netresearch\NrVault\Http\SecretPlacement;
+   use Netresearch\NrVault\Http\AuthScheme;
+   use Netresearch\NrVault\Http\AuthSchemeHttpClientInterface;
    use Netresearch\NrVault\Http\VaultHttpClientInterface;
 
    final class ExternalApiService
@@ -579,11 +581,12 @@ Direct injection (recommended)
 
        public function fetchData(): array
        {
+           if (!$this->httpClient instanceof AuthSchemeHttpClientInterface) {
+               throw new \LogicException('The installed nr-vault does not support withAuthScheme().');
+           }
+
            // Configure authentication, then use standard PSR-18
-           $client = $this->httpClient->withAuthentication(
-               'api_token',
-               SecretPlacement::Bearer,
-           );
+           $client = $this->httpClient->withAuthScheme('api_token', AuthScheme::bearer());
 
            $request = new Request('GET', 'https://api.example.com/data');
            $response = $client->sendRequest($request);
@@ -601,10 +604,15 @@ Via VaultService
    :caption: HTTP client via VaultService
 
    use GuzzleHttp\Psr7\Request;
-   use Netresearch\NrVault\Http\SecretPlacement;
+   use Netresearch\NrVault\Http\AuthScheme;
+   use Netresearch\NrVault\Http\AuthSchemeHttpClientInterface;
 
-   $client = $this->vaultService->http()
-       ->withAuthentication('stripe_api_key', SecretPlacement::Bearer);
+   $http = $this->vaultService->http();
+   if (!$http instanceof AuthSchemeHttpClientInterface) {
+       throw new \LogicException('The installed nr-vault does not support withAuthScheme().');
+   }
+
+   $client = $http->withAuthScheme('stripe_api_key', AuthScheme::bearer());
 
    $request = new Request(
        'POST',
@@ -626,6 +634,11 @@ Via VaultService
 
       Create a new client instance configured with authentication.
       Returns an immutable instance - the original is unchanged.
+
+      Deprecated: use :php:`withAuthScheme()` of
+      :php:`AuthSchemeHttpClientInterface` instead
+      (:ref:`api-http-auth-scheme`).
+      The method stays until the next major release.
 
       :param string $secretIdentifier: Vault identifier for the secret.
       :param SecretPlacement $placement: How to inject the secret.
@@ -721,16 +734,19 @@ requiring the extra credential must fail closed when the capability is absent.
 .. code-block:: php
    :caption: Client authentication and a separate subject token
 
-   use Netresearch\NrVault\Http\SecretPlacement;
    use Netresearch\NrVault\Http\AdditionalSecretHttpClientInterface;
-   use Netresearch\NrVault\Http\VaultHttpClientInterface;
+   use Netresearch\NrVault\Http\AuthScheme;
+   use Netresearch\NrVault\Http\AuthSchemeHttpClientInterface;
 
    // $http is the injected VaultHttpClientInterface.
+   if (!$http instanceof AuthSchemeHttpClientInterface) {
+       throw new \LogicException('The installed nr-vault does not support withAuthScheme().');
+   }
+   $http = $http->withAuthScheme('exchange_client', AuthScheme::basicAuth());
    if (!$http instanceof AdditionalSecretHttpClientInterface) {
        throw new \RuntimeException('Additional body credentials are required.');
    }
    $http = $http
-       ->withAuthentication('exchange_client', SecretPlacement::BasicAuth)
        ->withAdditionalBodyField('actor_subject', 'subject_token')
        ->withReason('Actor-bound token exchange');
    // Send a PSR-7 request containing only the nonsecret exchange fields.
@@ -795,6 +811,7 @@ additive, so consumers feature-detect instead of raising a version floor:
 .. code-block:: php
    :caption: Aborting a call when the surrounding operation is cancelled
 
+   use Netresearch\NrVault\Http\AuthScheme;
    use Netresearch\NrVault\Http\CancellableHttpClientInterface;
    use Netresearch\NrVault\Http\CancellationSignalInterface;
    use Netresearch\NrVault\Exception\RequestCancelledException;
@@ -809,8 +826,9 @@ additive, so consumers feature-detect instead of raising a version floor:
        }
    }
 
-   $client = $this->vaultService->http()
-       ->withAuthentication('tool_api_key')
+   // $http: the narrowed client from the "Vault HTTP client" section
+   $client = $http
+       ->withAuthScheme('tool_api_key', AuthScheme::bearer())
        ->withReason('MCP tool call')
        ->withTimeout(15);
 
@@ -1059,10 +1077,12 @@ additive, so consumers feature-detect it:
 .. code-block:: php
    :caption: Reading a server-sent event stream line by line
 
+   use Netresearch\NrVault\Http\AuthScheme;
    use Netresearch\NrVault\Http\StreamingHttpClientInterface;
 
-   $client = $this->vaultService->http()
-       ->withAuthentication('openai_api_key')
+   // $http: the narrowed client from the "Vault HTTP client" section
+   $client = $http
+       ->withAuthScheme('openai_api_key', AuthScheme::bearer())
        ->withReason('Chat completion stream')
        ->withTimeout(120);
 
@@ -1201,11 +1221,13 @@ still injects the credential and writes the audit row.
 .. code-block:: php
    :caption: Pinning the addresses your own check approved
 
+   use Netresearch\NrVault\Http\AuthScheme;
    use Netresearch\NrVault\Http\PinnedAddressHttpClientInterface;
    use Netresearch\NrVault\Http\StreamingHttpClientInterface;
 
-   $client = $this->vaultService->http()
-       ->withAuthentication('agent_token')
+   // $http: the narrowed client from the "Vault HTTP client" section
+   $client = $http
+       ->withAuthScheme('agent_token', AuthScheme::bearer())
        ->withReason('A2A call');
 
    if (!$client instanceof PinnedAddressHttpClientInterface) {
@@ -1230,7 +1252,7 @@ What the pin does and does not change:
 *   A ``3xx`` is returned, not followed, and nothing is retried, whatever
     ``allow_redirects`` the platform sets.
 *   Requests to other hosts, and an OAuth token request, resolve as before.
-*   The pin survives :php:`withAuthentication()`, :php:`withOAuth()`,
+*   The pin survives :php:`withAuthScheme()`, :php:`withAuthentication()`, :php:`withOAuth()`,
     :php:`withReason()`, :php:`withTimeout()` and
     :php:`withAdditionalBodyField()`, in either order. A client passed to the
     constructor is replaced by a factory-built one, as :php:`withTimeout()`
@@ -1279,32 +1301,141 @@ range exception, the previous DateTime modification/comparison behavior remains.
 DateTime's own calendar and timestamp range is unchanged. See
 :ref:`adr-044-signed-oauth-expiry-buffers`.
 
-.. _api-http-auth-options:
+.. _api-http-auth-scheme:
 
-Authentication options
+Authentication schemes
 ~~~~~~~~~~~~~~~~~~~~~~
 
-The :php:`withAuthentication()` method accepts these options:
+:php:`AuthSchemeHttpClientInterface` is an optional calling capability
+extending :php:`VaultHttpClientInterface`.
+Its :php:`withAuthScheme()` replaces :php:`withAuthentication()`: an
+:php:`AuthScheme` value object names the placement and carries only the
+options that placement reads.
+An option that the placement would ignore, or a misspelled option key, cannot
+be written, and an invalid value is refused when the scheme is built, before
+any secret is read.
+:php:`VaultServiceInterface::http()` still declares
+:php:`VaultHttpClientInterface`, so feature-detect the capability as shown in
+:ref:`api-http-client`. See :ref:`adr-056-auth-scheme-value-object`.
+
+.. php:interface:: AuthSchemeHttpClientInterface
+
+   .. php:method:: withAuthScheme(string $secretIdentifier, AuthScheme $scheme): static
+
+      Return an immutable clone whose requests carry the secret as the scheme
+      describes.
+      The audit reason, timeout, pinned addresses and additional body
+      credentials carry over; an OAuth configuration does not.
+      Set the audit reason with :php:`withReason()`.
+
+      :param string $secretIdentifier: Vault identifier for the secret.
+      :param AuthScheme $scheme: Placement and its options.
+      :returns: New client instance with authentication configured.
+
+.. php:class:: AuthScheme
+
+   :php:`AuthScheme::bearer()`
+      ``Authorization: Bearer <secret>``.
+
+   :php:`AuthScheme::basicAuth(?string $usernameSecret = null)`
+      ``Authorization: Basic <base64>``. Without ``$usernameSecret`` the
+      secret holds ``username:password``; with it, the secret is the password
+      and ``$usernameSecret`` is the Vault identifier of the username.
+
+   :php:`AuthScheme::header(string $name = 'X-API-Key', ?string $prefix = null)`
+      ``<name>: <prefix><secret>``. Use the prefix for non-Bearer
+      ``Authorization: <scheme> <secret>`` schemes, e.g. ``'Key '`` for the
+      TYPO3 FAL providers or ``'DeepL-Auth-Key '`` for DeepL.
+      The name must be an HTTP token; the prefix must be non-empty and free of
+      control characters.
+
+   :php:`AuthScheme::apiKey()`
+      ``X-API-Key: <secret>``.
+
+   :php:`AuthScheme::queryParam(string $name = 'api_key')`
+      Appends ``<name>=<secret>`` to the query. The name must be non-empty
+      and free of control characters.
+
+   :php:`AuthScheme::bodyField(string $field = 'api_key')`
+      Sets ``<field>`` in a form-encoded or JSON object body. The field must
+      match ``[A-Za-z_][A-Za-z0-9_]{0,63}``.
+
+   Each constructor throws :php:`InvalidArgumentException` for an invalid
+   value. OAuth 2.0 has no scheme; use :php:`withOAuth()`.
+
+.. _api-http-auth-examples:
+
+.. code-block:: php
+   :caption: Authentication examples
+
+   use GuzzleHttp\Psr7\Request;
+   use Netresearch\NrVault\Http\AuthScheme;
+
+   // $http: the narrowed client from the "Vault HTTP client" section
+
+   // Bearer authentication
+   $client = $http->withAuthScheme('stripe_api_key', AuthScheme::bearer());
+   $response = $client->sendRequest(
+       new Request('POST', 'https://api.stripe.com/v1/charges', [], $body)
+   );
+
+   // Custom header
+   $client = $http->withAuthScheme('api_token', AuthScheme::header('X-API-Key'));
+   $response = $client->sendRequest(
+       new Request('GET', 'https://api.example.com/data')
+   );
+
+   // Custom Authorization scheme (e.g. DeepL "Authorization: DeepL-Auth-Key <key>")
+   $client = $http->withAuthScheme(
+       'deepl_api_key',
+       AuthScheme::header('Authorization', 'DeepL-Auth-Key '),
+   );
+   $response = $client->sendRequest(
+       new Request('POST', 'https://api-free.deepl.com/v2/translate', [], $body)
+   );
+
+   // Basic authentication with separate credentials
+   $client = $http
+       ->withAuthScheme('service_password', AuthScheme::basicAuth('service_username'))
+       ->withReason('Fetching secure data');
+   $response = $client->sendRequest(
+       new Request('GET', 'https://api.example.com/secure')
+   );
+
+   // Query parameter
+   $client = $http->withAuthScheme('api_key', AuthScheme::queryParam('key'));
+   $response = $client->sendRequest(
+       new Request('GET', 'https://maps.example.com/geocode')
+   );
+
+.. _api-http-auth-options:
+
+Deprecated options array
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+The deprecated :php:`withAuthentication()` takes a :php:`SecretPlacement` and
+an options array. Each option maps to one :php:`AuthScheme` argument:
 
 headerName
-   Custom header name (for :php:`SecretPlacement::Header`, default: ``X-API-Key``).
+   :php:`AuthScheme::header()` ``$name`` (for :php:`SecretPlacement::Header`, default: ``X-API-Key``).
 
 prefix
-   Auth scheme/prefix prepended to the secret (for :php:`SecretPlacement::Header`).
-   Use for non-Bearer ``Authorization: <scheme> <secret>`` schemes — e.g. ``'Key '``
-   for the TYPO3 FAL providers or ``'DeepL-Auth-Key '`` for DeepL.
+   :php:`AuthScheme::header()` ``$prefix`` (for :php:`SecretPlacement::Header`).
 
 queryParam
-   Query parameter name (for :php:`SecretPlacement::QueryParam`, default: ``api_key``).
+   :php:`AuthScheme::queryParam()` ``$name`` (for :php:`SecretPlacement::QueryParam`, default: ``api_key``).
 
 bodyField
-   Body field name (for :php:`SecretPlacement::BodyField`, default: ``api_key``).
+   :php:`AuthScheme::bodyField()` ``$field`` (for :php:`SecretPlacement::BodyField`, default: ``api_key``).
 
 usernameSecret
-   Separate username secret identifier (for :php:`SecretPlacement::BasicAuth`).
+   :php:`AuthScheme::basicAuth()` ``$usernameSecret`` (for :php:`SecretPlacement::BasicAuth`).
 
 reason
-   Reason for access (logged in audit).
+   :php:`withReason()`.
+
+An option that does not belong to the placement is ignored, and an unknown key
+is ignored without an error. :php:`withAuthScheme()` removes both cases.
 
 .. _api-secret-placement:
 
@@ -1321,59 +1452,6 @@ placement
    -  :php:`SecretPlacement::BodyField` - Field in request body.
    -  :php:`SecretPlacement::OAuth2` - OAuth 2.0 with automatic token refresh.
    -  :php:`SecretPlacement::ApiKey` - X-API-Key header (shorthand).
-
-.. _api-http-auth-examples:
-
-.. code-block:: php
-   :caption: Authentication examples
-
-   use GuzzleHttp\Psr7\Request;
-   use Netresearch\NrVault\Http\SecretPlacement;
-
-   // Bearer authentication
-   $client = $this->vault->http()
-       ->withAuthentication('stripe_api_key', SecretPlacement::Bearer);
-   $response = $client->sendRequest(
-       new Request('POST', 'https://api.stripe.com/v1/charges', [], $body)
-   );
-
-   // Custom header
-   $client = $this->vault->http()
-       ->withAuthentication('api_token', SecretPlacement::Header, [
-           'headerName' => 'X-API-Key',
-       ]);
-   $response = $client->sendRequest(
-       new Request('GET', 'https://api.example.com/data')
-   );
-
-   // Custom Authorization scheme (e.g. DeepL "Authorization: DeepL-Auth-Key <key>")
-   $client = $this->vault->http()
-       ->withAuthentication('deepl_api_key', SecretPlacement::Header, [
-           'headerName' => 'Authorization',
-           'prefix' => 'DeepL-Auth-Key ',
-       ]);
-   $response = $client->sendRequest(
-       new Request('POST', 'https://api-free.deepl.com/v2/translate', [], $body)
-   );
-
-   // Basic authentication with separate credentials
-   $client = $this->vault->http()
-       ->withAuthentication('service_password', SecretPlacement::BasicAuth, [
-           'usernameSecret' => 'service_username',
-           'reason' => 'Fetching secure data',
-       ]);
-   $response = $client->sendRequest(
-       new Request('GET', 'https://api.example.com/secure')
-   );
-
-   // Query parameter
-   $client = $this->vault->http()
-       ->withAuthentication('api_key', SecretPlacement::QueryParam, [
-           'queryParam' => 'key',
-       ]);
-   $response = $client->sendRequest(
-       new Request('GET', 'https://maps.example.com/geocode')
-   );
 
 .. _api-events:
 

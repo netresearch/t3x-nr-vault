@@ -141,3 +141,4 @@ ADR      Title                                                    Status
    ADR-053-HashiCorpVaultStorageAdapter
    ADR-054-AwsSecretsManagerStorageAdapter
    ADR-055-AuditFindingAcknowledgement
+   ADR-056-AuthSchemeValueObject

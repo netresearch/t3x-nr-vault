@@ -73,7 +73,7 @@ use function strlen;
  *     $request = $requestFactory->createRequest('GET', 'https://api.example.com/data');
  *
  *     // Bearer token authentication
- *     $client = $vault->http()->withAuthentication('stripe_key', SecretPlacement::Bearer);
+ *     $client = $vault->http()->withAuthScheme('stripe_key', AuthScheme::bearer());
  *     $response = $client->sendRequest($request);
  *
  *     // OAuth 2.0
@@ -83,7 +83,7 @@ use function strlen;
  * @see SecureHttpClientFactory for TYPO3 HTTP configuration handling
  * Field-name checks retain an explicit ASCII alphabet.
  */
-final readonly class VaultHttpClient implements VaultHttpClientInterface, CancellableHttpClientInterface, StreamingHttpClientInterface, AdditionalSecretHttpClientInterface, PinnedAddressHttpClientInterface
+final readonly class VaultHttpClient implements VaultHttpClientInterface, AuthSchemeHttpClientInterface, CancellableHttpClientInterface, StreamingHttpClientInterface, AdditionalSecretHttpClientInterface, PinnedAddressHttpClientInterface
 {
     /**
      * Fixed literal for a call refused before anything was sent.
@@ -368,6 +368,9 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
         );
     }
 
+    /**
+     * @deprecated use withAuthScheme() with an AuthScheme instead; removed in the next major release (ADR-056)
+     */
     public function withAuthentication(
         string $secretIdentifier,
         SecretPlacement $placement = SecretPlacement::Bearer,
@@ -387,6 +390,29 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
             oauthManager: $this->oauthManager,
             secureHttpClientFactory: $this->secureHttpClientFactory,
             authPrefix: $options['prefix'] ?? null,
+            timeoutSeconds: $this->timeoutSeconds,
+            cancellableTransport: $this->cancellableTransport,
+            clonedFrom: $this,
+            additionalBodyFields: $this->additionalBodyFields,
+        );
+    }
+
+    public function withAuthScheme(string $secretIdentifier, AuthScheme $scheme): static
+    {
+        return new self(
+            vaultService: $this->vaultService,
+            auditLogService: $this->auditLogService,
+            innerClient: $this->innerClient,
+            secretIdentifier: $secretIdentifier,
+            placement: $scheme->placement,
+            headerName: $scheme->headerName,
+            queryParam: $scheme->queryParam,
+            bodyField: $scheme->bodyField,
+            usernameSecretIdentifier: $scheme->usernameSecret,
+            reason: $this->reason,
+            oauthManager: $this->oauthManager,
+            secureHttpClientFactory: $this->secureHttpClientFactory,
+            authPrefix: $scheme->prefix,
             timeoutSeconds: $this->timeoutSeconds,
             cancellableTransport: $this->cancellableTransport,
             clonedFrom: $this,

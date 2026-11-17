@@ -17,6 +17,7 @@ use Netresearch\NrVault\Audit\AuditContextInterface;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
 use Netresearch\NrVault\Exception\RequestCancelledException;
 use Netresearch\NrVault\Exception\VaultException;
+use Netresearch\NrVault\Http\AuthScheme;
 use Netresearch\NrVault\Http\CancellableTransport;
 use Netresearch\NrVault\Http\CancellationSignalInterface;
 use Netresearch\NrVault\Http\CurlMultiTicker;
@@ -238,6 +239,19 @@ final class StreamingSendTest extends FunctionalTestCase
             array_column($this->auditRows, 'identifier'),
             'Both sends are audited under the secret they injected.',
         );
+    }
+
+    #[Test]
+    public function anAuthSchemeReachesTheServerOnBothSendPaths(): void
+    {
+        $client = $this->client()->withAuthScheme('stream_token', AuthScheme::header('Authorization', 'DeepL-Auth-Key '));
+
+        $streamed = (string) $client->sendStreaming(new Request('GET', $this->url(self::ECHO_AUTH_PATH)))->getBody();
+        $blocking = (string) $client->sendRequest(new Request('GET', $this->url(self::ECHO_AUTH_PATH)))->getBody();
+
+        self::assertStringStartsWith('authorization=DeepL-Auth-Key ' . self::SECRET . ' ', $streamed);
+        self::assertStringStartsWith('authorization=DeepL-Auth-Key ' . self::SECRET . ' ', $blocking);
+        self::assertSame(['stream_token', 'stream_token'], array_column($this->auditRows, 'identifier'));
     }
 
     #[Test]

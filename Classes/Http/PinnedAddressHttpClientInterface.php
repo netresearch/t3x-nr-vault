@@ -20,7 +20,7 @@ use InvalidArgumentException;
  * address before the connect (ADR-052). Separate from
  * `VaultHttpClientInterface` and additive, so a consumer feature-detects it:
  *
- *     $client = $vault->http()->withAuthentication('agent_token');
+ *     $client = $http->withAuthScheme('agent_token', AuthScheme::bearer());
  *     if ($client instanceof PinnedAddressHttpClientInterface) {
  *         $client = $client->withPinnedAddresses('agent.example.com', $checkedAddresses);
  *     }
