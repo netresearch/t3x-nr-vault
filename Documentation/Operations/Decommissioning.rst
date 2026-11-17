@@ -150,12 +150,17 @@ a verification run after key destruction proves nothing.
 
     ..  code-block:: bash
 
-        vendor/bin/typo3 vault:audit --as-audit-reader --export=decommission-audit.json
-        vendor/bin/typo3 vault:audit --as-audit-reader --verify-export=decommission-audit.json \
-            > decommission-export-verify.txt && echo "export verified"
+        vendor/bin/typo3 vault:audit --as-audit-reader --export=decommission-audit.json \
+            && vendor/bin/typo3 vault:audit --as-audit-reader --verify-export=decommission-audit.json \
+                > decommission-export-verify.txt \
+            && grep -Eq 'Whole chain +yes' decommission-export-verify.txt \
+            && echo "export verified as the whole chain"
 
-    Keep ``decommission-export-verify.txt`` with the export, and destroy the
-    key only after the second command printed ``export verified``. The audit
+    The verification runs only when the export succeeded, so it never checks
+    an older file left at that path. Keep ``decommission-export-verify.txt``
+    with the export, and destroy the key only after the commands printed
+    ``export verified as the whole chain``: a verified export that is not the
+    whole chain misses entries. The audit
     reader needs both ``audit.export`` (for the export) and ``audit.view`` (for
     the verification). The file is written readable by its owner only.
 

@@ -374,7 +374,16 @@ final readonly class AuditChainExporter implements AuditChainExporterInterface
                 return false;
             }
 
-            if ($anchored !== null && !hash_equals($anchor->chainTip, (string) $anchored['entry_hash'])) {
+            // Before the genesis row: the anchor witnesses a chain this export
+            // does not hold (the table was emptied and a new chain started).
+            if ($anchored === null) {
+                $notes[] = sprintf('The newest external anchor is at uid %d, before the first row of the export; '
+                    . 'the chain it witnesses is not in this export.', $anchor->sequence);
+
+                return false;
+            }
+
+            if (!hash_equals($anchor->chainTip, (string) $anchored['entry_hash'])) {
                 $notes[] = sprintf('uid %d differs from the external anchor taken at that uid '
                     . "(re-sealed since the anchor, or not this installation's chain).", $anchor->sequence);
 

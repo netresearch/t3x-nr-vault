@@ -568,6 +568,25 @@ final class AuditChainExporterTest extends TestCase
         self::assertSame([], $result->notes);
     }
 
+    /**
+     * After the table was emptied and a new chain started at a higher uid, the
+     * anchor still names a row of the old chain, before the new genesis row.
+     */
+    #[Test]
+    public function anAnchorBeforeTheFirstRowIsNotTheWholeChain(): void
+    {
+        $rows   = $this->chain([3, 3], [100, 101]);
+        $anchor = new ChainTipAnchor(sequence: 2, chainTip: str_repeat('a', 64), timestamp: 1704067200, hmacEpoch: 3);
+
+        $result = $this->exporter(3, $this->stored($rows), $this->anchor($anchor))->verify($this->document($rows));
+
+        self::assertTrue($result->isValid());
+        self::assertFalse($result->chainComplete);
+        self::assertSame([
+            'The newest external anchor is at uid 2, before the first row of the export; the chain it witnesses is not in this export.',
+        ], $result->notes);
+    }
+
     #[Test]
     public function anAnchorBeyondTheExportIsNotTheWholeChain(): void
     {
