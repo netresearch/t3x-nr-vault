@@ -275,6 +275,11 @@ final readonly class AuditChainExporter implements AuditChainExporterInterface
             }
         }
 
+        // The writer never declares both; a file that does contradicts itself.
+        if ($chainComplete && $truncated) {
+            $errors[] = 'The metadata declares the export both complete and truncated.';
+        }
+
         // Never "whole chain" for a file that failed anywhere else.
         $wholeChain = $errors === [] && $chainComplete && $verifiedRows !== [] && count($verifiedRows) === count($rows)
             && $this->isWholeChain($verifiedRows, $tipUid, $errors, $notes);
@@ -329,15 +334,25 @@ final readonly class AuditChainExporter implements AuditChainExporterInterface
             return false;
         }
 
+        // Without an anchor file (anchoring not set up) the comparison is
+        // skipped. A file that exists but witnesses no chain row cannot
+        // confirm anything, so it withholds the whole chain.
         try {
-            $anchor = $this->anchorReader->isAvailable() ? $this->anchorReader->readLatestAnchor() : null;
+            $available = $this->anchorReader->isAvailable();
+            $anchor    = $available ? $this->anchorReader->readLatestAnchor() : null;
         } catch (Throwable $e) {
             $notes[] = 'The external anchor could not be read: ' . $e->getMessage();
 
             return false;
         }
 
-        if ($anchor instanceof ChainTipAnchor && !$anchor->isEmpty()) {
+        if ($available && (!$anchor instanceof ChainTipAnchor || $anchor->isEmpty())) {
+            $notes[] = 'The external anchor file holds no anchor of a chain row, so the export cannot be checked against it.';
+
+            return false;
+        }
+
+        if ($anchor instanceof ChainTipAnchor) {
             if ($anchor->sequence > $lastUid) {
                 $notes[] = sprintf('The newest external anchor is at uid %d, beyond the end of the export.', $anchor->sequence);
 

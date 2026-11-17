@@ -540,7 +540,11 @@ row with the same ``entry_hash`` and no newer row. Anything it cannot check, or
 that differs (a master-key rotation or the HMAC migration re-seals every
 stored row), leaves the answer at "not confirmed" with the reason listed. For
 a file that claims ``chainComplete``, an anchored uid inside the exported range
-that the file lacks is an error; a filtered file may lack it. An
+that the file lacks is an error; a filtered file may lack it. An anchor file
+that exists but holds no anchor of a chain row also leaves the answer at "not
+confirmed". When no anchor file exists (anchoring is not set up), the anchor
+comparison is skipped, and **Whole chain: yes** rests on the stored chain
+alone: it is then no evidence against someone who can write the database. An
 export taken before newer entries were written therefore verifies, but not as
 the whole chain.
 

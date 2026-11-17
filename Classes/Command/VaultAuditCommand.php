@@ -695,6 +695,16 @@ final class VaultAuditCommand extends Command
             return Command::FAILURE;
         }
 
+        // Owner-only before the first row is written: the rows name who used
+        // which secret. rename() keeps the mode for the published file.
+        if (!chmod($temporary, 0o600)) {
+            fclose($handle);
+            $this->removeTemporary($temporary);
+            $io->error(sprintf('Failed to write to file: %s', $file));
+
+            return Command::FAILURE;
+        }
+
         try {
             $written = $format === 'csv'
                 ? $this->writeCsvExport($handle, $export)

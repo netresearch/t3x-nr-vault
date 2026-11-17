@@ -182,10 +182,31 @@ final class AuditChainExporterTest extends TestCase
     #[Test]
     public function aTruncatedFlagIsEchoed(): void
     {
-        $document                        = $this->document($this->chain([3]));
+        $document                            = $this->document($this->chain([3]));
+        $document['export']['chainComplete'] = false;
+        $document['export']['truncated']     = true;
+
+        $result = $this->exporter()->verify($document);
+
+        self::assertTrue($result->truncated);
+        self::assertSame([], $result->errors);
+    }
+
+    /**
+     * The writer never declares an export both complete and truncated.
+     */
+    #[Test]
+    public function aFileDeclaringItselfCompleteAndTruncatedIsNotValid(): void
+    {
+        $rows                            = $this->chain([3, 3]);
+        $document                        = $this->document($rows);
         $document['export']['truncated'] = true;
 
-        self::assertTrue($this->exporter()->verify($document)->truncated);
+        $result = $this->exporter(3, $this->stored($rows))->verify($document);
+
+        self::assertFalse($result->isValid());
+        self::assertFalse($result->chainComplete);
+        self::assertSame(['The metadata declares the export both complete and truncated.'], $result->errors);
     }
 
     #[Test]
@@ -584,6 +605,34 @@ final class AuditChainExporterTest extends TestCase
         self::assertTrue($result->isValid());
         self::assertFalse($result->chainComplete);
         self::assertSame(['The external anchor could not be read: sink down'], $result->notes);
+    }
+
+    /**
+     * An anchor file that exists but witnesses no chain row cannot confirm
+     * the export.
+     *
+     * @return iterable<string, array{?ChainTipAnchor}>
+     */
+    public static function anchorWithoutChainRowProvider(): iterable
+    {
+        yield 'no anchor in the file' => [null];
+        yield 'only an empty-chain anchor' => [new ChainTipAnchor(sequence: 0, chainTip: '', timestamp: 1704067200, hmacEpoch: 3)];
+    }
+
+    #[DataProvider('anchorWithoutChainRowProvider')]
+    #[Test]
+    public function anAnchorFileWithoutAChainRowIsNotTheWholeChain(?ChainTipAnchor $anchor): void
+    {
+        $rows   = $this->chain([3, 3]);
+        $reader = self::createStub(AnchorReaderInterface::class);
+        $reader->method('isAvailable')->willReturn(true);
+        $reader->method('readLatestAnchor')->willReturn($anchor);
+
+        $result = $this->exporter(3, $this->stored($rows), $reader)->verify($this->document($rows));
+
+        self::assertTrue($result->isValid());
+        self::assertFalse($result->chainComplete);
+        self::assertSame(['The external anchor file holds no anchor of a chain row, so the export cannot be checked against it.'], $result->notes);
     }
 
     #[Test]

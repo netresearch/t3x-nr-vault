@@ -372,6 +372,28 @@ final class VaultAuditCommandExportTest extends AbstractVaultFunctionalTestCase
         self::assertGreaterThanOrEqual(60, count($rows));
     }
 
+    /**
+     * The rows name who used which secret, so the file is readable by its
+     * owner only, whatever the umask.
+     */
+    #[Test]
+    public function theExportFileIsReadableByItsOwnerOnly(): void
+    {
+        $this->seedTwoEpochs();
+        $file     = $this->exportFile();
+        $previous = umask(0o022);
+
+        try {
+            $tester = $this->executeAudit(['--export' => $file]);
+        } finally {
+            umask($previous);
+        }
+
+        self::assertSame(Command::SUCCESS, $tester->getStatusCode(), $tester->getDisplay());
+        clearstatcache();
+        self::assertSame(0o600, fileperms($file) & 0o777);
+    }
+
     #[Test]
     public function anExplicitLimitBelowTheTotalIsRefusedWithoutAllowPartial(): void
     {
