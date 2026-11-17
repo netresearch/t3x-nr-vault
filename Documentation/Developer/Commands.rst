@@ -393,7 +393,9 @@ Options
    Export every entry the filters select, up to the newest entry when the
    export starts, to a file — see :ref:`command-audit-export`. Rows are
    streamed in ascending uid order, so memory use does not grow with the log.
-   The file appears only once every row is written.
+   The file appears only once every row is written, and it is readable by its
+   owner only (mode 0600, set and checked whatever the umask). ``FILE`` is a
+   local path; a stream wrapper such as ``php://`` or ``ftp://`` is refused.
 
 --allow-partial
    Let ``--export`` with an explicit ``--limit`` write fewer entries than the

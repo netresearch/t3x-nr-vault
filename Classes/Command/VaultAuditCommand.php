@@ -660,6 +660,14 @@ final class VaultAuditCommand extends Command
             return Command::FAILURE;
         }
 
+        // A local file only: a stream wrapper (php://, ftp://, phar://, ...)
+        // has no owner-only mode to set and may send the rows elsewhere.
+        if (str_contains($file, '://')) {
+            $io->error(sprintf('Refusing to export to %s: --export takes a local file path, not a stream wrapper.', $file));
+
+            return Command::FAILURE;
+        }
+
         try {
             $export = $this->chainExporter->select($filter, $limit);
         } catch (Throwable $e) {
@@ -701,6 +709,18 @@ final class VaultAuditCommand extends Command
 
         if ($handle === false) {
             $io->error(sprintf('Failed to write to file: %s', $file));
+
+            return Command::FAILURE;
+        }
+
+        // The umask alone is not relied on (ACL defaults and some mounts
+        // ignore it): set the mode explicitly and confirm it on the open
+        // handle before the first row is written.
+        $stat = chmod($temporary, 0o600) ? fstat($handle) : false;
+        if (!is_array($stat) || ($stat['mode'] & 0o777) !== 0o600) {
+            fclose($handle);
+            $this->removeTemporary($temporary);
+            $io->error(sprintf('The export failed and no file was written: %s could not be made readable by its owner only.', $file));
 
             return Command::FAILURE;
         }
