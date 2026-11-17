@@ -13,7 +13,10 @@ use Netresearch\NrVault\Audit\AuditAction;
 use Netresearch\NrVault\Audit\AuditChainAnchorStore;
 use Netresearch\NrVault\Audit\AuditLogService;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
+use Netresearch\NrVault\Audit\Export\AuditChainExport;
 use Netresearch\NrVault\Audit\Export\AuditChainExporter;
+use Netresearch\NrVault\Audit\Export\AuditExportVerification;
+use Netresearch\NrVault\Audit\Export\DatabaseStoredAuditChain;
 use Netresearch\NrVault\Audit\GenericContext;
 use Netresearch\NrVault\Command\VaultAuditCommand;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
@@ -34,6 +37,10 @@ use function is_array;
  * explicit --limit would cut it, and verifiable offline across HMAC epochs.
  */
 #[CoversClass(VaultAuditCommand::class)]
+#[CoversClass(AuditChainExporter::class)]
+#[CoversClass(AuditChainExport::class)]
+#[CoversClass(AuditExportVerification::class)]
+#[CoversClass(DatabaseStoredAuditChain::class)]
 final class VaultAuditCommandExportTest extends AbstractVaultFunctionalTestCase
 {
     private const ADMIN = 1;

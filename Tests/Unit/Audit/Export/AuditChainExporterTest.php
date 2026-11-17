@@ -17,6 +17,7 @@ use Netresearch\NrVault\Audit\Export\AuditExportVerification;
 use Netresearch\NrVault\Audit\Export\StoredAuditChainInterface;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Crypto\MasterKeyProviderInterface;
+use Netresearch\NrVault\Tests\Unit\Audit\Export\Fixtures\InMemoryStoredAuditChain;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -872,48 +873,7 @@ final class AuditChainExporterTest extends TestCase
      */
     private function stored(array $rows, ?Throwable $failure = null): StoredAuditChainInterface
     {
-        return new class ($rows, $failure) implements StoredAuditChainInterface {
-            /**
-             * @param list<array<string, int|string>> $rows
-             */
-            public function __construct(
-                private readonly array $rows,
-                private readonly ?Throwable $failure,
-            ) {}
-
-            public function exportRowAt(int $uid): ?array
-            {
-                $this->failIfConfigured();
-                foreach ($this->rows as $row) {
-                    if ($row['uid'] === $uid) {
-                        return $row;
-                    }
-                }
-
-                return null;
-            }
-
-            public function entryHashAt(int $uid): ?string
-            {
-                $row = $this->exportRowAt($uid);
-
-                return $row === null ? null : (string) $row['entry_hash'];
-            }
-
-            public function countAfter(int $uid): int
-            {
-                $this->failIfConfigured();
-
-                return count(array_filter($this->rows, static fn (array $row): bool => $row['uid'] > $uid));
-            }
-
-            private function failIfConfigured(): void
-            {
-                if ($this->failure instanceof Throwable) {
-                    throw $this->failure;
-                }
-            }
-        };
+        return new InMemoryStoredAuditChain($rows, $failure);
     }
 
     /**
