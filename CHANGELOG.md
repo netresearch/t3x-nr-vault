@@ -9,6 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-11-17
+
+### Upgrading from 1.9
+
+- Scripts that read files written by `vault:audit --export` need the new layout (see Changed), and scripts that relied on `--limit` with `--export` need `--allow-partial` when they want fewer entries than the selection holds.
+
+### Added
+
+- `vault:audit --as-audit-reader` lists, verifies and exports the audit log from a shell as the backend user configured in the new `auditReaderBeUserUid` setting (off by default). Once set, every shell that can run the TYPO3 CLI can read the log as that user; the permission checks (`audit.view`, `audit.export`) are evaluated for it, and `--reset-anchor` is refused together with the option. `auditorBeUserUid` still opens `vault:audit-verify` only. `vault:audit-anchor` gets no such option: anchoring runs unattended as the *Vault Audit Chain Anchoring* scheduler task, and the docs no longer claim that an anchor records who anchored (#546).
+- `vault:audit --verify-export=FILE` re-verifies a JSON export from its own rows: exact row shape, every row against its entry hash, the links between rows, epoch decreases and the declared row count. It reports the export as the whole chain only when it can confirm that against the installation's stored chain and the external anchor. Rows at HMAC epoch 1 and above need the master key that was in effect when the export was taken. With `auditHmacEpoch` at 1 or higher, rows below epoch 3 (whose hash leaves columns out) are accepted only when the installation stores the same row, so an export taken before the HMAC migration verifies only on a copy of the installation from before it. At `auditHmacEpoch` 0 the chain carries no tamper evidence and an edited file still verifies. `--verify-export` is refused together with `--export`, `--verify` or `--reset-anchor`.
+- `Netresearch\NrVault\Audit\Export\StoredAuditChainInterface`: the stored audit chain that `--verify-export` checks an export against (`DatabaseStoredAuditChain` reads it from `tx_nrvault_audit_log`).
+
+### Changed
+
+- The file `vault:audit --export` writes has a new layout: a JSON object `{"export": {...}, "rows": [...]}` with the selection metadata and one row per entry in ascending uid order, with the stored column names (`secret_identifier`, `entry_hash`, `context` as the stored JSON string, ...). CSV exports use the same columns and carry the metadata as `#` comment lines in front of the header. The console output (`--format=json` without `--export`) is unchanged.
+- The file `vault:audit --export` writes is readable by its owner only (mode 0600), whatever the umask, and the target must be a local path: a stream wrapper such as `php://` or `ftp://` is refused.
+
+### Fixed
+
+- `vault:audit --export` no longer cuts the export to the newest 50 entries: it writes every entry the filters select, streamed in uid order. An explicit `--limit` below the selection is refused (exit 1, no file) unless `--allow-partial` is given, which marks the file `truncated`. Each exported row now carries `hmac_key_epoch` and the other stored values its entry hash covers, unchanged (#554).
+
 ## [1.9.1] - 2026-11-16
 
 ### Fixed
@@ -2366,7 +2387,8 @@ upgrading.
 - Constructor property promotion
 - Modern PHP 8.x patterns (match, named arguments, attributes)
 
-[Unreleased]: https://github.com/netresearch/t3x-nr-vault/compare/v1.9.1...HEAD
+[Unreleased]: https://github.com/netresearch/t3x-nr-vault/compare/v1.10.0...HEAD
+[1.10.0]: https://github.com/netresearch/t3x-nr-vault/compare/v1.9.1...v1.10.0
 [1.9.1]: https://github.com/netresearch/t3x-nr-vault/compare/v1.9.0...v1.9.1
 [1.9.0]: https://github.com/netresearch/t3x-nr-vault/compare/v1.8.0...v1.9.0
 [1.8.0]: https://github.com/netresearch/t3x-nr-vault/compare/v1.7.0...v1.8.0

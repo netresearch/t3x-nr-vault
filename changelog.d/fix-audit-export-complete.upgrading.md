@@ -1,1 +1,0 @@
-- Scripts that read files written by `vault:audit --export` need the new layout (see Changed), and scripts that relied on `--limit` with `--export` need `--allow-partial` when they want fewer entries than the selection holds.
