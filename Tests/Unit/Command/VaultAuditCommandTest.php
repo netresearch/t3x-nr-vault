@@ -48,6 +48,11 @@ final class VaultAuditCommandTest extends TestCase
 
     private const IP_ADDRESS = '127.0.0.1';
 
+    /** File names the export tests write into their temporary directory. */
+    private const CSV_EXPORT_FILE = '/audit.csv';
+
+    private const JSON_EXPORT_FILE = '/audit.json';
+
     private const VERIFY_EXPORT_FILE = 'vfs://exports/b.json';
 
     private AuditLogServiceInterface&MockObject $auditLogService;
@@ -599,7 +604,7 @@ final class VaultAuditCommandTest extends TestCase
             'previous_hash'     => '',
             'context'           => '{}',
         ])]);
-        $exportFile = $this->createTempDir() . '/audit.json';
+        $exportFile = $this->createTempDir() . self::JSON_EXPORT_FILE;
 
         $previous = umask(0o000);
 
@@ -634,7 +639,7 @@ final class VaultAuditCommandTest extends TestCase
 
         $this->stubExport([$entry]);
 
-        $exportFile = $this->createTempDir() . '/audit.json';
+        $exportFile = $this->createTempDir() . self::JSON_EXPORT_FILE;
 
         $exitCode = $this->commandTester->execute([
             '--export' => $exportFile,
@@ -865,7 +870,7 @@ final class VaultAuditCommandTest extends TestCase
 
         $this->stubExport([$entry]);
 
-        $exportFile = $this->createTempDir() . '/audit.csv';
+        $exportFile = $this->createTempDir() . self::CSV_EXPORT_FILE;
 
         $exitCode = $this->commandTester->execute([
             '--export' => $exportFile,
@@ -934,7 +939,7 @@ final class VaultAuditCommandTest extends TestCase
 
         $this->stubExport([$entry]);
 
-        $exportFile = $this->createTempDir() . '/audit.csv';
+        $exportFile = $this->createTempDir() . self::CSV_EXPORT_FILE;
 
         $exitCode = $this->commandTester->execute([
             '--export' => $exportFile,
@@ -977,7 +982,7 @@ final class VaultAuditCommandTest extends TestCase
 
         $this->stubExport([$entry]);
 
-        $exportFile = $this->createTempDir() . '/audit.csv';
+        $exportFile = $this->createTempDir() . self::CSV_EXPORT_FILE;
 
         $exitCode = $this->commandTester->execute([
             '--export' => $exportFile,
