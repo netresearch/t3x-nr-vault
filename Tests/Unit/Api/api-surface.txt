@@ -273,6 +273,11 @@ Netresearch\NrVault\Audit\Export\AuditExportVerification (class)
   property readonly rowsChecked: int
   property readonly truncated: bool
 
+Netresearch\NrVault\Audit\Export\StoredAuditChainInterface (interface)
+  method countAfter(int $uid): int
+  method entryHashAt(int $uid): ?string
+  method exportRowAt(int $uid): ?array
+
 Netresearch\NrVault\Audit\HashChainVerificationResult (class)
   constructor(bool $valid, array $errors = …, array $warnings = …, array $missingUids = …, int $missingUidCount = …, Netresearch\NrVault\Audit\AuditChainAnchorStatus $anchorStatus = …, array $epochCounts = …, array $gaps = …, int $lastUid = …)
   method getErrorCount(): int

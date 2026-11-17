@@ -406,10 +406,6 @@ final class VaultAuditCommandExportTest extends AbstractVaultFunctionalTestCase
     }
 
     /**
-     * Two epochs written by two service instances: epoch 2 first, then the
-     * configured epoch 3.
-     */
-    /**
      * Writes a chain with the given uids and epochs straight into the table.
      *
      * @param list<array{int, int}> $uidsAndEpochs
@@ -438,6 +434,10 @@ final class VaultAuditCommandExportTest extends AbstractVaultFunctionalTestCase
         }
     }
 
+    /**
+     * Two epochs written by two service instances: epoch 2 first, then the
+     * configured epoch 3.
+     */
     private function seedTwoEpochs(): void
     {
         $this->seedEpochs([2, 2, 3, 3]);

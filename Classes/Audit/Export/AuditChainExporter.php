@@ -61,6 +61,7 @@ final readonly class AuditChainExporter implements AuditChainExporterInterface
         private MasterKeyProviderInterface $masterKeyProvider,
         private ExtensionConfigurationInterface $configuration,
         private AnchorReaderInterface $anchorReader,
+        private StoredAuditChainInterface $storedChain,
     ) {}
 
     public function select(?AuditLogFilter $filter = null, ?int $limit = null): AuditChainExport
@@ -204,7 +205,7 @@ final readonly class AuditChainExporter implements AuditChainExporterInterface
 
                 if ($epoch < $confirmBelow) {
                     try {
-                        $stored = $this->storedExportRow($uid);
+                        $stored = $this->storedChain->exportRowAt($uid);
                     } catch (Throwable $e) {
                         $stored  = null;
                         $notes[] = 'The stored chain could not be consulted: ' . $e->getMessage();
@@ -212,9 +213,13 @@ final readonly class AuditChainExporter implements AuditChainExporterInterface
 
                     // Same columns and values, in any key order: a file that
                     // was re-serialised with sorted keys is still the same row.
+                    // The stored row is taken through the writer's JSON
+                    // encoding first, which replaces invalid UTF-8 the way the
+                    // file and the hash at epoch 2 and above do.
                     $exported = $row;
                     ksort($exported);
                     if ($stored !== null) {
+                        $stored = $this->asWritten($stored);
                         ksort($stored);
                     }
 
@@ -363,7 +368,7 @@ final readonly class AuditChainExporter implements AuditChainExporterInterface
         }
 
         try {
-            $stored = $this->storedEntryHash($lastUid);
+            $stored = $this->storedChain->entryHashAt($lastUid);
             if ($stored === null) {
                 $notes[] = sprintf('This installation does not store uid %d, so the end of the export cannot be confirmed.', $lastUid);
 
@@ -380,7 +385,7 @@ final readonly class AuditChainExporter implements AuditChainExporterInterface
                 return false;
             }
 
-            $newer = $this->countNewerThan($lastUid);
+            $newer = $this->storedChain->countAfter($lastUid);
             if ($newer > 0) {
                 $notes[] = sprintf('This installation stores %d entr%s after uid %d.', $newer, $newer === 1 ? 'y' : 'ies', $lastUid);
 
@@ -516,48 +521,24 @@ final readonly class AuditChainExporter implements AuditChainExporterInterface
         } while (count($chunk) === self::CHUNK_SIZE);
     }
 
-    private function storedEntryHash(int $uid): ?string
-    {
-        $queryBuilder = $this->queryBuilder();
-        $value        = $queryBuilder
-            ->select('entry_hash')
-            ->from(self::TABLE_NAME)
-            ->where($queryBuilder->expr()->eq('uid', $queryBuilder->createNamedParameter($uid, Connection::PARAM_INT)))
-            ->executeQuery()
-            ->fetchOne();
-
-        return is_string($value) ? $value : null;
-    }
-
     /**
-     * The stored row at $uid in export form, or null when there is none.
+     * A row as the export writes it: JSON-encoded with invalid UTF-8 replaced,
+     * then decoded again.
      *
-     * @return array<string, int|string>|null
+     * @param array<string, int|string> $row
+     *
+     * @return array<mixed>
      */
-    private function storedExportRow(int $uid): ?array
+    private function asWritten(array $row): array
     {
-        $queryBuilder = $this->queryBuilder();
-        $row          = $queryBuilder
-            ->select('*')
-            ->from(self::TABLE_NAME)
-            ->where($queryBuilder->expr()->eq('uid', $queryBuilder->createNamedParameter($uid, Connection::PARAM_INT)))
-            ->executeQuery()
-            ->fetchAssociative();
+        $decoded = json_decode(
+            json_encode($row, JSON_THROW_ON_ERROR | JSON_INVALID_UTF8_SUBSTITUTE),
+            true,
+            512,
+            JSON_THROW_ON_ERROR,
+        );
 
-        return is_array($row) ? self::exportRow($row) : null;
-    }
-
-    private function countNewerThan(int $uid): int
-    {
-        $queryBuilder = $this->queryBuilder();
-        $value        = $queryBuilder
-            ->count('uid')
-            ->from(self::TABLE_NAME)
-            ->where($queryBuilder->expr()->gt('uid', $queryBuilder->createNamedParameter($uid, Connection::PARAM_INT)))
-            ->executeQuery()
-            ->fetchOne();
-
-        return is_numeric($value) ? (int) $value : 0;
+        return is_array($decoded) ? $decoded : [];
     }
 
     private function countUpTo(?AuditLogFilter $filter, int $tipUid): int

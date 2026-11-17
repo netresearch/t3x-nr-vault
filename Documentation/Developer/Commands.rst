@@ -409,7 +409,7 @@ Options
 --as-audit-reader
    Run as the backend user configured in
    :confval:`ext-nrvault-auditReaderBeUserUid` instead of the unattributed CLI
-   actor. Covers listing, ``--verify`` and ``--export``. The permission checks
+   actor. Covers listing, ``--verify``, ``--export`` and ``--verify-export``. The permission checks
    below are evaluated for that user: ``tx_nrvault:audit.view`` for listing and
    ``--verify``, ``tx_nrvault:audit.export`` for ``--export``.
    The UID is read from configuration, never from the command line. Exits 1 when
@@ -436,7 +436,8 @@ Options
    :confval:`ext-nrvault-cliAllowedOperations` excludes all three permissions
    by default, so for the unattributed CLI actor this command needs
    ``allowCliAccess`` **and** the operation in that allowlist. For listing,
-   ``--verify`` and ``--export``, ``--as-audit-reader`` is the narrower
+   ``--verify``, ``--export`` and ``--verify-export``, ``--as-audit-reader`` is
+   the narrower
    alternative: it opens those modes, for one configured user, and nothing
    else. Reading the log writes no audit row, so neither path records who read
    or exported it.
@@ -573,7 +574,10 @@ keyed with ``hash_hkdf('sha256', <master key>, 32,
 of the installation it runs on, so it has to run where the master key that was
 in effect when the export was taken is configured. A master-key rotation
 re-keys the whole chain, so an export taken before a rotation verifies only
-against the master key from before it. Epoch-0 entries (keyless SHA-256) need
+against the master key from before it. Its rows below epoch 3 also have to
+equal the stored rows, which the rotation re-sealed: on an installation still
+configured at epoch 1 or 2 (every row below 3), such an export needs a copy of
+the installation from before the rotation, not only the old master key. Epoch-0 entries (keyless SHA-256) need
 no key. A third party can verify with its own code by computing the same
 HMAC over the JSON payloads that :php:`AuditLogService::calculateEntryHash()`
 builds; it needs the derived key, not the master key itself.
