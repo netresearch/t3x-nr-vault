@@ -11,12 +11,16 @@ namespace Netresearch\NrVault\Command;
 
 use DateTimeImmutable;
 use Exception;
+use JsonException;
 use Netresearch\NrVault\Audit\AuditAction;
 use Netresearch\NrVault\Audit\AuditChainAnchorStatus;
 use Netresearch\NrVault\Audit\AuditChainAnchorStoreInterface;
 use Netresearch\NrVault\Audit\AuditLogEntry;
 use Netresearch\NrVault\Audit\AuditLogFilter;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
+use Netresearch\NrVault\Audit\Export\AuditChainExport;
+use Netresearch\NrVault\Audit\Export\AuditChainExporter;
+use Netresearch\NrVault\Audit\Export\AuditChainExporterInterface;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Exception\TechnicalActorException;
 use Netresearch\NrVault\Exception\VaultException;
@@ -24,6 +28,7 @@ use Netresearch\NrVault\Security\AccessControlServiceInterface;
 use Netresearch\NrVault\Security\TechnicalActorContextInterface;
 use Netresearch\NrVault\Security\VaultPermission;
 use Netresearch\NrVault\Utility\CsvFormulaSanitizer;
+use RuntimeException;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
@@ -38,10 +43,10 @@ use function assert;
 use function count;
 use function is_array;
 use function is_int;
-use function is_resource;
 use function is_scalar;
 use function is_string;
 use function sprintf;
+use function strlen;
 
 /**
  * CLI command to query and export audit logs.
@@ -84,6 +89,8 @@ final class VaultAuditCommand extends Command
      */
     private const AUDIT_PSEUDO_IDENTIFIER = '__audit_anchor__';
 
+    private const EXPORT_WRITE_FAILED = 'could not write to the export file';
+
     public function __construct(
         private readonly AuditLogServiceInterface $auditLogService,
         private readonly AuditChainAnchorStoreInterface $anchorStore,
@@ -91,6 +98,7 @@ final class VaultAuditCommand extends Command
         private readonly AccessControlServiceInterface $accessControlService,
         private readonly ExtensionConfigurationInterface $configuration,
         private readonly TechnicalActorContextInterface $technicalActorContext,
+        private readonly AuditChainExporterInterface $chainExporter,
     ) {
         parent::__construct();
     }
@@ -145,7 +153,8 @@ final class VaultAuditCommand extends Command
                 'limit',
                 'l',
                 InputOption::VALUE_REQUIRED,
-                'Maximum number of results',
+                'Maximum number of results (listing default 50). With --export it '
+                . 'exports only the newest N rows and fails unless --allow-partial is given',
                 '50',
             )
             ->addOption(
@@ -158,7 +167,21 @@ final class VaultAuditCommand extends Command
                 'export',
                 'e',
                 InputOption::VALUE_REQUIRED,
-                'Export to file',
+                'Export the whole chain (or the filtered rows) to a file, with the verbatim '
+                . 'hash inputs of every row; json (default) or csv',
+            )
+            ->addOption(
+                'allow-partial',
+                null,
+                InputOption::VALUE_NONE,
+                'Let --export with an explicit --limit write fewer rows than the selection holds; '
+                . 'the file is marked "truncated"',
+            )
+            ->addOption(
+                'verify-export',
+                null,
+                InputOption::VALUE_REQUIRED,
+                "Re-verify a JSON file written by --export against the installation's master key",
             )
             ->addOption(
                 'reset-anchor',
@@ -237,9 +260,24 @@ final class VaultAuditCommand extends Command
 
     private function executeForCurrentActor(InputInterface $input, OutputInterface $output, SymfonyStyle $io): int
     {
-        $resetAnchor = (bool) $input->getOption('reset-anchor');
-        $verify      = (bool) $input->getOption('verify');
-        $exportFile  = $this->exportTarget($input);
+        $resetAnchor      = (bool) $input->getOption('reset-anchor');
+        $verify           = (bool) $input->getOption('verify');
+        $exportFile       = $this->exportTarget($input);
+        $verifyExportFile = $this->verifyExportTarget($input);
+
+        if ($exportFile !== null && $verifyExportFile !== null) {
+            $io->error('--export and --verify-export cannot be combined: write the export first, then verify the file.');
+
+            return Command::FAILURE;
+        }
+
+        // Each of these runs its own mode and never opens the file, so a
+        // "valid" line could be read as the file's verdict.
+        if ($verifyExportFile !== null && ($verify || $resetAnchor)) {
+            $io->error('--verify-export cannot be combined with --verify or --reset-anchor: run it on its own.');
+
+            return Command::FAILURE;
+        }
 
         // One gate for the whole command, resolved from the mode the
         // invocation selects — the same mode the dispatch below uses, so no
@@ -248,7 +286,7 @@ final class VaultAuditCommand extends Command
         // derivative of the secrets themselves; before this gate existed,
         // `vault:audit` was the one privileged vault command that asserted
         // nothing at all.
-        [$required, $operation] = $this->gate($resetAnchor, $verify, $exportFile);
+        [$required, $operation] = $this->gate($resetAnchor, $verify, $exportFile, $verifyExportFile);
         if (!$this->accessControlService->isGranted($required)) {
             $io->error(sprintf(
                 'Access denied: the "%s" permission is required to %s.',
@@ -268,6 +306,10 @@ final class VaultAuditCommand extends Command
             return $this->verifyHashChain($io);
         }
 
+        if ($verifyExportFile !== null) {
+            return $this->verifyExport($io, $verifyExportFile);
+        }
+
         // Build filters
         $filters = $this->buildFilters($input);
         $format  = $input->getOption('format');
@@ -277,6 +319,21 @@ final class VaultAuditCommand extends Command
         assert(is_string($limit) || is_int($limit));
         $limit = (int) $limit;
 
+        if ($exportFile !== null) {
+            // The listing default of 50 must never cut an export: only a
+            // --limit the operator typed limits it.
+            $explicitLimit = $input->hasParameterOption(['--limit', '-l'], true) ? $limit : null;
+
+            return $this->exportChain(
+                $io,
+                $filters,
+                $explicitLimit,
+                (bool) $input->getOption('allow-partial'),
+                $exportFile,
+                $format,
+            );
+        }
+
         try {
             $entries = $this->auditLogService->query($filters, $limit, 0);
 
@@ -284,11 +341,6 @@ final class VaultAuditCommand extends Command
                 $io->info('No audit entries found');
 
                 return Command::SUCCESS;
-            }
-
-            // Export to file
-            if ($exportFile !== null) {
-                return $this->exportToFile($io, $entries, $exportFile, $format);
             }
 
             // Output to console
@@ -320,6 +372,13 @@ final class VaultAuditCommand extends Command
         return is_string($exportFile) && $exportFile !== '' ? $exportFile : null;
     }
 
+    private function verifyExportTarget(InputInterface $input): ?string
+    {
+        $file = $input->getOption('verify-export');
+
+        return is_string($file) && $file !== '' ? $file : null;
+    }
+
     /**
      * The permission this invocation needs, and the operation it guards.
      *
@@ -337,13 +396,14 @@ final class VaultAuditCommand extends Command
      *
      * @return array{VaultPermission, string}
      */
-    private function gate(bool $resetAnchor, bool $verify, ?string $exportFile): array
+    private function gate(bool $resetAnchor, bool $verify, ?string $exportFile, ?string $verifyExportFile): array
     {
         return match (true) {
-            $resetAnchor         => [VaultPermission::VaultConfigure, 'reset the audit chain tip anchor'],
-            $verify              => [VaultPermission::AuditView, 'verify the audit hash chain'],
-            $exportFile !== null => [VaultPermission::AuditExport, 'export audit entries to a file'],
-            default              => [VaultPermission::AuditView, 'read the audit log'],
+            $resetAnchor               => [VaultPermission::VaultConfigure, 'reset the audit chain tip anchor'],
+            $verify                    => [VaultPermission::AuditView, 'verify the audit hash chain'],
+            $verifyExportFile !== null => [VaultPermission::AuditView, 'verify an audit export file'],
+            $exportFile !== null       => [VaultPermission::AuditExport, 'export audit entries to a file'],
+            default                    => [VaultPermission::AuditView, 'read the audit log'],
         };
     }
 
@@ -578,65 +638,260 @@ final class VaultAuditCommand extends Command
     }
 
     /**
-     * @param array<int, AuditLogEntry> $entries
+     * Write the selected rows to `$file` without holding them in memory.
+     *
+     * The selection is fixed first ({@see AuditChainExporterInterface::select()}),
+     * so the refusal of a truncated export happens before a byte is written.
+     * The rows go to a temporary file next to the target, which is renamed
+     * into place only after the row count matched the declared count: an
+     * aborted run never leaves a file that looks like an export.
      */
-    private function exportToFile(SymfonyStyle $io, array $entries, string $file, string $format): int
-    {
-        $data = array_map(static fn (AuditLogEntry $e): array => $e->jsonSerialize(), $entries);
+    private function exportChain(
+        SymfonyStyle $io,
+        ?AuditLogFilter $filter,
+        ?int $limit,
+        bool $allowPartial,
+        string $file,
+        string $format,
+    ): int {
+        if ($limit !== null && $limit < 1) {
+            $io->error('--limit must be at least 1 for an export.');
 
-        $content = match ($format) {
-            'csv'   => $this->formatCsv($data),
-            default => json_encode($data, JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR),
-        };
+            return Command::FAILURE;
+        }
 
-        $result = file_put_contents($file, $content);
-        if ($result === false) {
+        // A local file only: a stream wrapper (php://, ftp://, phar://, ...)
+        // has no owner-only mode to set and may send the rows elsewhere.
+        if (str_contains($file, '://')) {
+            $io->error(sprintf('Refusing to export to %s: --export takes a local file path, not a stream wrapper.', $file));
+
+            return Command::FAILURE;
+        }
+
+        try {
+            $export = $this->chainExporter->select($filter, $limit);
+        } catch (Throwable $e) {
+            $io->error('Could not select the audit rows to export: ' . $e->getMessage());
+
+            return Command::FAILURE;
+        }
+
+        if ($export->isTruncated() && !$allowPartial) {
+            $io->error(sprintf(
+                'Refusing a partial export: --limit=%d covers %d of %d matching audit entries. '
+                . 'Drop --limit to export all of them, or pass --allow-partial to write a file marked "truncated".',
+                (int) $limit,
+                $export->count,
+                $export->total,
+            ));
+
+            return Command::FAILURE;
+        }
+
+        $directory = dirname($file);
+        if (!is_dir($directory) || !is_writable($directory) || file_exists($file) && !is_writable($file)) {
             $io->error(sprintf('Failed to write to file: %s', $file));
 
             return Command::FAILURE;
         }
 
-        $io->success(sprintf('Exported %d entries to: %s', count($entries), $file));
+        $temporary = $file . '.part-' . bin2hex(random_bytes(4));
+        // Owner-only from creation on (no window in which another user could
+        // open it): the rows name who used which secret. rename() keeps the
+        // mode for the published file.
+        $umask = umask(0o077);
+
+        try {
+            $handle = fopen($temporary, 'xb');
+        } finally {
+            umask($umask);
+        }
+
+        if ($handle === false) {
+            $io->error(sprintf('Failed to write to file: %s', $file));
+
+            return Command::FAILURE;
+        }
+
+        // The umask alone is not relied on (ACL defaults and some mounts
+        // ignore it): set the mode explicitly and confirm it on the open
+        // handle before the first row is written.
+        $stat = chmod($temporary, 0o600) ? fstat($handle) : false;
+        if (!is_array($stat) || ($stat['mode'] & 0o777) !== 0o600) {
+            fclose($handle);
+            $this->removeTemporary($temporary);
+            $io->error(sprintf('The export failed and no file was written: %s could not be made readable by its owner only.', $file));
+
+            return Command::FAILURE;
+        }
+
+        try {
+            $written = $format === 'csv'
+                ? $this->writeCsvExport($handle, $export)
+                : $this->writeJsonExport($handle, $export);
+        } catch (Throwable $e) {
+            fclose($handle);
+            $this->removeTemporary($temporary);
+            $io->error('The export failed and no file was written: ' . $e->getMessage());
+
+            return Command::FAILURE;
+        }
+
+        fclose($handle);
+
+        if ($written !== $export->count || !rename($temporary, $file)) {
+            $this->removeTemporary($temporary);
+            $io->error($written !== $export->count
+                ? sprintf('The export failed and no file was written: %d of %d rows were read.', $written, $export->count)
+                : sprintf('The export failed and no file was written: could not move it to %s.', $file));
+
+            return Command::FAILURE;
+        }
+
+        $io->success(sprintf(
+            'Exported %d of %d entries (uid %d to %d) to: %s',
+            $export->count,
+            $export->total,
+            $export->firstUid,
+            $export->lastUid,
+            $file,
+        ));
+
+        if (!$export->isChainComplete()) {
+            $io->note($export->isTruncated()
+                ? 'The export is truncated (--allow-partial): it holds only the newest entries and cannot be verified as a whole chain.'
+                : 'The export is filtered: it holds only the selected entries and cannot be verified as a whole chain.');
+        }
 
         return Command::SUCCESS;
     }
 
-    /**
-     * @param array<int, array<string, scalar|array<string, mixed>|null>> $data
-     */
-    private function formatCsv(array $data): string
+    private function removeTemporary(string $temporary): void
     {
-        if ($data === []) {
-            return '';
+        if (is_file($temporary)) {
+            // nosemgrep: php.lang.security.unlink-use.unlink-use - our own temporary file
+            unlink($temporary);
+        }
+    }
+
+    /**
+     * @param resource $handle
+     */
+    private function writeJsonExport($handle, AuditChainExport $export): int
+    {
+        $flags = JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE;
+        $this->writeOrFail($handle, '{"export":' . json_encode($export->metadata(gmdate('c')), $flags) . ",\n\"rows\":[");
+
+        $written = 0;
+        foreach ($export->rows as $row) {
+            $this->writeOrFail($handle, ($written === 0 ? "\n" : ",\n") . json_encode($row, $flags));
+            ++$written;
         }
 
-        $output = fopen('php://temp', 'r+');
-        assert(is_resource($output));
+        $this->writeOrFail($handle, "\n]}\n");
+
+        return $written;
+    }
+
+    /**
+     * CSV carries the same columns, but the formula neutralization that keeps a
+     * spreadsheet from executing a cell rewrites values that start with a
+     * formula character, so a CSV export is not byte-exact evidence. The
+     * metadata goes into `#` comment lines in front of the header.
+     *
+     * @param resource $handle
+     */
+    private function writeCsvExport($handle, AuditChainExport $export): int
+    {
+        foreach ($export->metadata(gmdate('c')) as $key => $value) {
+            $this->writeOrFail($handle, sprintf(
+                "# %s: %s\n",
+                $key,
+                is_scalar($value) ? var_export($value, true) : json_encode($value, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES),
+            ));
+        }
+
         // escape: '' disables PHP's proprietary backslash escaping so that only
         // RFC-4180 quote doubling is emitted; with the default '\\' a value
         // containing \" closes the quoted cell and turns the remaining bytes
         // into further cells that CsvFormulaSanitizer never inspected.
-        fputcsv($output, array_keys($data[0]), escape: '');
-
-        foreach ($data as $row) {
-            // Convert context array to JSON string for CSV
-            if (isset($row['context']) && is_array($row['context'])) {
-                $row['context'] = json_encode($row['context']);
-            }
-
-            // Filter to only scalar/null values for fputcsv
-            /** @var array<string, bool|float|int|string|null> $csvRow */
-            $csvRow = array_map(
-                static fn (mixed $v): bool|float|int|string|null => is_scalar($v) || $v === null ? $v : json_encode($v),
-                $row,
-            );
-            fputcsv($output, CsvFormulaSanitizer::neutralizeRow($csvRow), escape: '');
+        if (fputcsv($handle, AuditChainExporter::columns(), escape: '') === false) {
+            throw new RuntimeException(self::EXPORT_WRITE_FAILED, 7587470477);
         }
 
-        rewind($output);
-        $csv = stream_get_contents($output);
-        fclose($output);
+        $written = 0;
+        foreach ($export->rows as $row) {
+            if (fputcsv($handle, CsvFormulaSanitizer::neutralizeRow($row), escape: '') === false) {
+                throw new RuntimeException(self::EXPORT_WRITE_FAILED, 8923280063);
+            }
 
-        return $csv;
+            ++$written;
+        }
+
+        return $written;
+    }
+
+    /**
+     * @param resource $handle
+     */
+    private function writeOrFail($handle, string $data): void
+    {
+        if (fwrite($handle, $data) !== strlen($data)) {
+            throw new RuntimeException(self::EXPORT_WRITE_FAILED, 7005647479);
+        }
+    }
+
+    private function verifyExport(SymfonyStyle $io, string $file): int
+    {
+        $content = is_file($file) && is_readable($file) ? file_get_contents($file) : false;
+        if ($content === false) {
+            $io->error(sprintf('Cannot read the export file: %s', $file));
+
+            return Command::FAILURE;
+        }
+
+        try {
+            $document = json_decode($content, true, 512, JSON_THROW_ON_ERROR);
+        } catch (JsonException $e) {
+            $io->error('The export file is not valid JSON (only JSON exports can be verified): ' . $e->getMessage());
+
+            return Command::FAILURE;
+        }
+
+        $result = $this->chainExporter->verify(is_array($document) ? $document : []);
+
+        $io->section('Verifying audit export ' . $file);
+        $io->definitionList(
+            ['Rows checked' => sprintf('%d of %d declared', $result->rowsChecked, $result->declaredCount)],
+            ['Uid range' => sprintf('%d to %d', $result->firstUid, $result->lastUid)],
+            ['Whole chain' => $result->chainComplete ? 'yes' : 'not confirmed'],
+            ['HMAC epochs' => $result->epochCounts === []
+                ? '(none)'
+                : implode(', ', array_map(
+                    static fn (int $epoch, int $count): string => sprintf('epoch %d: %d row(s)', $epoch, $count),
+                    array_keys($result->epochCounts),
+                    array_values($result->epochCounts),
+                ))],
+        );
+
+        foreach ($result->notes as $note) {
+            $io->writeln(' * ' . $note);
+        }
+
+        if ($result->isValid()) {
+            $io->success($result->chainComplete
+                ? 'Export verified: every row matches its entry hash and links to its predecessor.'
+                : 'Export verified: every row matches its entry hash. It is not confirmed as the whole chain, so missing rows cannot be ruled out.');
+
+            return Command::SUCCESS;
+        }
+
+        foreach ($result->errors as $error) {
+            $io->writeln(' - ' . $error);
+        }
+
+        $io->error('Export verification FAILED.');
+
+        return Command::FAILURE;
     }
 }

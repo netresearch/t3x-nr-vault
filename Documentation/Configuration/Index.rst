@@ -472,7 +472,8 @@ CLI access
    :Default: 0
 
    Backend user UID used by :bash:`vault:audit --as-audit-reader` for listing,
-   ``--verify`` and ``--export``. The default 0 disables this option.
+   ``--verify``, ``--export`` and ``--verify-export``. The default 0 disables
+   this option.
 
    **Setting it opens reading the audit log to every shell.** The UID comes
    from configuration, so any process that can run :bash:`vendor/bin/typo3`

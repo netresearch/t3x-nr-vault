@@ -143,13 +143,26 @@ a verification run after key destruction proves nothing.
 #.  **Export the audit log** in full, over the entire retained period, with
     the hash columns included — ``uid``, ``previous_hash``, ``entry_hash``,
     ``hmac_key_epoch``. Without them the export is a log, not evidence.
-    ``vault:audit --export`` returns at most ``--limit`` rows (default 50),
-    newest first, so set ``--limit`` above the row count (``SELECT COUNT(*)
-    FROM tx_nrvault_audit_log``) and compare it with the ``Exported N
-    entries`` line. It does not include
-    ``hmac_key_epoch`` yet (`#554
-    <https://github.com/netresearch/t3x-nr-vault/issues/554>`__); take that
-    column from a database dump of ``tx_nrvault_audit_log`` until it does.
+    ``vault:audit --export`` without filters writes every entry up to the
+    newest and carries all of these; verify the file while the master key
+    still exists, because the verification needs it
+    (:ref:`command-audit-export`):
+
+    ..  code-block:: bash
+
+        vendor/bin/typo3 vault:audit --as-audit-reader --export=decommission-audit.json \
+            && vendor/bin/typo3 vault:audit --as-audit-reader --verify-export=decommission-audit.json \
+                > decommission-export-verify.txt \
+            && grep -Eq 'Whole chain +yes' decommission-export-verify.txt \
+            && echo "export verified as the whole chain"
+
+    The verification runs only when the export succeeded, so it never checks
+    an older file left at that path. Keep ``decommission-export-verify.txt``
+    with the export, and destroy the key only after the commands printed
+    ``export verified as the whole chain``: a verified export that is not the
+    whole chain misses entries. The audit
+    reader needs both ``audit.export`` (for the export) and ``audit.view`` (for
+    the verification). The file is written readable by its owner only.
 
 #.  **Collect the external evidence** from where it actually lives: the anchor
     file, the syslog archive, the SIEM's retained records. This is the half

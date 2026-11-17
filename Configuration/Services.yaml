@@ -131,6 +131,12 @@ services:
   Netresearch\NrVault\Audit\RotationGapScannerInterface:
     alias: Netresearch\NrVault\Audit\RotationGapScanner
 
+  Netresearch\NrVault\Audit\Export\AuditChainExporterInterface:
+    alias: Netresearch\NrVault\Audit\Export\AuditChainExporter
+
+  Netresearch\NrVault\Audit\Export\StoredAuditChainInterface:
+    alias: Netresearch\NrVault\Audit\Export\DatabaseStoredAuditChain
+
   Netresearch\NrVault\Audit\Sink\AuditSinkRegistryInterface:
     alias: Netresearch\NrVault\Audit\Sink\AuditSinkRegistry
 

@@ -289,43 +289,57 @@ Audit log export
 ================
 
 ..  code-block:: bash
-    :caption: Period export, with the hash columns
+    :caption: Whole-chain export, then re-verify the file
 
     # --export asserts audit.export, which is a permission of its own: the
     # exported copy leaves the tamper-evident storage behind.
+    vendor/bin/typo3 vault:audit --export=evidence/audit-chain.json
+    vendor/bin/typo3 vault:audit --verify-export=evidence/audit-chain.json
+
+..  code-block:: bash
+    :caption: Period export
+
     vendor/bin/typo3 vault:audit \
         --since="2026-01-01" --until="2026-06-30" \
-        --format=json --limit=100000 \
         --export=evidence/audit-2026-H1.json
 
 ..  code-block:: bash
     :caption: Useful narrower slices
 
     # One secret's full history.
-    vendor/bin/typo3 vault:audit --identifier=<identifier> --format=json \
+    vendor/bin/typo3 vault:audit --identifier=<identifier> \
         --export=evidence/audit-secret.json
 
-    # Every denial in the period — reconnaissance and broken integrations.
-    vendor/bin/typo3 vault:audit --action=access_denied --format=json \
+    # Every denial — reconnaissance and broken integrations.
+    vendor/bin/typo3 vault:audit --action=access_denied \
         --export=evidence/audit-denials.json
 
     # Break-glass activations and closures.
-    vendor/bin/typo3 vault:audit --identifier=__break_glass__ --format=json \
+    vendor/bin/typo3 vault:audit --identifier=__break_glass__ \
         --export=evidence/audit-break-glass.json
 
     # Master-key lifecycle.
-    vendor/bin/typo3 vault:audit --identifier=__master_key__ --format=json \
+    vendor/bin/typo3 vault:audit --identifier=__master_key__ \
         --export=evidence/audit-master-key.json
 
-``--format`` accepts ``table``, ``json`` and ``csv``; ``--limit`` defaults to
-``50``, so raise it explicitly for an export or you will silently truncate the
-evidence. Other filters: ``--action``, ``--actor``, ``--success``.
+``--export`` writes every entry the filters select, up to the newest entry
+when it starts, in JSON unless ``--format=csv`` is given. The listing default
+of ``--limit`` (50) does not apply to it; an explicit ``--limit`` below the
+selection is refused unless ``--allow-partial`` is given, and the file is then
+marked ``truncated``. Other filters: ``--action``, ``--actor``, ``--success``,
+``--until``. A filtered export is marked ``"chainComplete": false``: each row
+still verifies on its own, but only a whole-chain export shows missing
+entries. :ref:`command-audit-export` describes the file and what
+``--verify-export`` checks.
 
 ..  warning::
 
-    **Export the hash columns.** ``uid``, ``previous_hash``, ``entry_hash`` and
-    ``hmac_key_epoch`` are what make the export evidence rather than a log.
-    Without them nobody can re-check the links later.
+    **Keep the export in JSON.** Every row carries ``uid``,
+    ``previous_hash``, ``entry_hash``, ``hmac_key_epoch`` and the other values
+    its hash covers, unchanged, which is what makes the export evidence rather
+    than a log. Re-verifying entries at HMAC epoch 1 and above needs the master
+    key that was in effect when the export was taken; the export never contains
+    it. CSV neutralizes formula characters and is not byte-exact.
 
     And note the honest limit: an export has **no hash chain of its own, no
     retention policy and no further access control**. It is why

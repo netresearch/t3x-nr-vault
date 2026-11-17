@@ -603,8 +603,10 @@ View the audit log:
    # Filter by secret
    vendor/bin/typo3 vault:audit --identifier=stripe_api_key
 
-   # Export to JSON
-   vendor/bin/typo3 vault:audit --format=json > audit.json
+   # Export the whole chain to a file (all entries, not the newest 50),
+   # then re-verify the file
+   vendor/bin/typo3 vault:audit --export=audit.json
+   vendor/bin/typo3 vault:audit --verify-export=audit.json
 
 .. important::
 
@@ -614,7 +616,8 @@ View the audit log:
    because it mutates tamper evidence. On the CLI all three additionally need
    ``allowCliAccess`` plus the operation in
    :confval:`ext-nrvault-cliAllowedOperations`, which excludes them by default
-   — or, for listing, ``--verify`` and ``--export``, ``--as-audit-reader`` with
+   — or, for listing, ``--verify``, ``--export`` and ``--verify-export``,
+   ``--as-audit-reader`` with
    a configured :confval:`ext-nrvault-auditReaderBeUserUid`, which opens
    reading the log to every shell. See :ref:`command-audit`.
 

