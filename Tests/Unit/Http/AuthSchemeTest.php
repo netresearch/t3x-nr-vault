@@ -22,29 +22,32 @@ use PHPUnit\Framework\Attributes\Test;
 final class AuthSchemeTest extends TestCase
 {
     /**
-     * @return iterable<string, array{AuthScheme, array{SecretPlacement, ?string, ?string, ?string, ?string, ?string}}>
+     * @return iterable<string, array{Closure(): AuthScheme, array{SecretPlacement, ?string, ?string, ?string, ?string, ?string}}>
      */
     public static function schemeProvider(): iterable
     {
-        yield 'bearer' => [AuthScheme::bearer(), [SecretPlacement::Bearer, null, null, null, null, null]];
-        yield 'basic, combined secret' => [AuthScheme::basicAuth(), [SecretPlacement::BasicAuth, null, null, null, null, null]];
-        yield 'basic, username secret' => [AuthScheme::basicAuth('api_user'), [SecretPlacement::BasicAuth, null, null, null, null, 'api_user']];
-        yield 'header, default name' => [AuthScheme::header(), [SecretPlacement::Header, 'X-API-Key', null, null, null, null]];
-        yield 'header, name and prefix' => [AuthScheme::header('Authorization', 'DeepL-Auth-Key '), [SecretPlacement::Header, 'Authorization', 'DeepL-Auth-Key ', null, null, null]];
-        yield 'api key' => [AuthScheme::apiKey(), [SecretPlacement::ApiKey, null, null, null, null, null]];
-        yield 'query, default name' => [AuthScheme::queryParam(), [SecretPlacement::QueryParam, null, null, 'api_key', null, null]];
-        yield 'query, custom name' => [AuthScheme::queryParam('key'), [SecretPlacement::QueryParam, null, null, 'key', null, null]];
-        yield 'body, default field' => [AuthScheme::bodyField(), [SecretPlacement::BodyField, null, null, null, 'api_key', null]];
-        yield 'body, 64-character field' => [AuthScheme::bodyField(str_repeat('a', 64)), [SecretPlacement::BodyField, null, null, null, str_repeat('a', 64), null]];
+        yield 'bearer' => [AuthScheme::bearer(...), [SecretPlacement::Bearer, null, null, null, null, null]];
+        yield 'basic, combined secret' => [static fn (): AuthScheme => AuthScheme::basicAuth(), [SecretPlacement::BasicAuth, null, null, null, null, null]];
+        yield 'basic, username secret' => [static fn (): AuthScheme => AuthScheme::basicAuth('api_user'), [SecretPlacement::BasicAuth, null, null, null, null, 'api_user']];
+        yield 'header, default name' => [static fn (): AuthScheme => AuthScheme::header(), [SecretPlacement::Header, 'X-API-Key', null, null, null, null]];
+        yield 'header, name and prefix' => [static fn (): AuthScheme => AuthScheme::header('Authorization', 'DeepL-Auth-Key '), [SecretPlacement::Header, 'Authorization', 'DeepL-Auth-Key ', null, null, null]];
+        yield 'api key' => [AuthScheme::apiKey(...), [SecretPlacement::ApiKey, null, null, null, null, null]];
+        yield 'query, default name' => [static fn (): AuthScheme => AuthScheme::queryParam(), [SecretPlacement::QueryParam, null, null, 'api_key', null, null]];
+        yield 'query, custom name' => [static fn (): AuthScheme => AuthScheme::queryParam('key'), [SecretPlacement::QueryParam, null, null, 'key', null, null]];
+        yield 'body, default field' => [static fn (): AuthScheme => AuthScheme::bodyField(), [SecretPlacement::BodyField, null, null, null, 'api_key', null]];
+        yield 'body, 64-character field' => [static fn (): AuthScheme => AuthScheme::bodyField(str_repeat('a', 64)), [SecretPlacement::BodyField, null, null, null, str_repeat('a', 64), null]];
     }
 
     /**
+     * @param Closure(): AuthScheme                                               $build
      * @param array{SecretPlacement, ?string, ?string, ?string, ?string, ?string} $expected
      */
     #[Test]
     #[DataProvider('schemeProvider')]
-    public function namedConstructorCarriesOnlyItsOwnOptions(AuthScheme $scheme, array $expected): void
+    public function namedConstructorCarriesOnlyItsOwnOptions(Closure $build, array $expected): void
     {
+        $scheme = $build();
+
         self::assertSame(
             $expected,
             [$scheme->placement, $scheme->headerName, $scheme->prefix, $scheme->queryParam, $scheme->bodyField, $scheme->usernameSecret],
