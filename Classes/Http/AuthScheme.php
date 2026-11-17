@@ -26,6 +26,8 @@ use Netresearch\NrVault\Utility\IdentifierValidator;
  */
 final readonly class AuthScheme
 {
+    private const CONTROL_CHARACTERS = '/[\x00-\x1F\x7F]/';
+
     private function __construct(
         public SecretPlacement $placement,
         public ?string $headerName = null,
@@ -54,7 +56,7 @@ final readonly class AuthScheme
      */
     public static function basicAuth(?string $usernameSecret = null): self
     {
-        if ($usernameSecret !== null && (!IdentifierValidator::isValidForStorage($usernameSecret) || preg_match('/[\x00-\x1F\x7F]/', $usernameSecret) === 1)) {
+        if ($usernameSecret !== null && (!IdentifierValidator::isValidForStorage($usernameSecret) || preg_match(self::CONTROL_CHARACTERS, $usernameSecret) === 1)) {
             throw new InvalidArgumentException('The Basic username secret must be a Vault identifier.', 9410661933);
         }
 
@@ -72,7 +74,7 @@ final readonly class AuthScheme
             throw new InvalidArgumentException('The header name must be an HTTP token.', 7930377463);
         }
 
-        if ($prefix !== null && ($prefix === '' || preg_match('/[\x00-\x1F\x7F]/', $prefix) === 1)) {
+        if ($prefix !== null && ($prefix === '' || preg_match(self::CONTROL_CHARACTERS, $prefix) === 1)) {
             throw new InvalidArgumentException('The header prefix must be non-empty and free of control characters.', 9898564967);
         }
 
@@ -94,7 +96,7 @@ final readonly class AuthScheme
      */
     public static function queryParam(string $name = 'api_key'): self
     {
-        if ($name === '' || preg_match('/[\x00-\x1F\x7F]/', $name) === 1) {
+        if ($name === '' || preg_match(self::CONTROL_CHARACTERS, $name) === 1) {
             throw new InvalidArgumentException('The query parameter name must be non-empty and free of control characters.', 2722802580);
         }
 
@@ -108,7 +110,7 @@ final readonly class AuthScheme
      */
     public static function bodyField(string $field = 'api_key'): self
     {
-        if (preg_match('/\A[A-Za-z_][A-Za-z0-9_]{0,63}\z/', $field) !== 1) {
+        if (preg_match('/\A[A-Za-z_]\w{0,63}\z/', $field) !== 1) {
             throw new InvalidArgumentException('The body field must be a simple field name.', 4310510580);
         }
 

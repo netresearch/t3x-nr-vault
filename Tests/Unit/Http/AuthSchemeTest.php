@@ -69,6 +69,7 @@ final class AuthSchemeTest extends TestCase
         yield 'query, empty name' => [static fn (): AuthScheme => AuthScheme::queryParam(''), 2722802580];
         yield 'query, name with a NUL byte' => [static fn (): AuthScheme => AuthScheme::queryParam("key\0"), 2722802580];
         yield 'body, leading digit' => [static fn (): AuthScheme => AuthScheme::bodyField('1key'), 4310510580];
+        yield 'body, non-ASCII letter' => [static fn (): AuthScheme => AuthScheme::bodyField('schlüssel'), 4310510580];
         yield 'body, hyphen' => [static fn (): AuthScheme => AuthScheme::bodyField('api-key'), 4310510580];
         yield 'body, 65 characters' => [static fn (): AuthScheme => AuthScheme::bodyField(str_repeat('a', 65)), 4310510580];
     }
