@@ -688,18 +688,18 @@ final class VaultAuditCommand extends Command
         }
 
         $temporary = $file . '.part-' . bin2hex(random_bytes(4));
-        $handle    = fopen($temporary, 'xb');
-        if ($handle === false) {
-            $io->error(sprintf('Failed to write to file: %s', $file));
+        // Owner-only from creation on (no window in which another user could
+        // open it): the rows name who used which secret. rename() keeps the
+        // mode for the published file.
+        $umask = umask(0o077);
 
-            return Command::FAILURE;
+        try {
+            $handle = fopen($temporary, 'xb');
+        } finally {
+            umask($umask);
         }
 
-        // Owner-only before the first row is written: the rows name who used
-        // which secret. rename() keeps the mode for the published file.
-        if (!chmod($temporary, 0o600)) {
-            fclose($handle);
-            $this->removeTemporary($temporary);
+        if ($handle === false) {
             $io->error(sprintf('Failed to write to file: %s', $file));
 
             return Command::FAILURE;
