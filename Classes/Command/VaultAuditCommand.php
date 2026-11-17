@@ -89,6 +89,8 @@ final class VaultAuditCommand extends Command
      */
     private const AUDIT_PSEUDO_IDENTIFIER = '__audit_anchor__';
 
+    private const EXPORT_WRITE_FAILED = 'could not write to the export file';
+
     public function __construct(
         private readonly AuditLogServiceInterface $auditLogService,
         private readonly AuditChainAnchorStoreInterface $anchorStore,
@@ -784,13 +786,13 @@ final class VaultAuditCommand extends Command
         // containing \" closes the quoted cell and turns the remaining bytes
         // into further cells that CsvFormulaSanitizer never inspected.
         if (fputcsv($handle, AuditChainExporter::columns(), escape: '') === false) {
-            throw new RuntimeException('could not write to the export file', 7587470477);
+            throw new RuntimeException(self::EXPORT_WRITE_FAILED, 7587470477);
         }
 
         $written = 0;
         foreach ($export->rows as $row) {
             if (fputcsv($handle, CsvFormulaSanitizer::neutralizeRow($row), escape: '') === false) {
-                throw new RuntimeException('could not write to the export file', 8923280063);
+                throw new RuntimeException(self::EXPORT_WRITE_FAILED, 8923280063);
             }
 
             ++$written;
@@ -805,7 +807,7 @@ final class VaultAuditCommand extends Command
     private function writeOrFail($handle, string $data): void
     {
         if (fwrite($handle, $data) !== strlen($data)) {
-            throw new RuntimeException('could not write to the export file', 7005647479);
+            throw new RuntimeException(self::EXPORT_WRITE_FAILED, 7005647479);
         }
     }
 

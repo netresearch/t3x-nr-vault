@@ -47,6 +47,8 @@ final class VaultAuditCommandTest extends TestCase
 
     private const IP_ADDRESS = '127.0.0.1';
 
+    private const VERIFY_EXPORT_FILE = 'vfs://exports/b.json';
+
     private AuditLogServiceInterface&MockObject $auditLogService;
 
     private AuditChainAnchorStoreInterface&MockObject $anchorStore;
@@ -287,9 +289,9 @@ final class VaultAuditCommandTest extends TestCase
      */
     public static function conflictingVerifyExportProvider(): iterable
     {
-        yield 'with --export' => [['--export' => 'vfs://exports/a.json', '--verify-export' => 'vfs://exports/b.json']];
-        yield 'with --verify' => [['--verify' => true, '--verify-export' => 'vfs://exports/b.json']];
-        yield 'with --reset-anchor' => [['--reset-anchor' => true, '--force' => true, '--verify-export' => 'vfs://exports/b.json']];
+        yield 'with --export' => [['--export' => 'vfs://exports/a.json', '--verify-export' => self::VERIFY_EXPORT_FILE]];
+        yield 'with --verify' => [['--verify' => true, '--verify-export' => self::VERIFY_EXPORT_FILE]];
+        yield 'with --reset-anchor' => [['--reset-anchor' => true, '--force' => true, '--verify-export' => self::VERIFY_EXPORT_FILE]];
     }
 
     /**
