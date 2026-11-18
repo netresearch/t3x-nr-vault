@@ -11,6 +11,7 @@ services:
       com.ddev.approot: ${DDEV_APPROOT}
     environment:
       - SERVER_PORT=8080
+      - JDK_JAVA_OPTIONS=-XX:-UseBASE64Intrinsics
       - JSON_CONFIG_PATH=/config/config.json
     volumes:
       - "./mock-oauth:/config:ro"
