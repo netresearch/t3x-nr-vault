@@ -60,7 +60,7 @@ final class AuthSchemeTest extends TestCase
     public static function invalidSchemeProvider(): iterable
     {
         yield 'basic, username with a line break' => [static fn (): AuthScheme => AuthScheme::basicAuth("api\nuser"), 9410661933];
-        yield 'basic, username too short' => [static fn (): AuthScheme => AuthScheme::basicAuth('ab'), 9410661933];
+        yield 'basic, empty username' => [static fn (): AuthScheme => AuthScheme::basicAuth(''), 9410661933];
         yield 'header, empty name' => [static fn (): AuthScheme => AuthScheme::header(''), 7930377463];
         yield 'header, name with a space' => [static fn (): AuthScheme => AuthScheme::header('X Api Key'), 7930377463];
         yield 'header, name with a colon' => [static fn (): AuthScheme => AuthScheme::header('Authorization:'), 7930377463];

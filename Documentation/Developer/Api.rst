@@ -1340,7 +1340,8 @@ any secret is read.
    :php:`AuthScheme::basicAuth(?string $usernameSecret = null)`
       ``Authorization: Basic <base64>``. Without ``$usernameSecret`` the
       secret holds ``username:password``; with it, the secret is the password
-      and ``$usernameSecret`` is the Vault identifier of the username.
+      and ``$usernameSecret`` is the Vault identifier of the username; it must
+      be non-empty and free of control characters.
 
    :php:`AuthScheme::header(string $name = 'X-API-Key', ?string $prefix = null)`
       ``<name>: <prefix><secret>``. Use the prefix for non-Bearer
