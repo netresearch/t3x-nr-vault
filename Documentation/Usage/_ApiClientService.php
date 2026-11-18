@@ -10,7 +10,8 @@ declare(strict_types=1);
 namespace MyVendor\MyExtension\Service;
 
 use MyVendor\MyExtension\Domain\Dto\ApiEndpoint;
-use Netresearch\NrVault\Http\SecretPlacement;
+use Netresearch\NrVault\Http\AuthScheme;
+use Netresearch\NrVault\Http\AuthSchemeHttpClientInterface;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Psr\Http\Message\ResponseInterface;
 use TYPO3\CMS\Core\Http\RequestFactory;
@@ -49,8 +50,13 @@ final class ApiClientService
         }
 
         // Send via VaultHttpClient - token never exposed to application
-        return $this->vault->http()
-            ->withAuthentication($endpoint->token, SecretPlacement::Bearer)
+        $http = $this->vault->http();
+        if (!$http instanceof AuthSchemeHttpClientInterface) {
+            throw new \LogicException('The installed nr-vault does not support withAuthScheme().', 1763420001);
+        }
+
+        return $http
+            ->withAuthScheme($endpoint->token, AuthScheme::bearer())
             ->withReason('API call to ' . $endpoint->name . ': ' . $path)
             ->sendRequest($request);
     }

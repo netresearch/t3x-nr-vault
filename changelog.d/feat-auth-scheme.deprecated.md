@@ -1,0 +1,1 @@
+- `VaultHttpClientInterface::withAuthentication()` with a `SecretPlacement` and an options array. Use `withAuthScheme()` with an `AuthScheme` instead. The method keeps its behaviour and is removed in the next major release.

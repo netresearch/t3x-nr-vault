@@ -44,7 +44,7 @@ use function strlen;
  * PSR-18 HTTP client that injects vault secrets as authentication.
  *
  * This is an immutable, fluent PSR-18 client. Configure authentication
- * with withAuthentication() or withOAuth(), then send requests with sendRequest().
+ * with withAuthScheme() or withOAuth(), then send requests with sendRequest().
  *
  * TYPO3 HTTP Settings:
  * This client respects TYPO3's HTTP configuration ($GLOBALS['TYPO3_CONF_VARS']['HTTP']):
@@ -73,7 +73,9 @@ use function strlen;
  *     $request = $requestFactory->createRequest('GET', 'https://api.example.com/data');
  *
  *     // Bearer token authentication
- *     $client = $vault->http()->withAuthentication('stripe_key', SecretPlacement::Bearer);
+ *     $http = $vault->http();
+ *     assert($http instanceof AuthSchemeHttpClientInterface);
+ *     $client = $http->withAuthScheme('stripe_key', AuthScheme::bearer());
  *     $response = $client->sendRequest($request);
  *
  *     // OAuth 2.0
@@ -83,7 +85,7 @@ use function strlen;
  * @see SecureHttpClientFactory for TYPO3 HTTP configuration handling
  * Field-name checks retain an explicit ASCII alphabet.
  */
-final readonly class VaultHttpClient implements VaultHttpClientInterface, CancellableHttpClientInterface, StreamingHttpClientInterface, AdditionalSecretHttpClientInterface, PinnedAddressHttpClientInterface
+final readonly class VaultHttpClient implements VaultHttpClientInterface, AuthSchemeHttpClientInterface, CancellableHttpClientInterface, StreamingHttpClientInterface, AdditionalSecretHttpClientInterface, PinnedAddressHttpClientInterface
 {
     /**
      * Fixed literal for a call refused before anything was sent.
@@ -368,6 +370,9 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
         );
     }
 
+    /**
+     * @deprecated use withAuthScheme() with an AuthScheme instead; removed in the next major release (ADR-056)
+     */
     public function withAuthentication(
         string $secretIdentifier,
         SecretPlacement $placement = SecretPlacement::Bearer,
@@ -387,6 +392,29 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
             oauthManager: $this->oauthManager,
             secureHttpClientFactory: $this->secureHttpClientFactory,
             authPrefix: $options['prefix'] ?? null,
+            timeoutSeconds: $this->timeoutSeconds,
+            cancellableTransport: $this->cancellableTransport,
+            clonedFrom: $this,
+            additionalBodyFields: $this->additionalBodyFields,
+        );
+    }
+
+    public function withAuthScheme(string $secretIdentifier, AuthScheme $scheme): static
+    {
+        return new self(
+            vaultService: $this->vaultService,
+            auditLogService: $this->auditLogService,
+            innerClient: $this->innerClient,
+            secretIdentifier: $secretIdentifier,
+            placement: $scheme->placement,
+            headerName: $scheme->headerName,
+            queryParam: $scheme->queryParam,
+            bodyField: $scheme->bodyField,
+            usernameSecretIdentifier: $scheme->usernameSecret,
+            reason: $this->reason,
+            oauthManager: $this->oauthManager,
+            secureHttpClientFactory: $this->secureHttpClientFactory,
+            authPrefix: $scheme->prefix,
             timeoutSeconds: $this->timeoutSeconds,
             cancellableTransport: $this->cancellableTransport,
             clonedFrom: $this,
@@ -1746,7 +1774,9 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, Cancel
             if (str_contains(strtolower($contentType), 'application/json')) {
                 $data             = $this->decodeJsonObjectBody($body);
                 $data[$fieldName] = $secret;
-                $newBody          = json_encode($data, JSON_THROW_ON_ERROR);
+                // The root is a JSON object; a numeric field name must not turn it
+                // into a list (['0' => …] encodes as ["…"]).
+                $newBody = json_encode((object) $data, JSON_THROW_ON_ERROR);
             } else {
                 parse_str($body, $data);
                 $data[$fieldName] = $secret;

@@ -150,7 +150,8 @@ Make authenticated API calls without exposing secrets to your code:
 
 ```php
 use GuzzleHttp\Psr7\Request;
-use Netresearch\NrVault\Http\SecretPlacement;
+use Netresearch\NrVault\Http\AuthScheme;
+use Netresearch\NrVault\Http\AuthSchemeHttpClientInterface;
 use Netresearch\NrVault\Http\VaultHttpClientInterface;
 
 class PaymentService
@@ -161,8 +162,12 @@ class PaymentService
 
     public function chargeCustomer(array $payload): array
     {
+        if (!$this->httpClient instanceof AuthSchemeHttpClientInterface) {
+            throw new \LogicException('The installed nr-vault does not support withAuthScheme().');
+        }
+
         // Configure vault-based authentication (returns a new immutable client)
-        $client = $this->httpClient->withAuthentication('stripe_api_key', SecretPlacement::Bearer);
+        $client = $this->httpClient->withAuthScheme('stripe_api_key', AuthScheme::bearer());
 
         // Send a standard PSR-7 request - the secret is injected automatically
         $request = new Request(
@@ -178,7 +183,7 @@ class PaymentService
 }
 ```
 
-Secret placement options: `Bearer`, `BasicAuth`, `Header`, `QueryParam`, `BodyField`, `ApiKey`, `OAuth2`.
+Authentication schemes: `AuthScheme::bearer()`, `basicAuth()`, `header()`, `apiKey()`, `queryParam()`, `bodyField()`; OAuth 2.0 goes through `withOAuth()`. The older `withAuthentication()` with a `SecretPlacement` and an options array is deprecated.
 
 ## TCA Integration
 

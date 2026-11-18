@@ -12,8 +12,8 @@ namespace Netresearch\NrVault\Tests\Unit\Documentation;
 use GuzzleHttp\Psr7\HttpFactory;
 use GuzzleHttp\Psr7\Response;
 use MyVendor\MyDeeplExtension\Service\DeepLService;
-use Netresearch\NrVault\Http\SecretPlacement;
-use Netresearch\NrVault\Http\VaultHttpClientInterface;
+use Netresearch\NrVault\Http\AuthScheme;
+use Netresearch\NrVault\Http\AuthSchemeHttpClientInterface;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\CoversNothing;
@@ -40,11 +40,11 @@ final class ExtensionSettingsExampleTest extends TestCase
             ->method('get')
             ->with('my_deepl_extension')
             ->willReturn(['deeplApiKey' => 'deepl_api_key']);
-        $http = $this->createMock(VaultHttpClientInterface::class);
+        $http = $this->createMock(AuthSchemeHttpClientInterface::class);
         $http
             ->expects(self::once())
-            ->method('withAuthentication')
-            ->with('deepl_api_key', SecretPlacement::Header, ['headerName' => 'Authorization', 'prefix' => 'DeepL-Auth-Key '])
+            ->method('withAuthScheme')
+            ->with('deepl_api_key', AuthScheme::header('Authorization', 'DeepL-Auth-Key '))
             ->willReturnSelf();
         $http->expects(self::once())->method('withReason')->with('DeepL translation request')->willReturnSelf();
         $http

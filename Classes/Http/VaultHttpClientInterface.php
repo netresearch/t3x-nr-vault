@@ -20,7 +20,10 @@ use Psr\Http\Client\ClientInterface;
  *
  * Usage:
  *     // Configure authentication, then send PSR-7 requests
- *     $client = $vault->http()->withAuthentication('api_key', SecretPlacement::Bearer);
+ *     // (AuthSchemeHttpClientInterface, ADR-056)
+ *     $http = $vault->http();
+ *     assert($http instanceof AuthSchemeHttpClientInterface);
+ *     $client = $http->withAuthScheme('api_key', AuthScheme::bearer());
  *     $response = $client->sendRequest($request);
  *
  *     // For OAuth2
@@ -53,6 +56,8 @@ interface VaultHttpClientInterface extends ClientInterface
      *     - reason: Audit log reason for this client's requests
      *
      * @return static New client instance with authentication configured
+     *
+     * @deprecated use AuthSchemeHttpClientInterface::withAuthScheme() with an AuthScheme instead; removed in the next major release (ADR-056)
      */
     public function withAuthentication(
         string $secretIdentifier,

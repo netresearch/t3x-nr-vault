@@ -816,7 +816,9 @@ Vault HTTP client
 
 Make authenticated API calls without exposing secrets to your code.
 The HTTP client is PSR-18 compatible. Configure authentication with
-:php:`withAuthentication()`, then use standard :php:`sendRequest()`.
+:php:`withAuthScheme()`, then use standard :php:`sendRequest()`.
+:php:`withAuthScheme()` belongs to :php:`AuthSchemeHttpClientInterface`, so
+check for that interface first (:ref:`api-http-auth-scheme`).
 
 Inject :php:`VaultHttpClientInterface` directly:
 
@@ -824,7 +826,8 @@ Inject :php:`VaultHttpClientInterface` directly:
    :caption: HTTP client with vault authentication
 
    use GuzzleHttp\Psr7\Request;
-   use Netresearch\NrVault\Http\SecretPlacement;
+   use Netresearch\NrVault\Http\AuthScheme;
+   use Netresearch\NrVault\Http\AuthSchemeHttpClientInterface;
    use Netresearch\NrVault\Http\VaultHttpClientInterface;
 
    final class ExternalApiService
@@ -835,11 +838,12 @@ Inject :php:`VaultHttpClientInterface` directly:
 
        public function fetchData(): array
        {
+           if (!$this->httpClient instanceof AuthSchemeHttpClientInterface) {
+               throw new \LogicException('The installed nr-vault does not support withAuthScheme().');
+           }
+
            // Configure authentication, then use PSR-18
-           $client = $this->httpClient->withAuthentication(
-               'api_token',
-               SecretPlacement::Bearer,
-           );
+           $client = $this->httpClient->withAuthScheme('api_token', AuthScheme::bearer());
 
            $request = new Request('GET', 'https://api.example.com/data');
            $response = $client->sendRequest($request);
@@ -854,10 +858,15 @@ Or access via VaultService:
    :caption: HTTP client via VaultService
 
    use GuzzleHttp\Psr7\Request;
-   use Netresearch\NrVault\Http\SecretPlacement;
+   use Netresearch\NrVault\Http\AuthScheme;
+   use Netresearch\NrVault\Http\AuthSchemeHttpClientInterface;
 
-   $client = $this->vaultService->http()
-       ->withAuthentication('stripe_api_key', SecretPlacement::Bearer);
+   $http = $this->vaultService->http();
+   if (!$http instanceof AuthSchemeHttpClientInterface) {
+       throw new \LogicException('The installed nr-vault does not support withAuthScheme().');
+   }
+
+   $client = $http->withAuthScheme('stripe_api_key', AuthScheme::bearer());
 
    $request = new Request(
        'POST',
@@ -874,41 +883,36 @@ Authentication options
 ~~~~~~~~~~~~~~~~~~~~~~
 
 .. code-block:: php
-   :caption: Authentication placement examples
+   :caption: Authentication scheme examples
 
    use GuzzleHttp\Psr7\Request;
-   use Netresearch\NrVault\Http\SecretPlacement;
+   use Netresearch\NrVault\Http\AuthScheme;
+
+   // $http: the narrowed client from the examples above
 
    // Bearer token
-   $client = $vault->http()
-       ->withAuthentication('api_token', SecretPlacement::Bearer);
+   $client = $http->withAuthScheme('api_token', AuthScheme::bearer());
    $response = $client->sendRequest(new Request('GET', $url));
 
    // API key header (X-API-Key)
-   $client = $vault->http()
-       ->withAuthentication('api_key', SecretPlacement::ApiKey);
+   $client = $http->withAuthScheme('api_key', AuthScheme::apiKey());
    $response = $client->sendRequest(new Request('GET', $url));
 
    // Custom header
-   $client = $vault->http()
-       ->withAuthentication('api_key', SecretPlacement::Header, [
-           'headerName' => 'X-Custom-Auth',
-       ]);
+   $client = $http->withAuthScheme('api_key', AuthScheme::header('X-Custom-Auth'));
    $response = $client->sendRequest(new Request('GET', $url));
 
    // Basic authentication with separate secrets
-   $client = $vault->http()
-       ->withAuthentication('service_password', SecretPlacement::BasicAuth, [
-           'usernameSecret' => 'service_user',
-       ]);
+   $client = $http->withAuthScheme('service_password', AuthScheme::basicAuth('service_user'));
    $response = $client->sendRequest(new Request('GET', $url));
 
    // Query parameter
-   $client = $vault->http()
-       ->withAuthentication('api_key', SecretPlacement::QueryParam, [
-           'queryParam' => 'key',
-       ]);
+   $client = $http->withAuthScheme('api_key', AuthScheme::queryParam('key'));
    $response = $client->sendRequest(new Request('GET', $url));
+
+The previous :php:`withAuthentication()` with a :php:`SecretPlacement` and an
+options array still works and is deprecated; it is removed in the next major
+release.
 
 For a complete real-world example combining TCA vault fields with the HTTP
 client, see :ref:`usage-api-endpoint-example`.

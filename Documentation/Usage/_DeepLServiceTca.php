@@ -12,7 +12,8 @@ namespace MyVendor\MyDeeplExtension\Service;
 use GuzzleHttp\Psr7\Utils;
 use MyVendor\MyDeeplExtension\Domain\Repository\ConfigRepository;
 use MyVendor\MyDeeplExtension\Exception\DeepLNotConfiguredException;
-use Netresearch\NrVault\Http\SecretPlacement;
+use Netresearch\NrVault\Http\AuthScheme;
+use Netresearch\NrVault\Http\AuthSchemeHttpClientInterface;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use TYPO3\CMS\Core\Http\RequestFactory;
 
@@ -39,12 +40,15 @@ final readonly class DeepLService
                 'target_lang' => $targetLang,
             ])));
 
-        $response = $this->vault
-            ->http()
-            ->withAuthentication(
+        $http = $this->vault->http();
+        if (!$http instanceof AuthSchemeHttpClientInterface) {
+            throw new \LogicException('The installed nr-vault does not support withAuthScheme().', 1763420003);
+        }
+
+        $response = $http
+            ->withAuthScheme(
                 $config->apiKey,
-                SecretPlacement::Header,
-                ['headerName' => 'Authorization', 'prefix' => 'DeepL-Auth-Key '],
+                AuthScheme::header('Authorization', 'DeepL-Auth-Key '),
             )
             ->withReason('DeepL translation: ' . $targetLang)
             ->sendRequest($request);

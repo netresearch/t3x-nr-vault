@@ -9,7 +9,8 @@ declare(strict_types=1);
 
 namespace MyVendor\MyDeeplExtension\Service;
 
-use Netresearch\NrVault\Http\SecretPlacement;
+use Netresearch\NrVault\Http\AuthScheme;
+use Netresearch\NrVault\Http\AuthSchemeHttpClientInterface;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use TYPO3\CMS\Core\Configuration\ExtensionConfiguration;
 use Psr\Http\Message\RequestFactoryInterface;
@@ -49,12 +50,16 @@ final class DeepLService
 
         // Secret resolved at use time, not config load time.
         // DeepL uses the "Authorization: DeepL-Auth-Key <key>" scheme (not Bearer),
-        // expressed via the Header placement + prefix option.
-        $response = $this->vault->http()
-            ->withAuthentication(
+        // expressed as a header scheme with a prefix.
+        $http = $this->vault->http();
+        if (!$http instanceof AuthSchemeHttpClientInterface) {
+            throw new \LogicException('The installed nr-vault does not support withAuthScheme().', 1763420002);
+        }
+
+        $response = $http
+            ->withAuthScheme(
                 $this->apiKeyIdentifier,
-                SecretPlacement::Header,
-                ['headerName' => 'Authorization', 'prefix' => 'DeepL-Auth-Key '],
+                AuthScheme::header('Authorization', 'DeepL-Auth-Key '),
             )
             ->withReason('DeepL translation request')
             ->sendRequest($request);

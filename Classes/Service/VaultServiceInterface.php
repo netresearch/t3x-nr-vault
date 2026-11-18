@@ -207,12 +207,16 @@ interface VaultServiceInterface
     /**
      * Get the Vault HTTP Client for making authenticated API calls.
      *
-     * Returns a PSR-18 compatible client. Use withAuthentication() to configure
-     * secret injection, then sendRequest() to make calls.
+     * Returns a PSR-18 compatible client. Use withAuthScheme() of
+     * AuthSchemeHttpClientInterface to configure secret injection, then
+     * sendRequest() to make calls. The declared return type stays
+     * VaultHttpClientInterface until the next major release, so narrow first.
      *
      * @example
      *     // Configure authentication and send PSR-7 request
-     *     $client = $vault->http()->withAuthentication('stripe_key', SecretPlacement::Bearer);
+     *     $http = $vault->http();
+     *     assert($http instanceof AuthSchemeHttpClientInterface);
+     *     $client = $http->withAuthScheme('stripe_key', AuthScheme::bearer());
      *     $response = $client->sendRequest($request);
      *
      *     // OAuth 2.0

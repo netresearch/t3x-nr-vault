@@ -205,10 +205,10 @@ public function callExternalApi(): Response
 
 public function fetchData(): array
 {
-    $client = $this->http->withAuthentication(
-        'api_token',
-        SecretPlacement::Bearer,
-    );
+    if (!$this->http instanceof AuthSchemeHttpClientInterface) {
+        throw new \LogicException('withAuthScheme() is not supported.');
+    }
+    $client = $this->http->withAuthScheme('api_token', AuthScheme::bearer());
     $request = new Request('GET', 'https://api.example.com/data');
     $response = $client->sendRequest($request);
     return json_decode($response->getBody()->getContents(), true);

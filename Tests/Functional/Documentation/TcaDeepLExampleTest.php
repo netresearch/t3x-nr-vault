@@ -10,8 +10,8 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Tests\Functional\Documentation;
 
 use GuzzleHttp\Psr7\Response;
-use Netresearch\NrVault\Http\SecretPlacement;
-use Netresearch\NrVault\Http\VaultHttpClientInterface;
+use Netresearch\NrVault\Http\AuthScheme;
+use Netresearch\NrVault\Http\AuthSchemeHttpClientInterface;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\Attributes\PreserveGlobalState;
@@ -93,15 +93,14 @@ final class TcaDeepLExampleTest extends FunctionalTestCase
             'MyVendor\MyDeeplExtension\Domain\Repository\ConfigRepository',
         )->newInstance($pool);
         $http = $this->createMock(
-            VaultHttpClientInterface::class,
+            AuthSchemeHttpClientInterface::class,
         );
         $http
             ->expects(self::once())
-            ->method('withAuthentication')
+            ->method('withAuthScheme')
             ->with(
                 $identifier,
-                SecretPlacement::Header,
-                ['headerName' => 'Authorization', 'prefix' => 'DeepL-Auth-Key '],
+                AuthScheme::header('Authorization', 'DeepL-Auth-Key '),
             )
             ->willReturnSelf();
         $http

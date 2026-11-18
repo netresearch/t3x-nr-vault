@@ -99,6 +99,14 @@ parameters:
                 - attribute.deprecatedClass
             path: Classes/Upgrades/AuditHmacMigrationWizardV13.php
             reportUnmatched: false
+        # withAuthentication() is deprecated in favour of withAuthScheme()
+        # (ADR-056) but stays supported until the next major release. Its
+        # tests are what keeps it working until then, so the tests keep
+        # calling it; production code under Classes/ is not covered here.
+        -
+            identifier: method.deprecated
+            message: '#^Call to deprecated method withAuthentication\(\) of (class|interface) Netresearch\\NrVault\\Http\\VaultHttpClient(Interface)?:#'
+            path: Tests/*
         # Whether TYPO3 offers the wizard is answered only by core's wizard
         # registry, which is @internal to TYPO3 (EXT:core on 14, EXT:install
         # on 13). The registration test and the upgrade acceptance test read it
