@@ -49,6 +49,8 @@ final class VaultHttpClientAuthSchemeTest extends TestCase
         yield 'query, default name' => [SecretPlacement::QueryParam, [], AuthScheme::queryParam(), ['uri' => 'https://api.example.com/v1?page=2&api_key=primary-value']];
         yield 'query, custom name' => [SecretPlacement::QueryParam, ['queryParam' => 'key'], AuthScheme::queryParam('key'), ['uri' => 'https://api.example.com/v1?page=2&key=primary-value']];
         yield 'body, default field' => [SecretPlacement::BodyField, [], AuthScheme::bodyField(), ['body' => 'model=small&api_key=primary-value']];
+        yield 'body, hyphenated field' => [SecretPlacement::BodyField, ['bodyField' => 'api-key'], AuthScheme::bodyField('api-key'), ['body' => 'model=small&api-key=primary-value']];
+        yield 'header, empty prefix' => [SecretPlacement::Header, ['headerName' => 'Authorization', 'prefix' => ''], AuthScheme::header('Authorization', ''), ['Authorization' => 'primary-value']];
         yield 'body, custom field' => [SecretPlacement::BodyField, ['bodyField' => 'client_secret'], AuthScheme::bodyField('client_secret'), ['body' => 'model=small&client_secret=primary-value']];
     }
 

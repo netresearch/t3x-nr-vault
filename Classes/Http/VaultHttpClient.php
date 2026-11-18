@@ -44,7 +44,7 @@ use function strlen;
  * PSR-18 HTTP client that injects vault secrets as authentication.
  *
  * This is an immutable, fluent PSR-18 client. Configure authentication
- * with withAuthentication() or withOAuth(), then send requests with sendRequest().
+ * with withAuthScheme() or withOAuth(), then send requests with sendRequest().
  *
  * TYPO3 HTTP Settings:
  * This client respects TYPO3's HTTP configuration ($GLOBALS['TYPO3_CONF_VARS']['HTTP']):
@@ -73,7 +73,9 @@ use function strlen;
  *     $request = $requestFactory->createRequest('GET', 'https://api.example.com/data');
  *
  *     // Bearer token authentication
- *     $client = $vault->http()->withAuthScheme('stripe_key', AuthScheme::bearer());
+ *     $http = $vault->http();
+ *     assert($http instanceof AuthSchemeHttpClientInterface);
+ *     $client = $http->withAuthScheme('stripe_key', AuthScheme::bearer());
  *     $response = $client->sendRequest($request);
  *
  *     // OAuth 2.0

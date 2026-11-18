@@ -1347,8 +1347,8 @@ any secret is read.
       ``<name>: <prefix><secret>``. Use the prefix for non-Bearer
       ``Authorization: <scheme> <secret>`` schemes, e.g. ``'Key '`` for the
       TYPO3 FAL providers or ``'DeepL-Auth-Key '`` for DeepL.
-      The name must be an HTTP token; the prefix must be non-empty and free of
-      control characters.
+      The name must be an HTTP token; the prefix must be free of control
+      characters.
 
    :php:`AuthScheme::apiKey()`
       ``X-API-Key: <secret>``.
@@ -1359,7 +1359,7 @@ any secret is read.
 
    :php:`AuthScheme::bodyField(string $field = 'api_key')`
       Sets ``<field>`` in a form-encoded or JSON object body. The field must
-      match ``[A-Za-z_][A-Za-z0-9_]{0,63}``.
+      be non-empty and free of control characters.
 
    Each constructor throws :php:`InvalidArgumentException` for an invalid
    value. OAuth 2.0 has no scheme; use :php:`withOAuth()`.

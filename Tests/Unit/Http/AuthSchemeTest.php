@@ -35,7 +35,8 @@ final class AuthSchemeTest extends TestCase
         yield 'query, default name' => [static fn (): AuthScheme => AuthScheme::queryParam(), [SecretPlacement::QueryParam, null, null, 'api_key', null, null]];
         yield 'query, custom name' => [static fn (): AuthScheme => AuthScheme::queryParam('key'), [SecretPlacement::QueryParam, null, null, 'key', null, null]];
         yield 'body, default field' => [static fn (): AuthScheme => AuthScheme::bodyField(), [SecretPlacement::BodyField, null, null, null, 'api_key', null]];
-        yield 'body, 64-character field' => [static fn (): AuthScheme => AuthScheme::bodyField(str_repeat('a', 64)), [SecretPlacement::BodyField, null, null, null, str_repeat('a', 64), null]];
+        yield 'body, hyphen and dot' => [static fn (): AuthScheme => AuthScheme::bodyField('client.api-key'), [SecretPlacement::BodyField, null, null, null, 'client.api-key', null]];
+        yield 'header, empty prefix' => [static fn (): AuthScheme => AuthScheme::header('Authorization', ''), [SecretPlacement::Header, 'Authorization', '', null, null, null]];
     }
 
     /**
@@ -64,14 +65,11 @@ final class AuthSchemeTest extends TestCase
         yield 'header, empty name' => [static fn (): AuthScheme => AuthScheme::header(''), 7930377463];
         yield 'header, name with a space' => [static fn (): AuthScheme => AuthScheme::header('X Api Key'), 7930377463];
         yield 'header, name with a colon' => [static fn (): AuthScheme => AuthScheme::header('Authorization:'), 7930377463];
-        yield 'header, empty prefix' => [static fn (): AuthScheme => AuthScheme::header('Authorization', ''), 9898564967];
         yield 'header, prefix with CRLF' => [static fn (): AuthScheme => AuthScheme::header('Authorization', "Key\r\nX-Injected: 1 "), 9898564967];
         yield 'query, empty name' => [static fn (): AuthScheme => AuthScheme::queryParam(''), 2722802580];
         yield 'query, name with a NUL byte' => [static fn (): AuthScheme => AuthScheme::queryParam("key\0"), 2722802580];
-        yield 'body, leading digit' => [static fn (): AuthScheme => AuthScheme::bodyField('1key'), 4310510580];
-        yield 'body, non-ASCII letter' => [static fn (): AuthScheme => AuthScheme::bodyField('schlüssel'), 4310510580];
-        yield 'body, hyphen' => [static fn (): AuthScheme => AuthScheme::bodyField('api-key'), 4310510580];
-        yield 'body, 65 characters' => [static fn (): AuthScheme => AuthScheme::bodyField(str_repeat('a', 65)), 4310510580];
+        yield 'body, empty name' => [static fn (): AuthScheme => AuthScheme::bodyField(''), 4310510580];
+        yield 'body, name with a line break' => [static fn (): AuthScheme => AuthScheme::bodyField("api\nkey"), 4310510580];
     }
 
     /**

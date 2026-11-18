@@ -21,7 +21,9 @@ use Psr\Http\Client\ClientInterface;
  * Usage:
  *     // Configure authentication, then send PSR-7 requests
  *     // (AuthSchemeHttpClientInterface, ADR-056)
- *     $client = $vault->http()->withAuthScheme('api_key', AuthScheme::bearer());
+ *     $http = $vault->http();
+ *     assert($http instanceof AuthSchemeHttpClientInterface);
+ *     $client = $http->withAuthScheme('api_key', AuthScheme::bearer());
  *     $response = $client->sendRequest($request);
  *
  *     // For OAuth2

@@ -65,7 +65,7 @@ final readonly class AuthScheme
     /**
      * `<name>: <prefix><secret>`, e.g. `header('Authorization', 'DeepL-Auth-Key ')`.
      *
-     * @throws InvalidArgumentException when `$name` is not an HTTP header name or `$prefix` is empty or holds control characters
+     * @throws InvalidArgumentException when `$name` is not an HTTP header name or `$prefix` holds control characters
      */
     public static function header(string $name = 'X-API-Key', ?string $prefix = null): self
     {
@@ -73,8 +73,8 @@ final readonly class AuthScheme
             throw new InvalidArgumentException('The header name must be an HTTP token.', 7930377463);
         }
 
-        if ($prefix !== null && ($prefix === '' || preg_match(self::CONTROL_CHARACTERS, $prefix) === 1)) {
-            throw new InvalidArgumentException('The header prefix must be non-empty and free of control characters.', 9898564967);
+        if ($prefix !== null && preg_match(self::CONTROL_CHARACTERS, $prefix) === 1) {
+            throw new InvalidArgumentException('The header prefix must be free of control characters.', 9898564967);
         }
 
         return new self(SecretPlacement::Header, headerName: $name, prefix: $prefix);
@@ -105,12 +105,12 @@ final readonly class AuthScheme
     /**
      * `<field>=<secret>` in a form-encoded body or a JSON object body.
      *
-     * @throws InvalidArgumentException when `$field` does not match `[A-Za-z_][A-Za-z0-9_]{0,63}`
+     * @throws InvalidArgumentException when `$field` is empty or holds control characters
      */
     public static function bodyField(string $field = 'api_key'): self
     {
-        if (preg_match('/\A[A-Za-z_][A-Za-z0-9_]{0,63}\z/', $field) !== 1) {
-            throw new InvalidArgumentException('The body field must be a simple field name.', 4310510580);
+        if ($field === '' || preg_match(self::CONTROL_CHARACTERS, $field) === 1) {
+            throw new InvalidArgumentException('The body field name must be non-empty and free of control characters.', 4310510580);
         }
 
         return new self(SecretPlacement::BodyField, bodyField: $field);
