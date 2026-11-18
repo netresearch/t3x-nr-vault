@@ -1342,6 +1342,9 @@ any secret is read.
       secret holds ``username:password``; with it, the secret is the password
       and ``$usernameSecret`` is the Vault identifier of the username; it must
       match the identifier grammar the vault stores secrets under.
+      A secret stored under an identifier outside that grammar, which a record
+      created before 1.0.0 and given a value later can have, is refused here;
+      :php:`withAuthentication()` still reads it until the next major release.
 
    :php:`AuthScheme::header(string $name = 'X-API-Key', ?string $prefix = null)`
       ``<name>: <prefix><secret>``. Use the prefix for non-Bearer
