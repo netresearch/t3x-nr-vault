@@ -80,6 +80,27 @@ final class VaultHttpClientAuthSchemeTest extends TestCase
     }
 
     #[Test]
+    public function numericBodyFieldKeepsTheJsonBodyAnObject(): void
+    {
+        $sent      = null;
+        $transport = $this->createMock(ClientInterface::class);
+        $transport
+            ->expects(self::once())
+            ->method('sendRequest')
+            ->willReturnCallback(static function (RequestInterface $request) use (&$sent): Response {
+                $sent = (string) $request->getBody();
+
+                return new Response(200);
+            });
+
+        $this->client($transport)
+            ->withAuthScheme('primary', AuthScheme::bodyField('0'))
+            ->sendRequest(new Request('POST', 'https://api.example.com/v1', ['Content-Type' => 'application/json'], '{}'));
+
+        self::assertSame('{"0":"primary-value"}', $sent);
+    }
+
+    #[Test]
     public function clientAdvertisesTheCapability(): void
     {
         self::assertContains(AuthSchemeHttpClientInterface::class, class_implements(VaultHttpClient::class));

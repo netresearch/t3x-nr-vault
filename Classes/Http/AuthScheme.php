@@ -10,6 +10,7 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Http;
 
 use InvalidArgumentException;
+use Netresearch\NrVault\Utility\IdentifierValidator;
 
 /**
  * How a client injects its primary secret, together with exactly the options
@@ -51,12 +52,12 @@ final readonly class AuthScheme
      * with it, the secret is the password and `$usernameSecret` names the
      * Vault identifier of the username.
      *
-     * @throws InvalidArgumentException when `$usernameSecret` is empty or holds control characters
+     * @throws InvalidArgumentException when `$usernameSecret` is not a Vault identifier
      */
     public static function basicAuth(?string $usernameSecret = null): self
     {
-        if ($usernameSecret !== null && ($usernameSecret === '' || preg_match(self::CONTROL_CHARACTERS, $usernameSecret) === 1)) {
-            throw new InvalidArgumentException('The Basic username secret identifier must be non-empty and free of control characters.', 9410661933);
+        if ($usernameSecret !== null && (!IdentifierValidator::isValidForStorage($usernameSecret) || preg_match(self::CONTROL_CHARACTERS, $usernameSecret) === 1)) {
+            throw new InvalidArgumentException('The Basic username secret must be a Vault identifier.', 9410661933);
         }
 
         return new self(SecretPlacement::BasicAuth, usernameSecret: $usernameSecret);

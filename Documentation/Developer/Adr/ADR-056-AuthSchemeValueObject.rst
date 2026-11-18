@@ -91,7 +91,7 @@ Static analysis with deprecation rules reports each remaining
 purpose, because they keep the deprecated method working until it is removed;
 ``phpstan.neon`` ignores the deprecation for ``Tests/`` only.
 
-Unit tests send the same request through both methods for every placement and
-option combination. A functional test sends a header scheme with a prefix to a
+Unit tests send the same request through both methods for each placement and
+each option. A functional test sends a header scheme with a prefix to a
 local server on the blocking and the streaming path. The executed
 documentation examples use ``withAuthScheme()``.

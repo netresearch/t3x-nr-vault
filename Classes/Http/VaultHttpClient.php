@@ -1774,7 +1774,9 @@ final readonly class VaultHttpClient implements VaultHttpClientInterface, AuthSc
             if (str_contains(strtolower($contentType), 'application/json')) {
                 $data             = $this->decodeJsonObjectBody($body);
                 $data[$fieldName] = $secret;
-                $newBody          = json_encode($data, JSON_THROW_ON_ERROR);
+                // The root is a JSON object; a numeric field name must not turn it
+                // into a list (['0' => …] encodes as ["…"]).
+                $newBody = json_encode((object) $data, JSON_THROW_ON_ERROR);
             } else {
                 parse_str($body, $data);
                 $data[$fieldName] = $secret;

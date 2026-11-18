@@ -1,0 +1,1 @@
+- The vault HTTP client keeps a JSON request body an object when the body-field secret has a numeric field name such as `0`. Before, an empty body `{}` was sent as the list `["<secret>"]`.
