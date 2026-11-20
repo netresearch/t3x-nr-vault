@@ -453,7 +453,7 @@ v4: chapter 10 (Malicious Code), chapter 14 (Configuration).*
         -   :file:`.github/workflows/checks.yml`
 
     *   -   Broad compatibility test matrix
-        -   PHP 8.2–8.5 × TYPO3 ``^13.4`` and ``^14.3``, unit and functional,
+        -   PHP 8.2–8.6 × TYPO3 ``^13.4`` and ``^14.3``, unit and functional,
             coverage uploaded
         -   :file:`.github/workflows/ci.yml`
 

@@ -1,0 +1,8 @@
+<?xml version="1.0"?>
+<files version="1">
+ <file path=".Build/vendor/mikey179/vfsstream/src/main/php/org/bovigo/vfs/vfsStreamFile.php">
+  <line number="374" hash="1354d5b573deb60762f19caaa9ce43dc941440d5">
+   <issue><![CDATA[Function spl_object_hash() is deprecated since 8.6, consider using spl_object_id() instead]]></issue>
+  </line>
+ </file>
+</files>

@@ -389,7 +389,7 @@ the list below is what is actually declared here.
 
     *   -   Compatibility test matrix
         -   :file:`.github/workflows/ci.yml`
-        -   PHP 8.2, 8.3, 8.4, 8.5 × TYPO3 ``^13.4`` and ``^14.3``; unit and
+        -   PHP 8.2, 8.3, 8.4, 8.5, 8.6 × TYPO3 ``^13.4`` and ``^14.3``; unit and
             functional tests; coverage uploaded
 
     *   -   Dependency vulnerability audit

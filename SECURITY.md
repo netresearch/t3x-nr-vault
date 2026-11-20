@@ -80,7 +80,7 @@ What is fast-tracked:
 
 What is **not** skipped, in any circumstance:
 
-- the full CI matrix (PHP 8.2-8.5 x TYPO3 13.4/14.3) must be green;
+- the full CI matrix (PHP 8.2-8.6 x TYPO3 13.4/14.3) must be green;
 - the security invariant tests and the mutation ratchet on
   `Classes/Crypto`, `Classes/Security`, `Classes/Audit` and `Classes/Http`
   must hold;

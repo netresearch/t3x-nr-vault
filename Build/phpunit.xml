@@ -35,7 +35,10 @@
         <!-- Architecture rules (PHPat) are not a PHPUnit suite: they run inside PHPStan via phpat.neon -->
     </testsuites>
 
-    <source ignoreSuppressionOfDeprecations="true">
+    <!-- ../phpunit-baseline.xml holds the spl_object_hash() deprecation PHP 8.6
+         raises in mikey179/vfsstream (vfsStreamFile.php), a test-only dependency.
+         Delete the entry once vfsStream stops calling spl_object_hash(). -->
+    <source baseline="../phpunit-baseline.xml" ignoreSuppressionOfDeprecations="true">
         <include>
             <directory suffix=".php">../Classes</directory>
         </include>

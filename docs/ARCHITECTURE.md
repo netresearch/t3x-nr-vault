@@ -165,7 +165,7 @@ vault:seed-demo            # Seed demo secrets + audit history (development only
 
 ## CI
 
-`.github/workflows/ci.yml` is a thin caller of `netresearch/typo3-ci-workflows/.github/workflows/ci.yml@main` with matrix PHP 8.2/8.3/8.4/8.5 × TYPO3 ^13.4/^14.3, functional tests and coverage upload enabled. `checks.yml` (security/quality jobs) is drift-locked across all netresearch TYPO3 extensions; the mutation ratchet for `Classes/Crypto|Security|Audit` lives in `security-gates.yml`. See `.github/workflows/AGENTS.md`.
+`.github/workflows/ci.yml` is a thin caller of `netresearch/typo3-ci-workflows/.github/workflows/ci.yml@main` with matrix PHP 8.2/8.3/8.4/8.5/8.6 × TYPO3 ^13.4/^14.3, functional tests and coverage upload enabled. `checks.yml` (security/quality jobs) is drift-locked across all netresearch TYPO3 extensions; the mutation ratchet for `Classes/Crypto|Security|Audit` lives in `security-gates.yml`. See `.github/workflows/AGENTS.md`.
 
 ## Key Decisions
 
