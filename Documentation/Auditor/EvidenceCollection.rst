@@ -259,10 +259,13 @@ the application's word for it:
 
     # The effective baseline, computed as the reader does: the MAXIMUM sequence
     # among anchors with a chain tip (not the last line), a tip-less anchor only
-    # when no other exists, the first of equal sequences, broken lines skipped.
+    # when no other exists, the first of equal sequences; lines the reader
+    # rejects (broken JSON, no numeric sequence, timestamp or hmacEpoch) skipped.
     jq -nR '[inputs | fromjson? | select(type == "object" and .type == "anchor")
-            | .anchor
-            | select((.sequence | type) == "number" and (.chainTip | type) == "string")]
+            | .anchor | select(type == "object" and (.chainTip | type) == "string")
+            | (.sequence | tonumber?) as $s | (.timestamp | tonumber?) as $t
+            | (.hmacEpoch | tonumber?) as $e
+            | .sequence = $s]
         | (map(select(.sequence > 0 and .chainTip != "")) | select(length > 0)) // .
         | reduce .[] as $a (null; if . == null or $a.sequence > .sequence then $a else . end)' \
         < /var/log/typo3/nr-vault-anchors.ndjson > evidence/anchor-effective.json

@@ -365,9 +365,10 @@ final class AuditCheckTest extends TestCase
     }
 
     /**
-     * Guard tests: a fresh hardened installation (sequence-0 anchor, empty
-     * chain) passes, and under the standard profile a tip-less anchor passes
-     * with a summary that does not claim an anchor comparison.
+     * A fresh hardened installation (sequence-0 anchor, empty chain) passes
+     * (guard: also on the unfixed code), and under the standard profile a
+     * tip-less anchor passes with a summary that does not claim an anchor
+     * comparison (fails on the unfixed code, which claimed one).
      */
     #[Test]
     public function aTiplessAnchorPassesOnAnEmptyChainOrUnderStandard(): void
