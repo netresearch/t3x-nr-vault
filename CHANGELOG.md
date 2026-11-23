@@ -9,6 +9,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.11.0] - 2026-11-23
+
+### Upgrading from 1.10
+
+- Hardened installations whose anchor file holds only anchors without a chain tip (for example only the one published on a fresh, empty chain) now get `NO_EXTERNAL_SINK` until the anchor task runs once with rows in the chain: `vendor/bin/typo3 scheduler:run --task=<anchor-task-uid> --force`. If the chain tip cannot be read while rows exist, every new anchor is tip-less as well and the finding stays until that is fixed (#551).
+- `vault:store` now refuses invocations it used to accept: `--metadata frontendAccessible=…` (set it in the backend module or through `VaultService`), `--metadata groups=…` (use `--groups`), `--metadata metadata=…`, `--metadata source|table|field|flexField|uid=…`, a non-numeric `--metadata expiresAt|owner|scopePid=…`, a pair without `=`, and a `--groups` value that is not a positive group UID (`--groups="1,2"` used to be ignored: the command mapped it to group 0 under a key the service did not read). Options are checked before the secret value is read.
+- `vault:store --groups` on an existing secret that holds a value now changes its groups, which needs `secret.manage_policy`. The default `cliAllowedOperations` does not include it, so such a call by the plain CLI user is denied; add `secret.manage_policy` to the allowlist or use `--as-provisioner` with a user that holds it. `--metadata` on an existing secret now reads its metadata first to merge, which needs read access to the secret; the read and the store are two steps, so a metadata write by another process between them can be lost (#524, tracked in #570).
+
+### Added
+
+- `AuthScheme` value object and `AuthSchemeHttpClientInterface::withAuthScheme()`: configure the vault HTTP client's authentication with one named constructor per placement (`bearer()`, `basicAuth()`, `header()`, `apiKey()`, `queryParam()`, `bodyField()`). Each constructor takes only its placement's options and validates them before any secret is read. `VaultHttpClient` implements the interface; feature-detect it with `instanceof`. See ADR-056.
+
+### Deprecated
+
+- `VaultHttpClientInterface::withAuthentication()` with a `SecretPlacement` and an options array. Use `withAuthScheme()` with an `AuthScheme` instead. The method keeps its behaviour and is removed in the next major release.
+
+### Fixed
+
+- The decommissioning runbook stops every process that writes audit rows before the final evidence export, keeps them stopped until the master key is destroyed, and orders the evidence steps as verify, export, publish the final anchor, verify the export. A new mandatory check confirms that the chain verification passed and that the final anchor's sequence and chain tip match the end of the export and the verified chain length, and the key destruction step re-checks that no row was written after the evidence closed. Before, a row written between the steps could end up outside the anchored, verified evidence.
+- The vault HTTP client keeps a JSON request body an object when the body-field secret has a numeric field name such as `0`. Before, an empty body `{}` was sent as the list `["<secret>"]`.
+- AWS Secrets Manager adapter: when a delete's row delete or audit write fails, the value removed from AWS is put back instead of being lost while AWS is still deleting the secret, provided AWS answers the create with InvalidRequestException and finishes within about four seconds (the error code inside that window is not documented by AWS). The restore retries the create for a few seconds and never writes into a secret another writer created in the meantime (#539). The races between a rollback's version check and its write or delete stay open and are tracked in #567.
+- `vault:store --groups` and free-form `--metadata` pairs now reach the secret: the command passed the groups under `allowed_groups` and every pair as a top-level option, while `VaultService` reads `groups` and `metadata`, so the groups and the metadata were dropped. `description`, `context`, `expiresAt`, `owner` and `scopePid` keep setting those fields. On an existing secret the pairs are merged into the stored metadata. Repeated `--groups` values are passed once (#524).
+
+### Security
+
+- Under the hardened profile an external anchor without a chain tip no longer satisfies the anchor requirement once the audit chain has rows: `vault:audit-verify`, the verify task and `vault:doctor` report `NO_EXTERNAL_SINK` instead of treating reset detection as in place (where such an anchor's sequence is above the chain, `vault:doctor` reports `TABLE_RESET` first, as before). The anchor file reader now takes the highest anchor that carries a chain tip, so an appended tip-less line with a high sequence can no longer switch off the `TABLE_RESET` comparison (#551).
+- Secret identifiers with a trailing line break are refused: `IdentifierValidator` anchored its friendly and UUID patterns with `^…$`, and `$` also matches before one final `\n`, so `store("api_user\n", …)` was accepted by the local adapter. The friendly pattern now uses an explicit `[a-zA-Z0-9_]` class instead of `\w`. The same anchor is fixed in `looksLikeVaultIdentifier()`, `FlexFormVaultResolver::isVaultIdentifier()` and the transit provider's path-segment check, where an extension-configured mount such as `platform\n/transit` let a line break into the transit URL. A secret already stored under such an identifier stays readable, rotatable and deletable; updating it through `store()` is refused, use `rotate()` to replace its value (#560).
+- `vault:store` refuses `--metadata` keys that the service misread: `groups=…` cleared the read groups of the secret (on an existing secret only for an actor holding `secret.manage_policy`), `frontendAccessible=false` was cast to true and made the secret frontend-readable, a non-numeric `expiresAt` or `owner` silently became 0 (no expiry, owner 0), and a non-numeric `scopePid` was ignored. The record-link keys that orphan cleanup reads (`source`, `table`, `field`, `flexField`, `uid`) are refused too (#524).
+
 ## [1.10.0] - 2026-11-17
 
 ### Upgrading from 1.9
@@ -2387,7 +2416,8 @@ upgrading.
 - Constructor property promotion
 - Modern PHP 8.x patterns (match, named arguments, attributes)
 
-[Unreleased]: https://github.com/netresearch/t3x-nr-vault/compare/v1.10.0...HEAD
+[Unreleased]: https://github.com/netresearch/t3x-nr-vault/compare/v1.11.0...HEAD
+[1.11.0]: https://github.com/netresearch/t3x-nr-vault/compare/v1.10.0...v1.11.0
 [1.10.0]: https://github.com/netresearch/t3x-nr-vault/compare/v1.9.1...v1.10.0
 [1.9.1]: https://github.com/netresearch/t3x-nr-vault/compare/v1.9.0...v1.9.1
 [1.9.0]: https://github.com/netresearch/t3x-nr-vault/compare/v1.8.0...v1.9.0
