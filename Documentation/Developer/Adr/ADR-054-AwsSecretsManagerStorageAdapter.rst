@@ -214,10 +214,25 @@ writer's, does not write into it and logs a warning. Which error AWS returns
 while the name is still being deleted is not documented;
 ``InvalidRequestException`` ("The secret is scheduled for deletion") is assumed.
 If AWS answers with another code, the restore fails at the first attempt as
-before: ``ResourceExistsException`` is then logged as a name of another writer,
-any other code as a failed rollback. The cost of the back-off: a create that
-meets a name another party scheduled for deletion with a recovery window waits
-about 3.75 seconds before it fails as before.
+before. The cost of the back-off: a create that meets a name another party
+scheduled for deletion with a recovery window waits about 3.75 seconds before it
+fails as before.
+
+The first restores in production settle the assumption. What each log line
+means:
+
+* Notice "CreateSecret succeeded after N InvalidRequestException answer(s)":
+  the assumption holds, and the window lasted less than the back-off.
+* Warning "restoring an AWS Secrets Manager write failed" naming
+  ``InvalidRequestException``: the code is right, but the deletion took longer
+  than about 3.75 seconds.
+* Warning "was not put back, because a secret of that name exists" right after
+  nr-vault's own delete: either another writer created the name, or AWS answers
+  the deletion window with ``ResourceExistsException``. ``DescribeSecret``
+  on the name tells them apart (a ``DeletedDate`` means AWS was still
+  deleting).
+* On the audit-failure path, :php:`VaultService` logs "the compensating
+  rollback also failed" when the restore failed.
 
 A row bound to another external adapter is refused
 --------------------------------------------------

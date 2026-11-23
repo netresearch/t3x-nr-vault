@@ -16,6 +16,7 @@ use Closure;
 use JsonException;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Exception\AwsSecretsManagerException;
+use Psr\Log\LoggerInterface;
 use SensitiveParameter;
 use Throwable;
 
@@ -63,6 +64,7 @@ final class AwsSecretsManagerStore implements AwsSecretStoreInterface
         private readonly ExtensionConfigurationInterface $configuration,
         private readonly AwsClientFactory $clients,
         ?Closure $sleep = null,
+        private readonly ?LoggerInterface $logger = null,
     ) {
         $this->sleep = $sleep ?? static function (int $microseconds): void {
             usleep($microseconds);
@@ -122,10 +124,19 @@ final class AwsSecretsManagerStore implements AwsSecretStoreInterface
         // secret is scheduled for deletion") is assumed. Only the create is
         // retried: a put is never re-sent, so a secret another writer creates
         // in the meantime is never written into.
-        $delays = self::CREATE_RETRY_DELAYS_MICROSECONDS;
+        $delays  = self::CREATE_RETRY_DELAYS_MICROSECONDS;
+        $retries = 0;
         while (true) {
             try {
                 $result = $client->createSecret(['Name' => $name, 'SecretString' => $encoded]);
+
+                if ($retries > 0) {
+                    // The production signal for the assumption above (#539).
+                    $this->logger?->notice(
+                        'nr-vault: AWS Secrets Manager CreateSecret succeeded after {retries} InvalidRequestException answer(s); AWS was still deleting the name.',
+                        ['retries' => $retries],
+                    );
+                }
 
                 break;
             } catch (Throwable $e) {
@@ -138,6 +149,7 @@ final class AwsSecretsManagerStore implements AwsSecretStoreInterface
                 }
 
                 ($this->sleep)(array_shift($delays));
+                ++$retries;
             }
         }
 

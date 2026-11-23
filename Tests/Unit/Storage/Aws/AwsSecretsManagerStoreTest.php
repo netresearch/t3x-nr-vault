@@ -27,6 +27,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use Psr\Http\Message\RequestInterface;
+use Psr\Log\LoggerInterface;
 use Throwable;
 
 /**
@@ -49,12 +50,15 @@ final class AwsSecretsManagerStoreTest extends TestCase
     /** @var list<int> */
     private array $sleeps = [];
 
+    private LoggerInterface $logger;
+
     protected function setUp(): void
     {
         parent::setUp();
 
         $this->requests = [];
         $this->sleeps   = [];
+        $this->logger   = self::createStub(LoggerInterface::class);
         putenv('NR_VAULT_AWS_ACCESS_KEY_ID=' . self::akia('UNITTESTKEY00001'));
         putenv('NR_VAULT_AWS_SECRET_ACCESS_KEY=' . self::SECRET_KEY);
     }
@@ -447,6 +451,11 @@ final class AwsSecretsManagerStoreTest extends TestCase
     #[Test]
     public function createRetriesWhileAForceDeletedNameIsStillBeingDeleted(): void
     {
+        $logger = $this->createMock(LoggerInterface::class);
+        $logger->expects(self::once())->method('notice')
+            ->with(self::stringContains('succeeded after'), ['retries' => 2]);
+        $this->logger = $logger;
+
         $store = $this->store(
             $this->awsError(400, 'InvalidRequestException'),
             $this->awsError(400, 'InvalidRequestException'),
@@ -590,6 +599,7 @@ final class AwsSecretsManagerStoreTest extends TestCase
             function (int $microseconds): void {
                 $this->sleeps[] = $microseconds;
             },
+            $this->logger,
         );
     }
 }

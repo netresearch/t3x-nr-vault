@@ -334,8 +334,9 @@ final readonly class AwsSecretsManagerAdapter implements CreateCompensatingAdapt
     /**
      * Put a value back that this call destroyed a moment ago. It is a create,
      * not a write: AWS deletes asynchronously, and the store's create waits out
-     * that deletion (#539). A name that exists again belongs to somebody else
-     * now and is not written into.
+     * that deletion (#539). A name that exists again is not written into: it
+     * belongs to another writer, or AWS answered the deletion window with
+     * ResourceExistsException instead of the assumed InvalidRequestException.
      *
      * @param array<string, mixed> $payload
      */
