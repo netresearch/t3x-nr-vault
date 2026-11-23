@@ -322,6 +322,10 @@ final class VaultServiceTest extends FunctionalTestCase
         $subject->delete($identifier, 'test');
 
         self::assertFalse($subject->exists($identifier));
+        self::assertTrue(
+            $this->get(AuditLogServiceInterface::class)->verifyHashChain()->isValid(),
+            'the audit chain must verify after the legacy secret lifecycle',
+        );
     }
 
     private function getSubject(): VaultServiceInterface
