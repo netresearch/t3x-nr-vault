@@ -14,6 +14,7 @@ use Doctrine\DBAL\Platforms\SQLitePlatform;
 use Netresearch\NrVault\Audit\Anchor\ChainTipAnchor;
 use Netresearch\NrVault\Audit\Anchor\ChainTipAnchorService;
 use Netresearch\NrVault\Audit\Anchor\ChainTipAnchorServiceInterface;
+use Netresearch\NrVault\Audit\AuditIntegrityAlert;
 use Netresearch\NrVault\Audit\AuditIntegrityReason;
 use Netresearch\NrVault\Audit\AuditLogService;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
@@ -362,13 +363,18 @@ final class ChainTipAnchorServiceTest extends AbstractVaultFunctionalTestCase
         $this->switchToHardenedProfile();
 
         $service = $this->getAnchorService();
-        $service->publish($service->capture());
+        self::assertSame(1, $service->publish($service->capture()), 'the empty-chain anchor must reach the file sink');
 
         $this->get(AuditLogServiceInterface::class)->log('anchor_test_secret', 'create', true);
 
-        $report = $service->verify();
+        $report   = $service->verify();
+        $findings = array_values(array_filter(
+            $report->findings,
+            static fn (AuditIntegrityAlert $finding): bool => $finding->reason === AuditIntegrityReason::NoExternalSink,
+        ));
 
-        self::assertTrue($report->hasReason(AuditIntegrityReason::NoExternalSink), 'findings: ' . implode(',', $report->getReasonCodes()));
+        self::assertCount(1, $findings, 'findings: ' . implode(',', $report->getReasonCodes()));
+        self::assertStringContainsString('carries no chain tip', $findings[0]->detail);
         self::assertFalse($report->hasTamperEvidence());
     }
 

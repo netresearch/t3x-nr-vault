@@ -1054,12 +1054,14 @@ final readonly class AuditCheck implements ReadinessCheckInterface
         // compares nothing; under hardened it counts as missing unless both it
         // and the chain are empty (#551).
         if ($anchor->isEmpty()) {
-            if ($context->isHardened() && ($currentSequence > 0 || $anchor->sequence > 0)) {
+            // An anchor with a sequence above the chain returned TABLE_RESET above,
+            // so only the chain's own length decides here.
+            if ($context->isHardened() && $currentSequence > 0) {
                 return Finding::critical(
                     id: $id,
                     summary: 'The newest chain-tip anchor carries no chain tip, although the hardened profile requires one.',
                     risk: 'An anchor without a chain tip compares nothing, so a full audit-table reset would be undetectable.',
-                    remediation: 'Run the "Vault Audit Chain Anchoring" task once now that the chain has rows '
+                    remediation: 'Run the "Vault Audit Chain Anchoring" task once while the chain has rows '
                         . '(vendor/bin/typo3 scheduler:run --task=<anchor-task-uid> --force), and keep it scheduled hourly.',
                     docsUrl: DocsLink::AUDIT_SINK_SCHEDULING,
                     details: $details + ['reasonCode' => AuditIntegrityReason::NoExternalSink->value],

@@ -550,7 +550,7 @@ final readonly class ChainTipAnchorService implements ChainTipAnchorServiceInter
                     AuditIntegrityReason::NoExternalSink,
                     'Hardened profile requires an external chain-tip anchor, but the newest anchor carries no chain tip, '
                     . 'so a full audit-table reset would be undetectable. Run the anchor task once '
-                    . '(scheduler:run --task=<anchor-task-uid> --force) now that the chain has rows.',
+                    . '(scheduler:run --task=<anchor-task-uid> --force) once the chain has rows.',
                     [
                         'anchorAvailable' => $this->anchorReader->isAvailable(),
                         // Not "anchoredSequence": AuditController reads that key as a mismatch.

@@ -133,6 +133,20 @@ final class AnchorFileReaderTest extends TestCase
      * the first anchor seen at a sequence wins, so an attacker who can append
      * cannot overwrite the tip recorded for a sequence with one of their own.
      */
+    #[Test]
+    public function aLaterAnchorAtTheSameSequenceDoesNotReplaceTheOneAlreadySeen(): void
+    {
+        $path = $this->writeFile(
+            $this->anchorLine(5, 'tip-genuine', 1_750_000_000, 3)
+            . $this->anchorLine(5, 'tip-forged', 1_750_000_900, 3),
+        );
+
+        $anchor = $this->createSubject($path)->readLatestAnchor();
+
+        self::assertInstanceOf(ChainTipAnchor::class, $anchor);
+        self::assertSame('tip-genuine', $anchor->chainTip);
+    }
+
     /**
      * #551: an anchor without a chain tip compares nothing. Appended with a
      * higher sequence it must not replace a real anchor as the baseline, or
@@ -187,20 +201,6 @@ final class AnchorFileReaderTest extends TestCase
 
         self::assertInstanceOf(ChainTipAnchor::class, $anchor);
         self::assertSame(4, $anchor->sequence);
-    }
-
-    #[Test]
-    public function aLaterAnchorAtTheSameSequenceDoesNotReplaceTheOneAlreadySeen(): void
-    {
-        $path = $this->writeFile(
-            $this->anchorLine(5, 'tip-genuine', 1_750_000_000, 3)
-            . $this->anchorLine(5, 'tip-forged', 1_750_000_900, 3),
-        );
-
-        $anchor = $this->createSubject($path)->readLatestAnchor();
-
-        self::assertInstanceOf(ChainTipAnchor::class, $anchor);
-        self::assertSame('tip-genuine', $anchor->chainTip);
     }
 
     #[Test]
