@@ -97,16 +97,29 @@ Options
    Read the secret value from a file.
 
 --metadata=KEY=VALUE, -m KEY=VALUE
-   Additional metadata as ``key=value``. **Repeatable** — pass the option once
-   per pair. Recognised keys: ``description``, ``context``, ``expiresAt``,
-   ``owner``, ``groups``, ``scopePid``. There are no separate
-   ``--description`` / ``--context`` / ``--expires`` options.
+   Metadata as ``key=value``. **Repeatable** — pass the option once per
+   pair. The keys ``description``, ``context``, ``expiresAt``, ``owner``
+   and ``scopePid`` set those fields of the secret; ``expiresAt`` (a Unix
+   timestamp), ``owner`` and ``scopePid`` must be digits. There are no
+   separate ``--description`` / ``--context`` / ``--expires`` options.
+   Every other key is stored in the secret's metadata. On an existing secret
+   the pairs are merged into the stored metadata, which needs read access to
+   the secret; leave out ``--metadata`` to store a value without reading.
+   Refused: ``groups`` (use ``--groups``), ``frontendAccessible`` (set it
+   in the backend module or through the API), ``metadata``, and the record
+   link keys ``source``, ``table``, ``field``, ``flexField`` and ``uid``
+   that orphan cleanup reads; a pair without ``=`` is refused too. Refused
+   options stop the command before the secret value is read.
 
 --groups=UID, -g UID
-   Backend user group ID that may access this secret. **Repeatable** — pass
-   the option once per group (``--groups=1 --groups=2``). A comma-separated
-   ``--groups="1,2"`` is *not* split: it is read as a single non-numeric value
-   and becomes group 0.
+   Backend user group ID that may read this secret. **Repeatable** — pass the
+   option once per group (``--groups=1 --groups=2``). Each value must be a
+   positive group UID; a comma-separated ``--groups="1,2"`` is refused. On an
+   existing secret that holds a value, changing its groups is a policy change
+   and needs ``secret.manage_policy``, which the default
+   :confval:`ext-nrvault-cliAllowedOperations` does not include. With
+   :confval:`ext-nrvault-cliAccessGroups` set, creating a secret whose
+   ``--groups`` do not intersect those groups locks the CLI out of it.
 
 --as-provisioner
    Write as the configured provisioning backend user instead of the

@@ -445,6 +445,11 @@ CLI access
    with the required ``tx_nrvault:secret.create`` and, for rotation,
    ``tx_nrvault:secret.rotate`` group permissions. Writes remain subject to
    access control and are attributed to this identity in the audit log.
+   With :bash:`--groups`, a new secret gets those group tiers with
+   ``secret.create`` alone; changing the groups of an existing secret needs
+   ``tx_nrvault:secret.manage_policy``, and :bash:`--metadata` on an existing
+   secret needs read access to it, because the pairs are merged into the
+   stored metadata.
    The UID is read from trusted configuration, never from a CLI argument.
 
 .. confval:: auditorBeUserUid
