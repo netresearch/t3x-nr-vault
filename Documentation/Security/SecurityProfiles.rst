@@ -184,8 +184,10 @@ profile before them is what produces an unreadable vault.
 #.  **Enable at least one external audit sink** and schedule anchoring and
     verification (:ref:`operations-monitoring-and-alerting`). Without this,
     hardened verification reports ``NO_EXTERNAL_SINK``. It does the same
-    while the newest anchor carries no chain tip and the chain has rows, so
-    run the anchor task again once the first audit row exists.
+    while the chain has rows and the only anchors found carry no chain tip
+    (the verification uses the highest anchor with a chain tip, a tip-less
+    one only when no other exists), so run the anchor task again once the
+    first audit row exists.
 
 #.  **Set the profile.**
 

@@ -548,7 +548,7 @@ final readonly class ChainTipAnchorService implements ChainTipAnchorServiceInter
             return [
                 AuditIntegrityAlert::create(
                     AuditIntegrityReason::NoExternalSink,
-                    'Hardened profile requires an external chain-tip anchor, but the newest anchor carries no chain tip, '
+                    'Hardened profile requires an external chain-tip anchor, but the anchor read carries no chain tip, '
                     . 'so a full audit-table reset would be undetectable. Run the anchor task once '
                     . '(scheduler:run --task=<anchor-task-uid> --force) once the chain has rows.',
                     [

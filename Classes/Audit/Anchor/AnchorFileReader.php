@@ -89,15 +89,9 @@ final readonly class AnchorFileReader implements AnchorReaderInterface
                 }
 
                 if ($anchor->isEmpty()) {
-                    if (!$bestEmpty instanceof ChainTipAnchor || $anchor->sequence > $bestEmpty->sequence) {
-                        $bestEmpty = $anchor;
-                    }
-
-                    continue;
-                }
-
-                if (!$best instanceof ChainTipAnchor || $anchor->sequence > $best->sequence) {
-                    $best = $anchor;
+                    $bestEmpty = $this->higher($bestEmpty, $anchor);
+                } else {
+                    $best = $this->higher($best, $anchor);
                 }
             }
         } finally {
@@ -145,6 +139,14 @@ final readonly class AnchorFileReader implements AnchorReaderInterface
         }
 
         return $anchors;
+    }
+
+    /**
+     * The first anchor seen wins a tie (strict `>`).
+     */
+    private function higher(?ChainTipAnchor $current, ChainTipAnchor $candidate): ChainTipAnchor
+    {
+        return $current instanceof ChainTipAnchor && $candidate->sequence <= $current->sequence ? $current : $candidate;
     }
 
     /**

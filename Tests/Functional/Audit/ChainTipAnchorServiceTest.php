@@ -46,6 +46,8 @@ final class ChainTipAnchorServiceTest extends AbstractVaultFunctionalTestCase
 {
     use AuditSinkSandboxTrait;
 
+    private const FINDINGS_PREFIX = 'findings: ';
+
     protected ?string $backendUserFixture = __DIR__ . '/../../Functional/Service/Fixtures/be_users.csv';
 
     /** @var array<string, mixed> */
@@ -121,7 +123,7 @@ final class ChainTipAnchorServiceTest extends AbstractVaultFunctionalTestCase
 
         $report = $service->verify();
 
-        self::assertTrue($report->isValid(), 'findings: ' . implode(',', $report->getReasonCodes()));
+        self::assertTrue($report->isValid(), self::FINDINGS_PREFIX . implode(',', $report->getReasonCodes()));
         self::assertTrue($report->chainValid);
         self::assertInstanceOf(ChainTipAnchor::class, $report->anchor);
         self::assertSame(2, $report->anchor->sequence);
@@ -350,7 +352,7 @@ final class ChainTipAnchorServiceTest extends AbstractVaultFunctionalTestCase
         $report = $service->verify();
 
         self::assertFalse($report->hasReason(AuditIntegrityReason::NoExternalSink));
-        self::assertTrue($report->isValid(), 'findings: ' . implode(',', $report->getReasonCodes()));
+        self::assertTrue($report->isValid(), self::FINDINGS_PREFIX . implode(',', $report->getReasonCodes()));
     }
 
     /**
@@ -373,7 +375,7 @@ final class ChainTipAnchorServiceTest extends AbstractVaultFunctionalTestCase
             static fn (AuditIntegrityAlert $finding): bool => $finding->reason === AuditIntegrityReason::NoExternalSink,
         ));
 
-        self::assertCount(1, $findings, 'findings: ' . implode(',', $report->getReasonCodes()));
+        self::assertCount(1, $findings, self::FINDINGS_PREFIX . implode(',', $report->getReasonCodes()));
         self::assertStringContainsString('carries no chain tip', $findings[0]->detail);
         self::assertFalse($report->hasTamperEvidence());
     }
