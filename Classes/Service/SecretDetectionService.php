@@ -234,7 +234,7 @@ final class SecretDetectionService implements SecretDetectionServiceInterface
             $columns       = $schemaManager->listTableColumns($tableName);
 
             foreach ($columns as $column) {
-                /** @phpstan-ignore method.internalClass */
+                /** @phpstan-ignore method.internalClass, method.deprecated (getObjectName() needs doctrine/dbal 4.3; TYPO3 13.4.0 allows 4.2) */
                 $columnName = $column->getName();
                 $columnType = $column->getType();
 
