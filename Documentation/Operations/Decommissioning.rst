@@ -167,8 +167,8 @@ So the steps below run against a vault nobody writes to.
     does not pass either. Whether to destroy the key anyway is a decision for
     the decommission owner: copy the acknowledged findings from
     ``decommission-verify.txt`` into the decommissioning record with that
-    decision before continuing, and skip the ``grep`` command of the first
-    check below. The export check below compares
+    decision before continuing, and use the variant of the first check below
+    that is meant for that decision. The export check below compares
     the export only with the newest anchor, which is the one published in the
     next step; a mismatch with an earlier anchor, such as a reset chain that
     has grown again, is reported by this verification alone.
@@ -245,8 +245,27 @@ So the steps below run against a vault nobody writes to.
 
     ..  code-block:: bash
 
-        grep -q 'Audit log integrity verified' decommission-verify.txt \
-            || { echo 'CHAIN NOT VERIFIED: see the verification step' >&2; false; }
+        if grep -q 'Audit log integrity verified' decommission-verify.txt; then
+            jq -er \
+                --argjson verified "$(sed -n 's/^ *Chain length (max uid) *\([0-9][0-9]*\).*/\1/p' decommission-verify.txt)" \
+                'if .export.lastUid == $verified
+                 then "verified and exported up to uid \($verified)"
+                 else error("NOT CONFIRMED: verified up to \($verified), exported up to \(.export.lastUid)")
+                 end' \
+                decommission-audit.json
+        else
+            echo 'CHAIN NOT VERIFIED: see the verification step' >&2
+            false
+        fi
+
+    It prints ``verified and exported up to uid …`` and exits with 0.
+    ``CHAIN NOT VERIFIED`` means the chain verification did not pass: stop,
+    that is not fixed by publishing again. Only where the decommission owner
+    decided to proceed over acknowledged findings (verification step), run
+    this instead, which leaves out the verification result:
+
+    ..  code-block:: bash
+
         jq -er \
             --argjson verified "$(sed -n 's/^ *Chain length (max uid) *\([0-9][0-9]*\).*/\1/p' decommission-verify.txt)" \
             'if .export.lastUid == $verified
@@ -255,10 +274,7 @@ So the steps below run against a vault nobody writes to.
              end' \
             decommission-audit.json
 
-    ``CHAIN NOT VERIFIED`` means the chain verification did not pass: stop,
-    that is not fixed by publishing again. Where the decommission owner
-    decided to proceed over acknowledged findings (verification step), skip
-    the ``grep`` command only. ``NOT CONFIRMED`` here means a row was
+    ``NOT CONFIRMED`` here means a row was
     written between the verification and the export: a writer is still
     running. Stop it and start again at the verification step.
 
