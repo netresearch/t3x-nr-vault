@@ -487,7 +487,7 @@ final readonly class MigrationController
                 ->getConnectionByName(ConnectionPool::DEFAULT_CONNECTION_NAME)
                 ->createSchemaManager();
             $tableNames = array_map(
-                static fn (Table $t): string => $t->getName(), /** @phpstan-ignore method.internalClass */
+                static fn (Table $t): string => $t->getName(), /** @phpstan-ignore method.internalClass, method.deprecated (getObjectName() needs doctrine/dbal 4.3; TYPO3 13.4.0 allows 4.2) */
                 $schemaManager->listTables(),
             );
             if (!in_array($table, $tableNames, true)) {
@@ -495,7 +495,7 @@ final readonly class MigrationController
             }
 
             $columns = array_map(
-                static fn (Column $col): string => $col->getName(), /** @phpstan-ignore method.internalClass */
+                static fn (Column $col): string => $col->getName(), /** @phpstan-ignore method.internalClass, method.deprecated (getObjectName() needs doctrine/dbal 4.3; TYPO3 13.4.0 allows 4.2) */
                 $schemaManager->listTableColumns($table),
             );
             if (!in_array($column, $columns, true)) {
