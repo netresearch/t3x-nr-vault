@@ -789,4 +789,52 @@ final class IdentifierValidatorTest extends TestCase
         //                    trim '_' → 'secret_api_key_test'
         self::assertSame('secret_api_key_test', $result);
     }
+
+    /**
+     * #560: `$` without the D modifier also matches before one trailing newline.
+     *
+     * @return array<string, array{string}>
+     */
+    public static function trailingLineBreakProvider(): array
+    {
+        return [
+            'friendly identifier with trailing LF'   => ["api_user\n"],
+            'friendly identifier with trailing CRLF' => ["api_user\r\n"],
+            'UUID v7 with trailing LF'               => [self::TEST_UUID . "\n"],
+        ];
+    }
+
+    #[Test]
+    #[DataProvider('trailingLineBreakProvider')]
+    public function validateRejectsTrailingLineBreak(string $identifier): void
+    {
+        $this->expectException(ValidationException::class);
+
+        IdentifierValidator::validate($identifier);
+    }
+
+    #[Test]
+    #[DataProvider('trailingLineBreakProvider')]
+    public function validateForStorageRejectsTrailingLineBreak(string $identifier): void
+    {
+        self::assertFalse(IdentifierValidator::isValidForStorage($identifier));
+    }
+
+    /**
+     * @return array<string, array{string}>
+     */
+    public static function vaultReferenceWithTrailingLineBreakProvider(): array
+    {
+        return [
+            'UUID v7 with trailing LF'           => [self::TEST_UUID . "\n"],
+            'vault placeholder with trailing LF' => ["%vault(api_key)%\n"],
+        ];
+    }
+
+    #[Test]
+    #[DataProvider('vaultReferenceWithTrailingLineBreakProvider')]
+    public function looksLikeVaultIdentifierRejectsTrailingLineBreak(string $value): void
+    {
+        self::assertFalse(IdentifierValidator::looksLikeVaultIdentifier($value));
+    }
 }

@@ -40,7 +40,7 @@ use function is_string;
 final readonly class FlexFormVaultResolver
 {
     /** UUID v7 pattern for vault identifiers. */
-    private const UUID_PATTERN = '/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i';
+    private const UUID_PATTERN = '/\A[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z/i';
 
     public function __construct(
         private VaultServiceInterface $vaultService,

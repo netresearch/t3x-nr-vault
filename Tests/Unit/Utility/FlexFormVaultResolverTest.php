@@ -63,6 +63,15 @@ final class FlexFormVaultResolverTest extends TestCase
         ));
     }
 
+    /**
+     * #560: `$` without the D modifier also matched before a trailing LF.
+     */
+    #[Test]
+    public function isVaultIdentifierRejectsAUuidWithATrailingLineBreak(): void
+    {
+        self::assertFalse($this->subject->isVaultIdentifier(self::TEST_UUID . "\n"));
+    }
+
     #[Test]
     public function isVaultIdentifierReturnsFalseForInvalidIdentifier(): void
     {

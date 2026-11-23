@@ -9,9 +9,13 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Functional\Service;
 
+use Netresearch\NrVault\Adapter\VaultAdapterInterface;
 use Netresearch\NrVault\Audit\AuditLogEntry;
 use Netresearch\NrVault\Audit\AuditLogFilter;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
+use Netresearch\NrVault\Crypto\EncryptionServiceInterface;
+use Netresearch\NrVault\Domain\Model\Secret;
+use Netresearch\NrVault\Exception\ValidationException;
 use Netresearch\NrVault\Service\VaultService;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -256,6 +260,60 @@ final class VaultServiceTest extends FunctionalTestCase
             static fn (AuditLogEntry $entry): bool => $entry->action === 'read' && $entry->success,
         );
         self::assertCount(2, $readEntries, 'each retrieve() must write its own read audit entry');
+    }
+
+    /**
+     * #560: the identifier grammar must hold over the whole string; `$`
+     * without the D modifier accepted one trailing LF.
+     */
+    #[Test]
+    public function storeRefusesAnIdentifierWithATrailingLineBreak(): void
+    {
+        $subject = $this->subject;
+        self::assertNotNull($subject);
+
+        try {
+            $subject->store("api_user\n", 'value');
+            self::fail('An identifier with a trailing line break must be refused.');
+        } catch (ValidationException) {
+        }
+
+        self::assertFalse($subject->exists("api_user\n"));
+    }
+
+    /**
+     * A secret stored before #560 under an identifier with a trailing LF stays
+     * readable and rotatable: only store() validates the identifier. The row is
+     * encrypted under that identifier, because the identifier is the AEAD
+     * additional data, as a pre-fix store() would have written it.
+     */
+    #[Test]
+    public function aLegacySecretWithATrailingLineBreakStaysReadableAndRotatable(): void
+    {
+        $subject = $this->subject;
+        self::assertNotNull($subject);
+        $identifier = "legacy_user\n";
+
+        $encrypted = $this->get(EncryptionServiceInterface::class)->encrypt('legacy-value', $identifier);
+        $this->get(VaultAdapterInterface::class)->store(new Secret(
+            identifier: $identifier,
+            encryptedValue: $encrypted->encryptedValue,
+            encryptedDek: $encrypted->encryptedDek,
+            dekNonce: $encrypted->dekNonce,
+            valueNonce: $encrypted->valueNonce,
+            encryptionVersion: $encrypted->encryptionVersion,
+            encryptionAlgorithm: $encrypted->encryptionAlgorithm->value,
+            valueChecksum: $encrypted->valueChecksum,
+            ownerUid: 1,
+            crdate: time(),
+            cruserId: 1,
+        ));
+
+        self::assertSame('legacy-value', $subject->retrieve($identifier));
+
+        $subject->rotate($identifier, 'rotated-value', 'test');
+
+        self::assertSame('rotated-value', $subject->retrieve($identifier));
     }
 
     private function getSubject(): VaultServiceInterface

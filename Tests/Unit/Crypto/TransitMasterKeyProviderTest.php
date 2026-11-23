@@ -300,6 +300,50 @@ final class TransitMasterKeyProviderTest extends TestCase
         $provider->getMasterKey();
     }
 
+    /**
+     * #560: TransitConfig trims only the ends of the mount, and the mount is
+     * split on "/", so a configured "platform\n/transit" yields the segment
+     * "platform\n"; `$` without the D modifier let it into the URL path.
+     */
+    #[Test]
+    public function getMasterKeyThrowsWhenAMountSegmentEndsInALineBreak(): void
+    {
+        $this->writeWrappedKeyFile();
+
+        // Through fromArray(), the path extension configuration takes.
+        $provider = $this->createProvider(
+            $this->createMock(ClientInterface::class),
+            TransitConfig::fromArray([
+                'address'               => self::ADDRESS,
+                'transitMount'          => "platform\n/transit",
+                'transitKeyName'        => 'nr-vault-master',
+                'transitWrappedKeyPath' => $this->wrappedKeyPath(),
+                'tokenEnvVar'           => self::TOKEN_ENV_VAR,
+            ]),
+        );
+
+        $this->expectException(MasterKeyException::class);
+        $this->expectExceptionCode(1754100007);
+
+        $provider->getMasterKey();
+    }
+
+    #[Test]
+    public function getMasterKeyThrowsWhenTheKeyNameEndsInALineBreak(): void
+    {
+        $this->writeWrappedKeyFile();
+
+        $provider = $this->createProvider(
+            $this->createMock(ClientInterface::class),
+            $this->transitConfig(keyName: "nr-vault-master\n"),
+        );
+
+        $this->expectException(MasterKeyException::class);
+        $this->expectExceptionCode(1754100007);
+
+        $provider->getMasterKey();
+    }
+
     #[Test]
     public function getMasterKeyThrowsWhenKeyNameIsATraversalSegment(): void
     {
