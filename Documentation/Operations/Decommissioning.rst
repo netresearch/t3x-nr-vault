@@ -156,7 +156,14 @@ So the steps below run against a vault nobody writes to.
 
     ..  code-block:: bash
 
-        vendor/bin/typo3 vault:audit-verify --as-auditor > decommission-verify.txt
+        vendor/bin/typo3 vault:audit-verify --as-auditor > decommission-verify.txt \
+            && echo "chain verified"
+
+    Stop if it did not print ``chain verified``: a failed verification is
+    not fixed by re-running the later steps. The export check below compares
+    the export only with the newest anchor, which is the one published in the
+    next step; a mismatch with an earlier anchor, such as a reset chain that
+    has grown again, is reported by this verification alone.
 
 #.  **Export the audit log, publish the final anchor, then verify the
     export** — in that order, as one chain:
@@ -232,7 +239,8 @@ So the steps below run against a vault nobody writes to.
 
     ..  code-block:: bash
 
-        jq -R 'fromjson? | objects | select(.type == "anchor") | .anchor' <anchor-file> \
+        grep -q 'Audit log integrity verified' decommission-verify.txt \
+            && jq -R 'fromjson? | objects | select(.type == "anchor") | .anchor' <anchor-file> \
             | jq -s 'max_by(.sequence)' > decommission-final-anchor.json \
             && jq -r \
                 --argjson verified "$(sed -n 's/^ *Chain length (max uid) *\([0-9][0-9]*\).*/\1/p' decommission-verify.txt)" \
@@ -250,7 +258,8 @@ So the steps below run against a vault nobody writes to.
     Anything else — ``NOT CONFIRMED``, or an error because a file is missing
     or the chain length could not be read — means the final anchor is missing
     or older than the export: it was not published. Find out why, and run the
-    anchor step and this check again.
+    anchor step and this check again. If the ``grep`` failed, the chain
+    verification did not pass: stop, that is not fixed by publishing again.
 
     The check above reads a host-local file, which is weak evidence
     (:ref:`auditor-evidence-chain`). The anchor record that is kept is the
