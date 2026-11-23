@@ -1663,12 +1663,13 @@ cli.allowed_operations
    values are called out because they are silently inert — a typo revokes the
    grant the operator believes is configured rather than failing loudly.
 
-   Of the seven high-risk entries, four currently change what a CLI command
+   Of the seven high-risk entries, five currently change what a CLI command
    can do: ``secret.reveal`` (``vault:retrieve``), ``secret.delete``
    (``vault:delete`` and the orphan cleanup), ``master_key.rotate``
-   (``vault:rotate-master-key``) and ``audit.view`` (``vault:audit``,
-   ``vault:audit --verify``, ``vault:audit-verify``). ``secret.manage_policy``,
-   ``audit.export`` and ``vault.configure``
+   (``vault:rotate-master-key``), ``audit.view`` (``vault:audit``,
+   ``vault:audit --verify``, ``vault:audit-verify``) and
+   ``secret.manage_policy`` (``vault:store --groups`` on an existing secret
+   that holds a value). ``audit.export`` and ``vault.configure``
    gate the corresponding **backend** actions; ``vault:audit --export``
    asserts no operation permission of its own. They are still called out
    here, because the allowlist is the record of what the CLI actor has been

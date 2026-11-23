@@ -378,8 +378,8 @@ CLI access
    :confval:`ext-nrvault-auditReaderBeUserUid` for :bash:`vault:audit`).
    Anchoring has no such actor; the *Vault Audit Chain Anchoring* scheduler
    task is its unattended path. ``secret.manage_policy`` gates the **backend** policy
-   edit rather than a command, and it is listed because it is the widest
-   entry over time: it edits ``allowed_groups`` and ``write_groups``, so a
+   edit and :bash:`vault:store --groups` on an existing secret that holds a
+   value, and it is listed because it is the widest entry over time: it edits ``allowed_groups`` and ``write_groups``, so a
    shell holding it can widen its own per-secret reach and the widened
    tiers read as ordinary configuration afterwards.
 

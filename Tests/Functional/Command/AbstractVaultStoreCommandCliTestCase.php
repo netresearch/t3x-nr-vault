@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Functional\Command;
 
+use Netresearch\NrVault\Audit\AuditLogServiceInterface;
 use Netresearch\NrVault\Command\VaultStoreCommand;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Netresearch\NrVault\Tests\Functional\AbstractVaultFunctionalTestCase;
@@ -47,6 +48,11 @@ abstract class AbstractVaultStoreCommandCliTestCase extends AbstractVaultFunctio
         $display  = $tester->getDisplay();
         $groups   = $vaultService->getMetadata($identifier)->groups;
         sort($groups);
+
+        self::assertTrue(
+            $this->get(AuditLogServiceInterface::class)->verifyHashChain()->isValid(),
+            'the audit chain must verify after the store commands',
+        );
 
         return [$exitCode, (string) preg_replace('/\s+/', ' ', $display), $groups];
     }
