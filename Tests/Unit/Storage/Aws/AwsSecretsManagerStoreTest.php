@@ -24,6 +24,7 @@ use Netresearch\NrVault\Storage\Aws\AwsSecretsManagerStore;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use Psr\Http\Message\RequestInterface;
 use Throwable;
@@ -45,11 +46,15 @@ final class AwsSecretsManagerStoreTest extends TestCase
     /** @var list<RequestInterface> */
     private array $requests = [];
 
+    /** @var list<int> */
+    private array $sleeps = [];
+
     protected function setUp(): void
     {
         parent::setUp();
 
         $this->requests = [];
+        $this->sleeps   = [];
         putenv('NR_VAULT_AWS_ACCESS_KEY_ID=' . self::akia('UNITTESTKEY00001'));
         putenv('NR_VAULT_AWS_SECRET_ACCESS_KEY=' . self::SECRET_KEY);
     }
@@ -434,6 +439,99 @@ final class AwsSecretsManagerStoreTest extends TestCase
     }
 
     /**
+     * #539: AWS deletes a force-deleted secret asynchronously and asks for
+     * "appropriate back off and retry logic" before creating the same name
+     * again (API_DeleteSecret). The restore after a failed row delete creates
+     * into exactly that window.
+     */
+    #[Test]
+    public function createRetriesWhileAForceDeletedNameIsStillBeingDeleted(): void
+    {
+        $store = $this->store(
+            $this->awsError(400, 'InvalidRequestException'),
+            $this->awsError(400, 'InvalidRequestException'),
+            $this->json(200, ['VersionId' => 'v-restored']),
+        );
+
+        self::assertSame('v-restored', $store->create('api_key', ['k' => 'v']));
+        self::assertCount(3, $this->requests);
+        self::assertSame([250_000, 500_000], $this->sleeps);
+        foreach ($this->requests as $request) {
+            self::assertSame('secretsmanager.CreateSecret', $request->getHeaderLine('X-Amz-Target'));
+        }
+    }
+
+    #[Test]
+    public function createGivesUpAfterFiveAttempts(): void
+    {
+        $store = $this->store(...array_fill(0, 5, $this->awsError(400, 'InvalidRequestException')));
+
+        try {
+            $store->create('api_key', ['k' => 'v']);
+            self::fail('The last refusal must be reported.');
+        } catch (AwsSecretsManagerException $e) {
+            self::assertSame(1794500006, $e->getCode());
+            self::assertStringContainsString('InvalidRequestException', $e->getMessage());
+        }
+
+        self::assertCount(5, $this->requests);
+        self::assertSame([250_000, 500_000, 1_000_000, 2_000_000], $this->sleeps);
+    }
+
+    /**
+     * @return array<string, array{Response|Throwable, int}>
+     */
+    public static function notRetriedProvider(): array
+    {
+        return [
+            'name exists'   => [new Response(400, ['Content-Type' => 'application/x-amz-json-1.1'], '{"__type":"ResourceExistsException","Message":"x"}'), 1794500012],
+            'access denied' => [new Response(400, ['Content-Type' => 'application/x-amz-json-1.1'], '{"__type":"AccessDeniedException","Message":"x"}'), 1794500006],
+        ];
+    }
+
+    #[Test]
+    #[DataProvider('notRetriedProvider')]
+    public function createRetriesNothingButTheDeletionWindow(Response|Throwable $answer, int $code): void
+    {
+        $store = $this->store($answer, $this->json(200, ['VersionId' => 'never-reached']));
+
+        try {
+            $store->create('api_key', ['k' => 'v']);
+            self::fail('The refusal must be reported.');
+        } catch (AwsSecretsManagerException $e) {
+            self::assertSame($code, $e->getCode());
+        }
+
+        self::assertCount(1, $this->requests);
+        self::assertSame([], $this->sleeps);
+    }
+
+    /**
+     * write() is unchanged: after the put found no secret, its create is tried
+     * once and a put is never sent again, so a secret another writer creates in
+     * the meantime is never written into (#535).
+     */
+    #[Test]
+    public function writeDoesNotRetryAndNeverPutsAgainAfterTheCreate(): void
+    {
+        $store = $this->store(
+            $this->awsError(400, 'ResourceNotFoundException'),
+            $this->awsError(400, 'InvalidRequestException'),
+            $this->json(200, ['VersionId' => 'never-reached']),
+        );
+
+        try {
+            $store->write('api_key', ['k' => 'v']);
+            self::fail('The refused create must be reported.');
+        } catch (AwsSecretsManagerException) {
+        }
+
+        self::assertCount(2, $this->requests);
+        self::assertSame('secretsmanager.PutSecretValue', $this->request(0)->getHeaderLine('X-Amz-Target'));
+        self::assertSame('secretsmanager.CreateSecret', $this->request(1)->getHeaderLine('X-Amz-Target'));
+    }
+
+    /**
      * @param array<array-key, mixed> $body
      */
     private function json(int $status, array $body): Response
@@ -477,6 +575,12 @@ final class AwsSecretsManagerStoreTest extends TestCase
         $configuration = $this->createMock(ExtensionConfigurationInterface::class);
         $configuration->method('getAwsConfig')->willReturn(new AwsSecretsConfig(region: 'eu-central-1', secretPrefix: 'typo3/'));
 
-        return new AwsSecretsManagerStore($configuration, new AwsClientFactory($configuration, $client));
+        return new AwsSecretsManagerStore(
+            $configuration,
+            new AwsClientFactory($configuration, $client),
+            function (int $microseconds): void {
+                $this->sleeps[] = $microseconds;
+            },
+        );
     }
 }

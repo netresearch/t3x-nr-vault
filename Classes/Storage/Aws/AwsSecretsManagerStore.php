@@ -12,6 +12,7 @@ namespace Netresearch\NrVault\Storage\Aws;
 use Aws\Exception\AwsException;
 use Aws\Result;
 use Aws\SecretsManager\SecretsManagerClient;
+use Closure;
 use JsonException;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Exception\AwsSecretsManagerException;
@@ -29,7 +30,10 @@ use function sprintf;
  * a version (`PutSecretValue`) and creates the secret when AWS says it does not
  * exist yet. A delete uses `ForceDeleteWithoutRecovery`, because the recovery
  * window would keep the last value alive for up to thirty days and block the
- * name; with it no version survives.
+ * name; with it no version survives. AWS removes a force-deleted name
+ * asynchronously, so a create that meets it still being deleted
+ * (`InvalidRequestException`, assumed) is retried with a short back-off, at
+ * most 3.75 s.
  *
  * Nothing the service says is surfaced: the exception carries the operation, the
  * HTTP status and the AWS error code, not the SDK exception that holds the
@@ -41,12 +45,29 @@ final class AwsSecretsManagerStore implements AwsSecretStoreInterface
 
     private const VERSION_READ_DELAY_MICROSECONDS = 150_000;
 
+    /**
+     * Back-off between CreateSecret attempts while a force-deleted name is
+     * still being deleted (≤ 3.75 s over five attempts).
+     */
+    private const CREATE_RETRY_DELAYS_MICROSECONDS = [250_000, 500_000, 1_000_000, 2_000_000];
+
     private ?SecretsManagerClient $client = null;
 
+    /** @var Closure(int): void */
+    private readonly Closure $sleep;
+
+    /**
+     * @param (Closure(int): void)|null $sleep Waits the given microseconds; injectable for tests
+     */
     public function __construct(
         private readonly ExtensionConfigurationInterface $configuration,
         private readonly AwsClientFactory $clients,
-    ) {}
+        ?Closure $sleep = null,
+    ) {
+        $this->sleep = $sleep ?? static function (int $microseconds): void {
+            usleep($microseconds);
+        };
+    }
 
     public function isSdkInstalled(): bool
     {
@@ -94,14 +115,30 @@ final class AwsSecretsManagerStore implements AwsSecretStoreInterface
         $client  = $this->client();
         $encoded = $this->encode($data, 'create');
 
-        try {
-            $result = $client->createSecret(['Name' => $name, 'SecretString' => $encoded]);
-        } catch (Throwable $e) {
-            if ($e instanceof AwsException && $e->getAwsErrorCode() === 'ResourceExistsException') {
-                throw AwsSecretsManagerException::nameExists($identifier);
-            }
+        // AWS deletes a force-deleted secret asynchronously and asks callers
+        // that create the same name right after to "use appropriate back off
+        // and retry logic" (API_DeleteSecret). Which error a create returns
+        // inside that window is not documented; InvalidRequestException ("The
+        // secret is scheduled for deletion") is assumed. Only the create is
+        // retried: a put is never re-sent, so a secret another writer creates
+        // in the meantime is never written into.
+        $delays = self::CREATE_RETRY_DELAYS_MICROSECONDS;
+        while (true) {
+            try {
+                $result = $client->createSecret(['Name' => $name, 'SecretString' => $encoded]);
 
-            throw $this->translate($e, 'create');
+                break;
+            } catch (Throwable $e) {
+                if ($e instanceof AwsException && $e->getAwsErrorCode() === 'ResourceExistsException') {
+                    throw AwsSecretsManagerException::nameExists($identifier);
+                }
+
+                if ($delays === [] || !$e instanceof AwsException || $e->getAwsErrorCode() !== 'InvalidRequestException') {
+                    throw $this->translate($e, 'create');
+                }
+
+                ($this->sleep)(array_shift($delays));
+            }
         }
 
         return $this->versionOf($result, 'create');

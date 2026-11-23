@@ -332,14 +332,30 @@ final readonly class AwsSecretsManagerAdapter implements CreateCompensatingAdapt
     }
 
     /**
+     * Put a value back that this call destroyed a moment ago. It is a create,
+     * not a write: AWS deletes asynchronously, and the store's create waits out
+     * that deletion (#539). A name that exists again belongs to somebody else
+     * now and is not written into.
+     *
      * @param array<string, mixed> $payload
      */
     private function restore(string $identifier, #[SensitiveParameter] array $payload): void
     {
         try {
-            $this->store->write($identifier, $payload);
-        } catch (Throwable $e) {
+            $this->store->create($identifier, $payload);
+        } catch (AwsSecretsManagerException $e) {
             // The original failure is the one to report.
+            if ($e->getCode() === 1794500012) {
+                $this->logger->warning(
+                    'nr-vault: the AWS Secrets Manager value destroyed by this call was not put back, because a secret of that name exists again and belongs to another writer. Check the secret.',
+                    ['secret' => $identifier],
+                );
+
+                return;
+            }
+
+            $this->warnRollbackFailed($identifier, $e);
+        } catch (Throwable $e) {
             $this->warnRollbackFailed($identifier, $e);
         }
     }

@@ -189,11 +189,35 @@ the one the write returned. AWS has no conditional put or delete, so the id is
 read immediately before the write or delete and a write that lands in that gap
 is not detected; the read is retried a few times so a read that has not caught
 up with the write is not mistaken for a concurrent writer, and a rollback that is
-skipped is logged as a warning. A failed audit write is compensated by
+skipped is logged as a warning. That gap is a known limit, tracked in
+`#567 <https://github.com/netresearch/t3x-nr-vault/issues/567>`__.
+A failed audit write is compensated by
 :php:`VaultService`: an adapter implementing
 :php:`CreateCompensatingAdapterInterface` destroys a secret the call created and
 puts back one it adopted, then removes the row. The prefix ``typo3/`` stays the default; a
 dedicated prefix keeps the names apart from other users of the account.
+
+A value that this call destroyed is put back with ``CreateSecret``, never with a
+write (`#539 <https://github.com/netresearch/t3x-nr-vault/issues/539>`__), after
+a delete whose row delete failed and after a store without a value whose row
+write failed; that restore never writes into an existing name. The compensation
+of a delete whose audit write failed, which :php:`VaultService` runs through the
+adapter's ``store()``, reaches the same create and keeps the create-or-adopt
+rule of a new secret. AWS deletes a force-deleted secret asynchronously and asks
+a caller that creates the same name right after to "use appropriate back off and
+retry logic" (``DeleteSecret`` API reference). :php:`AwsSecretsManagerStore`
+therefore retries ``CreateSecret`` on ``InvalidRequestException`` after 0.25,
+0.5, 1 and 2 seconds: five attempts, at most 3.75 seconds of waiting. Every
+other error is reported at once, and no put is ever sent again. A write still
+tries its create once. If the name exists again, the restore takes it as another
+writer's, does not write into it and logs a warning. Which error AWS returns
+while the name is still being deleted is not documented;
+``InvalidRequestException`` ("The secret is scheduled for deletion") is assumed.
+If AWS answers with another code, the restore fails at the first attempt as
+before: ``ResourceExistsException`` is then logged as a name of another writer,
+any other code as a failed rollback. The cost of the back-off: a create that
+meets a name another party scheduled for deletion with a recovery window waits
+about 3.75 seconds before it fails as before.
 
 A row bound to another external adapter is refused
 --------------------------------------------------
@@ -265,9 +289,13 @@ The functional suite runs against Moto only. Three things it cannot show:
    action-scoped, which proves that the four actions the adapter calls are
    enough and that no other is needed, and says nothing about the ARN pattern on
    the operations page.
--  **Name reuse after a forced delete.** Whether AWS keeps a force-deleted name
-   unavailable for a short time was not measured; Moto deletes immediately. A create or a compensating restore inside that
-   window is rejected with a request error; it cannot store a wrong value.
+-  **Name reuse after a forced delete.** AWS deletes a force-deleted secret
+   asynchronously. How long the name stays unavailable, and which error a
+   ``CreateSecret`` gets meanwhile, were not measured; Moto deletes
+   immediately. The create back-off assumes ``InvalidRequestException`` and
+   waits at most 3.75 seconds. A deletion that takes longer, or another error
+   code, makes a compensating restore fail as before, with a warning; it cannot
+   store a wrong value.
 -  **Colons in names.** Moto accepts a colon in a secret name and AWS does not.
    The mapping is pinned by unit tests on the name, not by the emulation.
 

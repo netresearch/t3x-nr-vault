@@ -285,6 +285,36 @@ final class AwsSecretsManagerAdapterTest extends TestCase
 
         self::assertSame($before, $this->aws['api_key']);
         self::assertArrayHasKey('api_key', $this->rows);
+        // #539: the value this call destroyed is put back with a create, which
+        // waits out AWS's asynchronous deletion, never with a write.
+        self::assertSame(['destroy:api_key', 'create:api_key'], $this->callsAfterLastStore('api_key'));
+    }
+
+    /**
+     * A name that exists again after this call destroyed it belongs to another
+     * writer: the restore does not write into it, logs, and the row failure is
+     * still the error reported.
+     */
+    #[Test]
+    public function aRestoreDoesNotWriteIntoASecretAnotherWriterCreatedAfterTheDelete(): void
+    {
+        $adapter = $this->adapter();
+        $adapter->store($this->envelopeSecret('api_key'));
+
+        $this->failRowDelete  = true;
+        $this->createScript[] = function (): void {
+            $this->aws['api_key'] = ['foreign' => 'value'];
+        };
+
+        try {
+            $adapter->delete('api_key');
+            self::fail('The row failure must propagate.');
+        } catch (RuntimeException $e) {
+            self::assertSame(4778462883, $e->getCode());
+        }
+
+        self::assertSame(['foreign' => 'value'], $this->aws['api_key']);
+        self::assertCount(1, array_filter($this->warnings, static fn (string $w): bool => str_contains($w, 'belongs to another writer')));
     }
 
     #[Test]
@@ -335,6 +365,7 @@ final class AwsSecretsManagerAdapterTest extends TestCase
         }
 
         self::assertSame($before, $this->aws['api_key']);
+        self::assertSame(['destroy:api_key', 'create:api_key'], $this->callsAfterLastStore('api_key'));
     }
 
     #[Test]
@@ -1063,6 +1094,23 @@ final class AwsSecretsManagerAdapterTest extends TestCase
     {
         $this->awsCalls[] = 'destroy:' . $identifier;
         unset($this->aws[$identifier], $this->versions[$identifier]);
+    }
+
+    /**
+     * The AWS calls for one secret after its last write or create from a
+     * store(), i.e. the calls of the delete or restore under test.
+     *
+     * @return list<string>
+     */
+    private function callsAfterLastStore(string $identifier): array
+    {
+        $calls = array_values(array_filter(
+            $this->awsCalls,
+            static fn (string $call): bool => str_ends_with($call, ':' . $identifier) && !str_starts_with($call, 'read:') && !str_starts_with($call, 'version:'),
+        ));
+        $destroy = array_search('destroy:' . $identifier, $calls, true);
+
+        return $destroy === false ? $calls : array_slice($calls, (int) $destroy);
     }
 
     private function envelopeSecret(string $identifier, string $value = self::BINARY_VALUE): Secret
