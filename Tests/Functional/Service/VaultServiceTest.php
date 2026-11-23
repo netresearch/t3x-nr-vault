@@ -272,23 +272,27 @@ final class VaultServiceTest extends FunctionalTestCase
         $subject = $this->subject;
         self::assertNotNull($subject);
 
+        $refused = false;
+
         try {
             $subject->store("api_user\n", 'value');
-            self::fail('An identifier with a trailing line break must be refused.');
         } catch (ValidationException) {
+            $refused = true;
         }
+
+        self::assertTrue($refused, 'An identifier with a trailing line break must be refused.');
 
         self::assertFalse($subject->exists("api_user\n"));
     }
 
     /**
      * A secret stored before #560 under an identifier with a trailing LF stays
-     * readable and rotatable: only store() validates the identifier. The row is
+     * readable, rotatable and deletable: only store() validates the identifier. The row is
      * encrypted under that identifier, because the identifier is the AEAD
      * additional data, as a pre-fix store() would have written it.
      */
     #[Test]
-    public function aLegacySecretWithATrailingLineBreakStaysReadableAndRotatable(): void
+    public function aLegacySecretWithATrailingLineBreakStaysReadableRotatableAndDeletable(): void
     {
         $subject = $this->subject;
         self::assertNotNull($subject);
@@ -314,6 +318,10 @@ final class VaultServiceTest extends FunctionalTestCase
         $subject->rotate($identifier, 'rotated-value', 'test');
 
         self::assertSame('rotated-value', $subject->retrieve($identifier));
+
+        $subject->delete($identifier, 'test');
+
+        self::assertFalse($subject->exists($identifier));
     }
 
     private function getSubject(): VaultServiceInterface

@@ -87,6 +87,7 @@ final class IdentifierValidatorTest extends TestCase
 
     #[Test]
     #[DataProvider('invalidCharactersProvider')]
+    #[DataProvider('trailingLineBreakProvider')]
     public function validateRejectsInvalidCharacters(string $identifier): void
     {
         $this->expectException(ValidationException::class);
@@ -802,15 +803,6 @@ final class IdentifierValidatorTest extends TestCase
             'friendly identifier with trailing CRLF' => ["api_user\r\n"],
             'UUID v7 with trailing LF'               => [self::TEST_UUID . "\n"],
         ];
-    }
-
-    #[Test]
-    #[DataProvider('trailingLineBreakProvider')]
-    public function validateRejectsTrailingLineBreak(string $identifier): void
-    {
-        $this->expectException(ValidationException::class);
-
-        IdentifierValidator::validate($identifier);
     }
 
     #[Test]
