@@ -35,7 +35,9 @@ interface AwsSecretStoreInterface
 
     /**
      * Create the secret, only when no secret of that name exists (CreateSecret
-     * fails on an existing name, so there is no window).
+     * fails on an existing name, so there is no window). While a name that was
+     * force-deleted is still being deleted, the create is retried with a short
+     * back-off (a few seconds at most).
      *
      * @param array<string, mixed> $data
      *

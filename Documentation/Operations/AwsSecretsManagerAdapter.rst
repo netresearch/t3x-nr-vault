@@ -234,10 +234,14 @@ Delete
    Deleting removes the AWS secret with ``ForceDeleteWithoutRecovery``, so there
    is no recovery window and no version survives, then the row. Run
    ``vault:delete`` again after an interrupted delete. The flip side: nothing is
-   left in AWS to recover a deleted secret from. A crash, or a failed row delete
-   whose restore is also refused, after the AWS secret was removed leaves a row
-   whose envelope is gone; that value is lost and has to be restored from a
-   backup, or the row removed.
+   left in AWS to recover a deleted secret from. If the row delete fails, the
+   value is put back. AWS finishes a delete in the background, so the restore
+   retries for a few seconds while the name is still being deleted, and it never
+   writes into a secret of that name that another writer created in the meantime
+   (logged as a warning). A crash after the AWS secret was removed, or a restore
+   that still fails (AWS takes longer or refuses, or another writer took the
+   name), leaves a row whose envelope is gone; that value is lost and has to be
+   restored from a backup, or the row removed.
 
 Versions
    Every rotation adds a version in AWS. The previous one stays staged as
@@ -316,9 +320,13 @@ Troubleshooting
 
     *   -   ``was rejected with HTTP 400 (ResourceExistsException)`` or
             ``(InvalidRequestException)``
-        -   The name is taken, or the secret is scheduled for deletion by
-            something other than nr-vault. nr-vault always deletes without a
-            recovery window.
+        -   The name is taken, or the secret is scheduled for deletion:
+            something other than nr-vault deleted it with a recovery window, or
+            nr-vault force-deleted it moments ago and AWS has not finished.
+            nr-vault always deletes without a recovery window, but AWS removes
+            the name in the background. Before an ``InvalidRequestException``
+            on a create, a delay of a few seconds is expected: nr-vault retries
+            the create for up to about four seconds first.
 
     *   -   ``already exists under the name nr-vault would use``
         -   Another user of the AWS account owns that name. Choose another
