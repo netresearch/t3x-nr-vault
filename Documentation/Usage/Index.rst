@@ -525,7 +525,7 @@ Create or update a secret:
      --value="sk_live_..." \
      --metadata="description=Stripe production key" \
      --metadata="context=payment" \
-     --groups="1,2"
+     --groups=1 --groups=2
 
 .. _usage-cli-vault-retrieve:
 

@@ -108,7 +108,7 @@ final class VaultStoreCommandTest extends AbstractVaultFunctionalTestCase
             $exitCode = $tester->execute([
                 'identifier' => $identifier,
                 '--value'    => 'metadata-secret',
-                '--metadata' => ['env=production', 'owner=ci'],
+                '--metadata' => ['env=production', 'owner=1'],
             ]);
 
             self::assertSame(0, $exitCode, $tester->getDisplay());
@@ -149,6 +149,114 @@ final class VaultStoreCommandTest extends AbstractVaultFunctionalTestCase
                 // nosemgrep: php.lang.security.unlink-use.unlink-use - test-owned path
                 unlink($secretFile);
             }
+        }
+    }
+
+    /**
+     * #524: `--groups` must reach the secret's group tiers, read back through
+     * the service rather than from the options array the command builds.
+     */
+    #[Test]
+    public function storeCommandAppliesGroupsToTheStoredSecret(): void
+    {
+        $identifier   = 'cmd_store_groups_' . bin2hex(random_bytes(4));
+        $vaultService = $this->get(VaultServiceInterface::class);
+        $tester       = new CommandTester($this->get(VaultStoreCommand::class));
+
+        try {
+            $exitCode = $tester->execute([
+                'identifier' => $identifier,
+                '--value'    => 'grouped-secret',
+                '--groups'   => ['1', '2'],
+            ]);
+
+            self::assertSame(0, $exitCode, $tester->getDisplay());
+
+            $groups = $vaultService->getMetadata($identifier)->groups;
+            sort($groups);
+            self::assertSame([1, 2], $groups);
+        } finally {
+            $this->safeDelete($vaultService, $identifier);
+        }
+    }
+
+    /**
+     * #524: free-form `--metadata` pairs must reach the secret's metadata.
+     */
+    #[Test]
+    public function storeCommandAppliesFreeFormMetadataToTheStoredSecret(): void
+    {
+        $identifier   = 'cmd_store_meta_' . bin2hex(random_bytes(4));
+        $vaultService = $this->get(VaultServiceInterface::class);
+        $tester       = new CommandTester($this->get(VaultStoreCommand::class));
+
+        try {
+            $exitCode = $tester->execute([
+                'identifier' => $identifier,
+                '--value'    => 'meta-secret',
+                '--metadata' => ['team=payments', 'ticket=OPS-1'],
+            ]);
+
+            self::assertSame(0, $exitCode, $tester->getDisplay());
+            self::assertSame(['team' => 'payments', 'ticket' => 'OPS-1'], $vaultService->getMetadata($identifier)->metadata);
+        } finally {
+            $this->safeDelete($vaultService, $identifier);
+        }
+    }
+
+    /**
+     * The documented field keys keep setting the secret's fields
+     * (Commands.rst: there are no --description/--context options).
+     */
+    #[Test]
+    public function documentedFieldKeysSetTheSecretFields(): void
+    {
+        $identifier   = 'cmd_store_fields_' . bin2hex(random_bytes(4));
+        $vaultService = $this->get(VaultServiceInterface::class);
+        $tester       = new CommandTester($this->get(VaultStoreCommand::class));
+
+        try {
+            $exitCode = $tester->execute([
+                'identifier' => $identifier,
+                '--value'    => 'field-secret',
+                '--metadata' => ['description=Stripe production key', 'context=payment'],
+            ]);
+
+            self::assertSame(0, $exitCode, $tester->getDisplay());
+            $details = $vaultService->getMetadata($identifier);
+            self::assertSame('Stripe production key', $details->description);
+            self::assertSame('payment', $details->context);
+            self::assertSame([], $details->metadata);
+        } finally {
+            $this->safeDelete($vaultService, $identifier);
+        }
+    }
+
+    /**
+     * The service replaces the metadata map; the command merges the given
+     * pairs into what is stored, so an update keeps entries it does not name.
+     */
+    #[Test]
+    public function metadataOnAnExistingSecretIsMergedIntoTheStoredMap(): void
+    {
+        $identifier   = 'cmd_store_merge_' . bin2hex(random_bytes(4));
+        $vaultService = $this->get(VaultServiceInterface::class);
+        $tester       = new CommandTester($this->get(VaultStoreCommand::class));
+
+        try {
+            $vaultService->store($identifier, 'first', ['metadata' => ['team' => 'a', 'source' => 'tca_field']]);
+
+            $exitCode = $tester->execute([
+                'identifier' => $identifier,
+                '--value'    => 'second',
+                '--metadata' => ['note=x'],
+            ]);
+
+            self::assertSame(0, $exitCode, $tester->getDisplay());
+            self::assertSame(['team' => 'a', 'source' => 'tca_field', 'note' => 'x'], $vaultService->getMetadata($identifier)->metadata);
+            self::assertSame('second', $vaultService->retrieve($identifier));
+        } finally {
+            $this->safeDelete($vaultService, $identifier);
         }
     }
 
