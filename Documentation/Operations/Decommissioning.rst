@@ -103,66 +103,216 @@ Do this **before** anything destructive. Once the master key is gone, the
 audit chain can no longer be verified — the HMAC key was derived from it — so
 a verification run after key destruction proves nothing.
 
+The evidence set has to end at the final, externally retained anchor. A row
+written after that anchor is still checked against its HMAC while the key
+exists, but nothing outside the installation witnesses it; once the key is
+destroyed, nothing distinguishes it from a row fabricated before the export.
+So the steps below run against a vault nobody writes to.
+
+#.  **Stop every audit writer, and keep them stopped until the key is
+    destroyed.** Finish every in-vault operation first: rotating credentials
+    at their origin and storing, rotating or ``vault:delete``-ing the vault
+    copies (:ref:`operations-decommissioning-rotate-out`) all write audit
+    rows. From here on, disposal is crypto-erasure or dropping tables only.
+    Then stop:
+
+    *   **Web traffic that reads or writes secrets** — frontend placeholders,
+        the backend module, the AJAX reveal, and the vault HTTP client
+        including outbound OAuth calls, whose token refresh stores and audits
+        (:ref:`security-known-limitations-rotation-gap`). Put the site into
+        maintenance mode at the web server or load balancer, and lock the
+        backend:
+
+        ..  code-block:: bash
+
+            vendor/bin/typo3 backend:lock
+
+        This locks administrators out too, but not the CLI. It writes a lock
+        file on the node it runs on (``[BE][lockBackendFile]``), so in a
+        cluster run it on every node or rely on the load balancer.
+
+    *   **The scheduler.** Disable whatever invokes ``scheduler:run`` —
+        crontab, systemd timer, Kubernetes CronJob, a scheduler container — on
+        every node. Removing the trigger does not stop a run already in
+        progress: wait until ``vendor/bin/typo3 scheduler:list`` shows no
+        task as running (the scheduler backend module is unreachable once the
+        backend is locked). A task that still shows as running with no
+        scheduler process left is a crashed run; clear it with
+        ``vendor/bin/typo3 scheduler:run --task=<uid> --stop``, or the anchor
+        run below is skipped every time.
+
+    *   **Everything else that reaches the vault** — message and queue
+        consumers, other workers, deploy hooks and CLI jobs that call
+        ``vault:*`` commands or the vault API.
+
+    Check that the chain has stopped growing: run the same query twice, a few
+    minutes apart, and continue only when both return the same value.
+
+    ..  code-block:: sql
+
+        SELECT MAX(uid) FROM tx_nrvault_audit_log;
+
 #.  **Verify the chain while the key still exists**, and keep the output:
 
     ..  code-block:: bash
 
         vendor/bin/typo3 vault:audit-verify --as-auditor > decommission-verify.txt
+        grep -q 'Audit log integrity verified' decommission-verify.txt \
+            && echo "chain verified"
 
-#.  **Publish a final anchor**, so the tip is witnessed externally at the
-    moment of decommissioning:
+    Stop if it did not print ``chain verified``: a failed verification is
+    not fixed by re-running the later steps. The command also exits with 0
+    when every finding was acknowledged by an administrator (``No open
+    findings: …``); the evidence set then has a known break, and this step
+    does not pass either. Whether to destroy the key anyway is a decision for
+    the decommission owner: copy the acknowledged findings from
+    ``decommission-verify.txt`` into the decommissioning record with that
+    decision before continuing, and use the variant of the first check below
+    that is meant for that decision. The export check below compares
+    the export only with the newest anchor, which is the one published in the
+    next step; a mismatch with an earlier anchor, such as a reset chain that
+    has grown again, is reported by this verification alone.
 
-    ..  code-block:: bash
-
-        vendor/bin/typo3 scheduler:run --task=<anchor-task-uid> --force
-
-    Confirm it published: the newest line of the anchor file
-    (:confval:`ext-nrvault-auditSinkAnchorPath`) carries as ``sequence`` the
-    chain length (max uid) the verification above reported. The scheduler skips a task that is still
-    running from its schedule; run the step again once that run has finished.
-
-    ..  note::
-
-        Both steps assert an operation permission (breaking change; they
-        previously asserted none): ``vault:audit-verify`` needs ``audit.view``,
-        anchoring needs ``vault.configure``, and the export in the next step
-        needs ``audit.export``. All three are excluded from the
-        :confval:`ext-nrvault-cliAllowedOperations` default. The anchor is
-        published by the *Vault Audit Chain Anchoring* task, run once above:
-        :bash:`scheduler:run` authenticates the ``_cli_`` user, which holds
-        ``vault.configure`` through the admin bypass or, under
-        ``disableAdminOverride``, through its group. ``vault:audit-verify`` runs
-        as a named user with ``--as-auditor`` and
-        :confval:`ext-nrvault-auditorBeUserUid`, and the export with
-        ``vault:audit --as-audit-reader`` and
-        :confval:`ext-nrvault-auditReaderBeUserUid`. None of these writes an
-        audit row, so the trail does not record who ran them. Sort the grant
-        out before the decommissioning window: after the master key is
-        destroyed there is no second chance at this output.
-
-#.  **Export the audit log** in full, over the entire retained period, with
-    the hash columns included — ``uid``, ``previous_hash``, ``entry_hash``,
-    ``hmac_key_epoch``. Without them the export is a log, not evidence.
-    ``vault:audit --export`` without filters writes every entry up to the
-    newest and carries all of these; verify the file while the master key
-    still exists, because the verification needs it
-    (:ref:`command-audit-export`):
+#.  **Export the audit log, publish the final anchor, then verify the
+    export** — in that order, as one chain:
 
     ..  code-block:: bash
 
         vendor/bin/typo3 vault:audit --as-audit-reader --export=decommission-audit.json \
+            && vendor/bin/typo3 scheduler:run --task=<anchor-task-uid> --force \
             && vendor/bin/typo3 vault:audit --as-audit-reader --verify-export=decommission-audit.json \
                 > decommission-export-verify.txt \
             && grep -Eq 'Whole chain +yes' decommission-export-verify.txt \
             && echo "export verified as the whole chain"
 
-    The verification runs only when the export succeeded, so it never checks
-    an older file left at that path. Keep ``decommission-export-verify.txt``
-    with the export, and destroy the key only after the commands printed
-    ``export verified as the whole chain``: a verified export that is not the
-    whole chain misses entries. The audit
-    reader needs both ``audit.export`` (for the export) and ``audit.view`` (for
-    the verification). The file is written readable by its owner only.
+    The export covers the entire retained period with the hash columns
+    included — ``uid``, ``previous_hash``, ``entry_hash``,
+    ``hmac_key_epoch``. Without them the export is a log, not evidence.
+    ``vault:audit --export`` without filters writes every entry up to the
+    newest and carries all of these (:ref:`command-audit-export`). The file
+    is written readable by its owner only.
+
+    The anchor is published after the export, so the external witness covers
+    every exported row. ``scheduler:run`` exits non-zero when no sink
+    accepted the anchor, which stops the chain; do not work around that
+    failure. Verifying the export last catches a row written after it:
+    ``--verify-export`` then reports ``Whole chain`` as
+    ``not confirmed``, with a note such as "This installation stores 1 entry
+    after uid …" or, with a file sink, "The newest external anchor is at uid
+    …, beyond the end of the export". Each command runs only when the one
+    before it succeeded, so the verification never checks an older file left
+    at that path. Keep ``decommission-export-verify.txt`` with the export.
+
+    ``Whole chain yes`` is necessary, but not sufficient: an anchor run that
+    published nothing new leaves the previous anchor in place, and an export
+    that ends after that older anchor still passes. The next step closes that
+    gap.
+
+    ..  note::
+
+        The verification, the anchor and the export each assert an operation
+        permission (breaking change; they previously asserted none):
+        ``vault:audit-verify`` needs ``audit.view``, anchoring needs
+        ``vault.configure``, and the export needs ``audit.export``. All
+        three are excluded from the
+        :confval:`ext-nrvault-cliAllowedOperations` default. The anchor is
+        published by the *Vault Audit Chain Anchoring* task, run once above:
+        :bash:`scheduler:run` authenticates the ``_cli_`` user, which holds
+        ``vault.configure`` through the admin bypass or, under
+        ``disableAdminOverride``, through its group. ``vault:audit-verify``
+        runs as a named user with ``--as-auditor`` and
+        :confval:`ext-nrvault-auditorBeUserUid`, and the export with
+        ``vault:audit --as-audit-reader`` and
+        :confval:`ext-nrvault-auditReaderBeUserUid`. The audit reader needs
+        both ``audit.export`` (for the export) and ``audit.view`` (for the
+        verification). None of these writes an audit row, so the trail does
+        not record who ran them. Sort the grant out before the
+        decommissioning window: after the master key is destroyed there is no
+        second chance at this output.
+
+#.  **Confirm that the final anchor ends the export.** This is a gate, not a
+    convenience: destroy the key only after it passed. Three numbers must be
+    equal — the chain length (max uid) the verification reported, the
+    export's last uid (``.export.lastUid``), and the final anchor's
+    ``sequence`` — and the anchor's ``chainTip`` must equal that row's
+    ``entry_hash``. The comparison is needed even though the anchor step
+    succeeded: a scheduled run still in progress makes ``scheduler:run``
+    skip the task and exit with 0 without a new anchor, and a file sink can
+    accept the anchor while the off-host copy is missing.
+
+    First, in every sink configuration, check that the verification passed
+    and ended where the export ends:
+
+    ..  code-block:: bash
+
+        if grep -q 'Audit log integrity verified' decommission-verify.txt; then
+            jq -er \
+                --argjson verified "$(sed -n 's/^ *Chain length (max uid) *\([0-9][0-9]*\).*/\1/p' decommission-verify.txt)" \
+                'if .export.lastUid == $verified
+                 then "verified and exported up to uid \($verified)"
+                 else error("NOT CONFIRMED: verified up to \($verified), exported up to \(.export.lastUid)")
+                 end' \
+                decommission-audit.json
+        else
+            echo 'CHAIN NOT VERIFIED: see the verification step' >&2
+            false
+        fi
+
+    It prints ``verified and exported up to uid …`` and exits with 0.
+    ``CHAIN NOT VERIFIED`` means the chain verification did not pass: stop,
+    that is not fixed by publishing again. ``NOT CONFIRMED`` means a row was
+    written between the verification and the export: a writer is still
+    running. Stop it and start again at the verification step. Only where the
+    decommission owner decided to proceed over acknowledged findings
+    (verification step), run this instead, which leaves out the verification
+    result:
+
+    ..  code-block:: bash
+
+        jq -er \
+            --argjson verified "$(sed -n 's/^ *Chain length (max uid) *\([0-9][0-9]*\).*/\1/p' decommission-verify.txt)" \
+            'if .export.lastUid == $verified
+             then "verified and exported up to uid \($verified)"
+             else error("NOT CONFIRMED: verified up to \($verified), exported up to \(.export.lastUid)")
+             end' \
+            decommission-audit.json
+
+    Then, with a file sink, compare against the anchor file
+    (:confval:`ext-nrvault-auditSinkAnchorPath`). Like the extension's own
+    reader, the command takes the anchor with the highest ``sequence`` and
+    skips a truncated line:
+
+    ..  code-block:: bash
+
+        jq -R 'fromjson? | objects | select(.type == "anchor") | .anchor' <anchor-file> \
+            | jq -s 'max_by(.sequence)' > decommission-final-anchor.json \
+            && jq -r \
+                --argjson verified "$(sed -n 's/^ *Chain length (max uid) *\([0-9][0-9]*\).*/\1/p' decommission-verify.txt)" \
+                --slurpfile anchor decommission-final-anchor.json \
+                '.export.lastUid as $last
+                | ([.rows[] | select(.uid == $last)][0].entry_hash) as $tip
+                | "verified \($verified), exported \($last), anchored \($anchor[0].sequence // "none")",
+                  if $verified == $last and $anchor[0].sequence == $last and $anchor[0].chainTip == $tip
+                  then "export ends at the final anchor"
+                  else error("NOT CONFIRMED: the final anchor does not end the export")
+                  end' \
+                decommission-audit.json
+
+    It prints the three numbers and then ``export ends at the final anchor``.
+    Anything else — ``NOT CONFIRMED``, or an error because a file is missing
+    or the chain length could not be read — means the final anchor is missing
+    or older than the export: it was not published. Find out why, and run the
+    anchor step and both checks again.
+
+    The anchor check reads a host-local file, which is weak evidence
+    (:ref:`auditor-evidence-chain`). The anchor record that is kept is the
+    off-host copy, so make the same comparison there by hand: in the syslog
+    archive or the SIEM, the newest anchor event (``vault audit chain
+    anchored at sequence …`` in syslog, ``type`` ``anchor`` from the
+    webhook) must carry ``sequence`` equal to ``.export.lastUid`` and
+    ``chainTip`` equal to that row's ``entry_hash``. With only webhook or
+    syslog sinks configured, the first check plus this hand comparison is the
+    whole gate.
 
 #.  **Collect the external evidence** from where it actually lives: the anchor
     file, the syslog archive, the SIEM's retained records. This is the half
@@ -201,8 +351,9 @@ policy requires. The exported chain remains internally verifiable — each row's
 lost: **without the master key, HMAC recomputation is no longer possible**, so
 from epoch 1 upwards the export becomes a *sequence* whose links can be
 inspected rather than a chain whose authenticity can be re-proved. That is why
-the verification output from step 1 above matters: it is the last point at
-which authenticity was demonstrable, and it must be captured then, not later.
+the chain verification in :ref:`operations-decommissioning-evidence`
+(``decommission-verify.txt``) matters: it is the last point at which
+authenticity was demonstrable, and it must be captured then, not later.
 
 ..  note::
 
@@ -255,6 +406,12 @@ Irreversible. There is no escrow and no vendor-side reset — see
             wrapped file as well.
 
 #.  Confirm the evidence export is complete and stored elsewhere.
+#.  Confirm, immediately before destroying the key, that the chain still ends
+    where the evidence ends: ``SELECT MAX(uid) FROM tx_nrvault_audit_log``
+    still returns the export's ``.export.lastUid``, or a re-run of
+    ``--verify-export`` still prints ``Whole chain yes``. A row written after
+    the evidence was closed is in no retained evidence; stop its writer and
+    start the evidence export again.
 #.  Confirm no other installation shares the key material. A key file copied
     to a staging system is still a live key.
 #.  Destroy the key.
@@ -269,9 +426,13 @@ Irreversible. There is no escrow and no vendor-side reset — see
 Installation cleanup
 ====================
 
+*   **Keep the audit writers stopped** until the key is destroyed
+    (:ref:`operations-decommissioning-evidence`). Re-enabling the scheduler,
+    the backend or the site before then writes rows that no retained
+    evidence covers.
 *   **Remove the sinks** last, not first: they are what records the
     decommissioning steps. Turn off ``auditSinkWebhookEnabled`` and friends
-    only after the final anchor has been published.
+    only after the final anchor has been published and compared.
 *   **Unschedule the tasks** — the audit anchor and audit verify scheduler
     tasks, and orphan cleanup — or they will start failing loudly against a
     vault that no longer exists.
