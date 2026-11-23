@@ -339,6 +339,9 @@ final class VaultStoreCommandTest extends TestCase
             'nested metadata key'       => [['--metadata' => ['metadata=x']], 'key=value pairs directly'],
             'orphan link source'        => [['--metadata' => ['source=tca_field']], 'orphan cleanup'],
             'orphan link uid'           => [['--metadata' => ['uid=7']], 'orphan cleanup'],
+            'orphan link table'         => [['--metadata' => ['table=tt_content']], 'orphan cleanup'],
+            'orphan link field'         => [['--metadata' => ['field=bodytext']], 'orphan cleanup'],
+            'orphan link flexField'     => [['--metadata' => ['flexField=settings.apiKey']], 'orphan cleanup'],
             'expiry that is not a time' => [['--metadata' => ['expiresAt=2026-12-31']], 'expiresAt must be a non-negative integer'],
             'owner that is not a uid'   => [['--metadata' => ['owner=ci']], 'owner must be a non-negative integer'],
             'scope that is not a pid'   => [['--metadata' => ['scopePid=root']], 'scopePid must be a non-negative integer'],
@@ -346,6 +349,8 @@ final class VaultStoreCommandTest extends TestCase
             'group zero'                => [['--groups' => ['0']], 'Invalid --groups value "0"'],
             'group name'                => [['--groups' => ['editors']], 'Invalid --groups value "editors"'],
             'group beyond int range'    => [['--groups' => ['99999999999999999999']], 'Invalid --groups value "99999999999999999999"'],
+            'group beyond column range' => [['--groups' => ['4294967296']], 'Invalid --groups value "4294967296"'],
+            'expiry beyond column range' => [['--metadata' => ['expiresAt=4294967296']], 'expiresAt must be a non-negative integer'],
             'expiry beyond int range'   => [['--metadata' => ['expiresAt=99999999999999999999']], 'expiresAt must be a non-negative integer'],
         ];
     }

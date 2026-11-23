@@ -55,7 +55,7 @@ final class VaultStoreCommand extends Command
 
     /**
      * `--metadata` keys that are refused, with the reason shown to the caller.
-     * `groups` as a string clears every group tier in the service, a string
+     * `groups` as a string clears the read groups in the service, a string
      * `frontendAccessible` is cast with (bool) so "false" widens exposure, and
      * the record-link keys are what orphan cleanup selects candidates by.
      */
@@ -287,7 +287,7 @@ final class VaultStoreCommand extends Command
                 throw new InvalidArgumentException(sprintf('--metadata %s is not accepted: %s.', $key, self::REFUSED_KEYS[$key]), 2664192772);
             }
 
-            if (in_array($key, self::DIGIT_FIELD_KEYS, true) && filter_var($value, FILTER_VALIDATE_INT, ['options' => ['min_range' => 0]]) === false) {
+            if (in_array($key, self::DIGIT_FIELD_KEYS, true) && filter_var($value, FILTER_VALIDATE_INT, ['options' => ['min_range' => 0, 'max_range' => 4294967295]]) === false) {
                 throw new InvalidArgumentException(sprintf('--metadata %s must be a non-negative integer, got "%s".', $key, $value), 8227215868);
             }
 
@@ -311,7 +311,7 @@ final class VaultStoreCommand extends Command
         $groups = [];
         foreach (is_array($option) ? $option : [] as $group) {
             $groupStr = is_string($group) ? $group : '';
-            if (filter_var($groupStr, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]) === false) {
+            if (filter_var($groupStr, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => 4294967295]]) === false) {
                 throw new InvalidArgumentException(sprintf(
                     'Invalid --groups value "%s": pass one positive backend group UID per option, e.g. --groups=1 --groups=2.',
                     $groupStr,
