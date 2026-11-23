@@ -167,6 +167,7 @@ final class FlexFormXmlFuzzTest extends TestCase
             'uuid non-hex'               => ['01937b6e-4b6c-7abc-8def-zzzzzzzzzzzz'],
             'uuid with surrounding text' => [' 01937b6e-4b6c-7abc-8def-0123456789ab '],
             'uuid with null byte'        => ["01937b6e-4b6c-7abc-8def-0123\x00567abc"],
+            'uuid with trailing LF'      => ["01937b6e-4b6c-7abc-8def-0123456789ab\n"],
         ];
     }
 

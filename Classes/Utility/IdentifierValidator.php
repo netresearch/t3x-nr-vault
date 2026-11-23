@@ -25,11 +25,15 @@ final class IdentifierValidator
 
     private const MAX_LENGTH = 255;
 
-    /** User-friendly identifier pattern (e.g., my_api_key). */
-    private const USER_PATTERN = '/^[a-zA-Z]\w*$/';
+    /**
+     * User-friendly identifier pattern (e.g., my_api_key). \A…\z, not ^…$:
+     * `$` also matches before one trailing newline (#560). An explicit class
+     * instead of \w, which follows LC_CTYPE without the u modifier.
+     */
+    private const USER_PATTERN = '/\A[a-zA-Z][a-zA-Z0-9_]*\z/';
 
     /** UUID v7 pattern for TCA/FlexForm vault field identifiers. */
-    private const UUID_PATTERN = '/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i';
+    private const UUID_PATTERN = '/\A[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z/i';
 
     /** Exact site namespace; ordinary identifier validation stays unchanged. */
     private const SITE_PATTERN = '/\Asite:([a-zA-Z0-9][a-zA-Z0-9_-]{0,79}):([a-zA-Z][a-zA-Z0-9_]{2,})\z/';
@@ -134,7 +138,7 @@ final class IdentifierValidator
     public static function looksLikeVaultIdentifier(string $value): bool
     {
         return preg_match(self::UUID_PATTERN, $value) === 1
-            || preg_match('/^%vault\([^)]+\)%$/', $value) === 1;
+            || preg_match('/\A%vault\([^)]+\)%\z/', $value) === 1;
     }
 
     /**

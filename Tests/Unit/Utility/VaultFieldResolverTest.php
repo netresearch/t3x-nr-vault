@@ -78,6 +78,15 @@ final class VaultFieldResolverTest extends TestCase
         self::assertFalse($this->subject->isVaultIdentifier('01937b6e-4b6c-7abc-cdef-0123456789ab')); // Wrong variant
     }
 
+    /**
+     * #560: `$` without the D modifier also matched before a trailing LF.
+     */
+    #[Test]
+    public function isVaultIdentifierRejectsAUuidWithATrailingLineBreak(): void
+    {
+        self::assertFalse($this->subject->isVaultIdentifier(self::UUID_V7 . "\n"));
+    }
+
     #[Test]
     public function getVaultFieldsForTableReturnsEmptyForUnknownTable(): void
     {

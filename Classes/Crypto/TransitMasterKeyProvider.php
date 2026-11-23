@@ -77,7 +77,7 @@ final class TransitMasterKeyProvider extends AbstractMasterKeyProvider
      * `platform/transit` stays usable while `../` and control characters cannot
      * reach the URL.
      */
-    private const PATH_SEGMENT_PATTERN = '/^[A-Za-z0-9._-]+$/';
+    private const PATH_SEGMENT_PATTERN = '/\A[A-Za-z0-9._-]+\z/';
 
     public function __construct(
         private readonly ExtensionConfigurationInterface $configuration,
