@@ -202,10 +202,13 @@ Verification then checks three things the database alone cannot answer:
     — ``EPOCH_DOWNGRADE``. The in-chain check only sees relabelling relative
     to other rows; the anchor sees it relative to the level actually in force.
 
-Two properties of the reader are load-bearing. It takes the **highest**
+Three properties of the reader are load-bearing. It takes the **highest**
 anchored sequence rather than the last line, so an attacker cannot weaken the
 baseline by appending a low anchor — they must rewrite or truncate the file.
-And a corrupt or truncated line is skipped rather than aborting the scan, so
+It ignores anchors without a chain tip while one with a tip exists: a tip-less
+anchor compares nothing, so an appended tip-less line with a huge sequence
+would otherwise switch the reset comparison off. A tip-less anchor is the
+baseline only when the file holds no other. And a corrupt or truncated line is skipped rather than aborting the scan, so
 one bad line does not cost the verification its whole baseline.
 
 ..  warning::

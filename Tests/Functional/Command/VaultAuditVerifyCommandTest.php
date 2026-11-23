@@ -256,7 +256,7 @@ final class VaultAuditVerifyCommandTest extends AbstractVaultFunctionalTestCase
 
         $display = $this->normalize($tester);
         self::assertStringContainsString(
-            'Audit log integrity verified — hash chain intact. The external anchor was taken while the chain was empty, so there was nothing to compare it against.',
+            'Audit log integrity verified — hash chain intact. The external anchor carries no chain tip, so there was nothing to compare it against.',
             $display,
         );
         self::assertStringNotContainsString('consistent with the external anchor', $display);

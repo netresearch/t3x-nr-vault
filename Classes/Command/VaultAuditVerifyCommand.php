@@ -255,7 +255,7 @@ final class VaultAuditVerifyCommand extends Command
         }
 
         if ($anchor->isEmpty()) {
-            return 'Audit log integrity verified — hash chain intact. The external anchor was taken while the chain was empty, '
+            return 'Audit log integrity verified — hash chain intact. The external anchor carries no chain tip, '
                 . 'so there was nothing to compare it against.';
         }
 

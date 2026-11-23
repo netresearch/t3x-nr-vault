@@ -1049,6 +1049,33 @@ final readonly class AuditCheck implements ReadinessCheckInterface
             );
         }
 
+        // After the shrinkage check, so a tip-less anchor the chain no longer
+        // reaches stays tamper evidence. Otherwise an anchor without a chain tip
+        // compares nothing; under hardened it counts as missing unless both it
+        // and the chain are empty (#551).
+        if ($anchor->isEmpty()) {
+            // An anchor with a sequence above the chain returned TABLE_RESET above,
+            // so only the chain's own length decides here.
+            if ($context->isHardened() && $currentSequence > 0) {
+                return Finding::critical(
+                    id: $id,
+                    summary: 'The newest chain-tip anchor carries no chain tip, although the hardened profile requires one.',
+                    risk: 'An anchor without a chain tip compares nothing, so a full audit-table reset would be undetectable.',
+                    remediation: 'Run the "Vault Audit Chain Anchoring" task once while the chain has rows '
+                        . '(vendor/bin/typo3 scheduler:run --task=<anchor-task-uid> --force), and keep it scheduled hourly.',
+                    docsUrl: DocsLink::AUDIT_SINK_SCHEDULING,
+                    details: $details + ['reasonCode' => AuditIntegrityReason::NoExternalSink->value],
+                );
+            }
+
+            return Finding::pass(
+                id: $id,
+                summary: 'The newest chain-tip anchor carries no chain tip, so there is nothing to compare the chain against yet.',
+                docsUrl: DocsLink::AUDIT_SINK_SCHEDULING,
+                details: $details,
+            );
+        }
+
         return Finding::pass(
             id: $id,
             summary: sprintf(

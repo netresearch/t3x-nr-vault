@@ -21,7 +21,11 @@ namespace Netresearch\NrVault\Audit\Anchor;
 interface AnchorReaderInterface
 {
     /**
-     * The highest-sequence anchor available, or null when none can be read.
+     * The highest-sequence anchor that carries a chain tip, or null when none
+     * can be read. An anchor without a chain tip (see
+     * {@see ChainTipAnchor::isEmpty()}) is returned only when the store holds no
+     * anchor with one: it compares nothing, so a tip-less line with a higher
+     * sequence must not displace a usable baseline.
      *
      * Null covers "no anchor file", "empty anchor file" and "no parseable anchor
      * record" alike: all three mean verification has no external baseline, and
@@ -42,9 +46,9 @@ interface AnchorReaderInterface
     /**
      * Every anchor record the store holds, in the order they were appended.
      *
-     * {@see self::readLatestAnchor()} returns the highest SEQUENCE, which after a
-     * restore is still the old anchor, so it cannot show that a fresh baseline
-     * exists. The position in this list is what separates the anchors that
+     * {@see self::readLatestAnchor()} returns the highest SEQUENCE among the
+     * anchors with a chain tip, which after a restore is still the old anchor, so
+     * it cannot show that a fresh baseline exists. The position in this list is what separates the anchors that
      * existed when an acknowledgement was written from the ones published after
      * it; the timestamp a record carries decides nothing. The file grows by one
      * line per anchoring run and {@see self::readLatestAnchor()} already scans it

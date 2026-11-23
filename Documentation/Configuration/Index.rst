@@ -780,9 +780,11 @@ usable external sink is reported as a ``NO_EXTERNAL_SINK`` finding.
 
    Deliberately separate from ``auditSinkFilePath``: this is the evidence that
    survives a table reset, so point it at append-only or off-host storage.
-   Verification always takes the anchor with the **highest sequence**, never the
-   last line — appending a low-sequence anchor therefore cannot weaken the
-   baseline.
+   Verification always takes the anchor with the **highest sequence** that
+   carries a chain tip, never the last line — appending a low-sequence anchor
+   therefore cannot weaken the baseline. An anchor without a chain tip counts
+   only when the file holds no anchor with one, so appending a tip-less anchor
+   with a high sequence cannot switch the comparison off either.
 
    The public-web-root refusal described above applies to this path as well.
 

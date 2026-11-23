@@ -210,7 +210,8 @@ Step 4 — Enable an external audit sink
 The hardened profile **requires** one. Without an enabled and usable sink,
 ``vault:audit-verify`` reports ``NO_EXTERNAL_SINK``: the audit trail would
 exist only in the database it is meant to protect, and no chain-tip anchor
-could be published.
+could be published. An anchor without a chain tip does not satisfy the
+requirement either once the chain has rows; step 5 covers the first anchor.
 
 Cheapest sufficient configuration, if the host already has a log shipper:
 
@@ -267,14 +268,22 @@ cannot, see the note.
     named user with ``vault:audit-verify --as-auditor`` and
     :confval:`ext-nrvault-auditorBeUserUid`.
 
-Publish the first anchor now, so verification has a baseline immediately
-rather than after the first scheduled run. Run the anchoring task once by its
-uid (shown in the scheduler module):
+Publish the first usable anchor as soon as the chain has a row. On a fresh
+installation the chain is empty, so an anchor published now carries no chain
+tip, and it stops counting the moment the first audit row is written. Store a
+first secret (or perform any other audited operation), then run the anchoring
+task once by its uid (shown in the scheduler module), so verification has a
+baseline immediately rather than after the first scheduled run:
 
 ..  code-block:: bash
 
     vendor/bin/typo3 scheduler:run --task=<anchor-task-uid> --force
     vendor/bin/typo3 vault:audit-verify --as-auditor
+
+Between the first audit row and that run, ``vault:audit-verify`` and
+``vault:doctor`` (``audit.anchor``) report ``NO_EXTERNAL_SINK`` when no
+anchor exists or the only one carries no chain tip. That is expected at this
+point, not a misconfiguration.
 
 Wire the alerting at the same time — a scheduled check whose failures nobody
 receives is not a control. :ref:`operations-monitoring-what-to-page` says what
@@ -499,8 +508,8 @@ configuration is coherent; these steps say the deployment works.
 **Audit pipeline**
 
 *   [ ] ``vault:audit-verify`` reports a valid chain and no findings.
-*   [ ] An anchor exists and is recent — check the newest ``timestamp`` in the
-      anchor file.
+*   [ ] An anchor with a non-empty chain tip exists and is recent — check the
+      newest ``timestamp`` and its ``chainTip`` in the anchor file.
 *   [ ] ``vault:audit --verify`` reports ``Tip anchor: ok``, and
       ``auditAnchorRequired`` is on so a deleted anchor cannot silence the
       control.

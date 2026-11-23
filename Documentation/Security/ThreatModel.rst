@@ -320,6 +320,12 @@ that the attacker owns can be rewritten; :php:`AnchorFileReader` takes the
 anchor is useless, but truncating the file is not. Ship anchors off-host
 (syslog or webhook) for the property to hold. Under the hardened profile a
 missing sink or missing anchor is itself reported, as ``NO_EXTERNAL_SINK``.
+An anchor without a chain tip compares nothing, so it counts as missing
+unless both its sequence and the chain's highest uid are 0 (a fresh
+installation), and the reader prefers any anchor with a chain tip over one
+without, so an appended tip-less anchor cannot switch the comparison off.
+The invariant: under the hardened profile, a chain with rows is either
+compared against an external anchor that carries a chain tip, or reported.
 
 Algorithm downgrade of the audit chain
 --------------------------------------

@@ -14,6 +14,7 @@ use Doctrine\DBAL\Platforms\SQLitePlatform;
 use Netresearch\NrVault\Audit\Anchor\ChainTipAnchor;
 use Netresearch\NrVault\Audit\Anchor\ChainTipAnchorService;
 use Netresearch\NrVault\Audit\Anchor\ChainTipAnchorServiceInterface;
+use Netresearch\NrVault\Audit\AuditIntegrityAlert;
 use Netresearch\NrVault\Audit\AuditIntegrityReason;
 use Netresearch\NrVault\Audit\AuditLogService;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
@@ -44,6 +45,8 @@ use function is_array;
 final class ChainTipAnchorServiceTest extends AbstractVaultFunctionalTestCase
 {
     use AuditSinkSandboxTrait;
+
+    private const FINDINGS_PREFIX = 'findings: ';
 
     protected ?string $backendUserFixture = __DIR__ . '/../../Functional/Service/Fixtures/be_users.csv';
 
@@ -120,7 +123,7 @@ final class ChainTipAnchorServiceTest extends AbstractVaultFunctionalTestCase
 
         $report = $service->verify();
 
-        self::assertTrue($report->isValid(), 'findings: ' . implode(',', $report->getReasonCodes()));
+        self::assertTrue($report->isValid(), self::FINDINGS_PREFIX . implode(',', $report->getReasonCodes()));
         self::assertTrue($report->chainValid);
         self::assertInstanceOf(ChainTipAnchor::class, $report->anchor);
         self::assertSame(2, $report->anchor->sequence);
@@ -349,7 +352,32 @@ final class ChainTipAnchorServiceTest extends AbstractVaultFunctionalTestCase
         $report = $service->verify();
 
         self::assertFalse($report->hasReason(AuditIntegrityReason::NoExternalSink));
-        self::assertTrue($report->isValid(), 'findings: ' . implode(',', $report->getReasonCodes()));
+        self::assertTrue($report->isValid(), self::FINDINGS_PREFIX . implode(',', $report->getReasonCodes()));
+    }
+
+    /**
+     * #551 through the real AnchorFileReader: an anchor published while the
+     * chain was empty is the only one in the file, then rows are written.
+     */
+    #[Test]
+    public function hardenedProfileWithOnlyAnEmptyChainAnchorReportsNoExternalSink(): void
+    {
+        $this->switchToHardenedProfile();
+
+        $service = $this->getAnchorService();
+        self::assertSame(1, $service->publish($service->capture()), 'the empty-chain anchor must reach the file sink');
+
+        $this->get(AuditLogServiceInterface::class)->log('anchor_test_secret', 'create', true);
+
+        $report   = $service->verify();
+        $findings = array_values(array_filter(
+            $report->findings,
+            static fn (AuditIntegrityAlert $finding): bool => $finding->reason === AuditIntegrityReason::NoExternalSink,
+        ));
+
+        self::assertCount(1, $findings, self::FINDINGS_PREFIX . implode(',', $report->getReasonCodes()));
+        self::assertStringContainsString('carries no chain tip', $findings[0]->detail);
+        self::assertFalse($report->hasTamperEvidence());
     }
 
     #[Test]

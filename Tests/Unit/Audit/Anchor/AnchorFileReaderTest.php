@@ -147,6 +147,62 @@ final class AnchorFileReaderTest extends TestCase
         self::assertSame('tip-genuine', $anchor->chainTip);
     }
 
+    /**
+     * #551: an anchor without a chain tip compares nothing. Appended with a
+     * higher sequence it must not replace a real anchor as the baseline, or
+     * the TABLE_RESET comparison is switched off.
+     */
+    #[Test]
+    public function anAppendedTiplessAnchorDoesNotReplaceARealOne(): void
+    {
+        $path = $this->writeFile(
+            $this->anchorLine(5, 'tip-5', 1_750_000_000, 3)
+            . $this->anchorLine(999_999_999, '', 1_750_000_900, 3),
+        );
+
+        $anchor = $this->createSubject($path)->readLatestAnchor();
+
+        self::assertInstanceOf(ChainTipAnchor::class, $anchor);
+        self::assertSame(5, $anchor->sequence);
+        self::assertSame('tip-5', $anchor->chainTip);
+    }
+
+    /**
+     * Same rule regardless of line order.
+     */
+    #[Test]
+    public function aTiplessAnchorBeforeARealOneDoesNotWinEither(): void
+    {
+        $path = $this->writeFile(
+            $this->anchorLine(999, '', 1_750_000_000, 3)
+            . $this->anchorLine(5, 'tip-5', 1_750_000_900, 3),
+        );
+
+        $anchor = $this->createSubject($path)->readLatestAnchor();
+
+        self::assertInstanceOf(ChainTipAnchor::class, $anchor);
+        self::assertSame(5, $anchor->sequence);
+    }
+
+    /**
+     * Guard test (passes before and after #551): with only tip-less anchors
+     * the highest of them is still returned, so "an anchor exists" and the
+     * profile check can tell it apart from no anchor at all.
+     */
+    #[Test]
+    public function withOnlyTiplessAnchorsTheHighestIsReturned(): void
+    {
+        $path = $this->writeFile(
+            $this->anchorLine(0, '', 1_750_000_000, 3)
+            . $this->anchorLine(4, '', 1_750_000_900, 3),
+        );
+
+        $anchor = $this->createSubject($path)->readLatestAnchor();
+
+        self::assertInstanceOf(ChainTipAnchor::class, $anchor);
+        self::assertSame(4, $anchor->sequence);
+    }
+
     #[Test]
     public function anchorsAreReadAcrossManyLines(): void
     {
