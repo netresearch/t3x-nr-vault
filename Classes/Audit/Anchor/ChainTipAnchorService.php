@@ -170,7 +170,7 @@ final readonly class ChainTipAnchorService implements ChainTipAnchorServiceInter
         $findings = [
             ...$this->classifyChainItems($openChain, $chainResult),
             ...$openAnchor,
-            ...$this->checkExternalSinkRequirement($anchor),
+            ...$this->checkExternalSinkRequirement($anchor, $currentSequence),
         ];
 
         return new AuditIntegrityReport(
@@ -193,7 +193,7 @@ final readonly class ChainTipAnchorService implements ChainTipAnchorServiceInter
      * Withdraw the acknowledgement of an external-anchor finding unless a fresh
      * anchor was published after it, and none of those contradicts the chain.
      *
-     * The reader returns only the highest sequence, which after a restore stays
+     * The reader returns only the highest sequence (with a chain tip), which after a restore stays
      * the old anchor, so the finding keeps being raised. The acknowledgement row
      * records how many anchor records existed when it was written; the records
      * after that position are the anchors published since. Each of them that
@@ -488,6 +488,8 @@ final readonly class ChainTipAnchorService implements ChainTipAnchorServiceInter
 
     /**
      * Under the hardened profile, missing external evidence is itself a finding.
+     * An anchor without a chain tip counts as missing once the chain or the
+     * anchor has a sequence: it carries nothing to compare against.
      *
      * The standard profile treats sinks as opt-in, so it reports nothing here —
      * flagging a default installation for not having configured a SIEM would make
@@ -495,7 +497,7 @@ final readonly class ChainTipAnchorService implements ChainTipAnchorServiceInter
      *
      * @return list<AuditIntegrityAlert>
      */
-    private function checkExternalSinkRequirement(?ChainTipAnchor $anchor): array
+    private function checkExternalSinkRequirement(?ChainTipAnchor $anchor, int $currentSequence): array
     {
         try {
             $profile = $this->extensionConfiguration->getSecurityProfile();
@@ -535,6 +537,26 @@ final readonly class ChainTipAnchorService implements ChainTipAnchorServiceInter
                     . 'A full audit-table reset would be undetectable. Run vault:audit-anchor '
                     . '(or schedule the anchor task).',
                     ['anchorAvailable' => $this->anchorReader->isAvailable()],
+                ),
+            ];
+        }
+
+        // An anchor without a chain tip compares nothing (compareWithAnchor()
+        // skips it), so it counts as missing unless both it and the chain are
+        // empty: a fresh installation, where it is the whole truth (#551).
+        if ($anchor->isEmpty() && ($currentSequence > 0 || $anchor->sequence > 0)) {
+            return [
+                AuditIntegrityAlert::create(
+                    AuditIntegrityReason::NoExternalSink,
+                    'Hardened profile requires an external chain-tip anchor, but the newest anchor carries no chain tip, '
+                    . 'so a full audit-table reset would be undetectable. Run the anchor task once '
+                    . '(scheduler:run --task=<anchor-task-uid> --force) now that the chain has rows.',
+                    [
+                        'anchorAvailable' => $this->anchorReader->isAvailable(),
+                        // Not "anchoredSequence": AuditController reads that key as a mismatch.
+                        'emptyAnchorSequence' => $anchor->sequence,
+                        'currentSequence'     => $currentSequence,
+                    ],
                 ),
             ];
         }

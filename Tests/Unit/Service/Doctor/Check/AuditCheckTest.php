@@ -346,6 +346,64 @@ final class AuditCheckTest extends TestCase
         self::assertSame(3, $finding->details['currentSequence']);
     }
 
+    /**
+     * #551: an anchor without a chain tip compares nothing; once the chain has
+     * rows the hardened requirement treats it like a missing anchor.
+     */
+    #[Test]
+    public function aTiplessAnchorOverAChainWithRowsIsCriticalUnderHardened(): void
+    {
+        $finding = $this->assertFindingSeverity(
+            FindingSeverity::Critical,
+            $this->check(chainTip: 5, sinks: ['file'], anchor: new ChainTipAnchor(0, '', 1_700_000_000, 3))
+                ->run($this->doctorContext(SecurityProfile::Hardened)),
+            'audit.anchor',
+        );
+
+        self::assertSame('NO_EXTERNAL_SINK', $finding->details['reasonCode']);
+        self::assertStringContainsString('no chain tip', $finding->summary);
+    }
+
+    /**
+     * Guard tests: a fresh hardened installation (sequence-0 anchor, empty
+     * chain) passes, and under the standard profile a tip-less anchor passes
+     * with a summary that does not claim an anchor comparison.
+     */
+    #[Test]
+    public function aTiplessAnchorPassesOnAnEmptyChainOrUnderStandard(): void
+    {
+        self::assertTrue($this->findingById(
+            $this->check(chainTip: 0, sinks: ['file'], anchor: new ChainTipAnchor(0, '', 1_700_000_000, 3))
+                ->run($this->doctorContext(SecurityProfile::Hardened)),
+            'audit.anchor',
+        )->isPass());
+
+        $standard = $this->findingById(
+            $this->check(chainTip: 5, sinks: ['file'], anchor: new ChainTipAnchor(0, '', 1_700_000_000, 3))
+                ->run($this->doctorContext(SecurityProfile::Standard)),
+            'audit.anchor',
+        );
+        self::assertTrue($standard->isPass());
+        self::assertStringContainsString('no chain tip', $standard->summary);
+    }
+
+    /**
+     * Guard test: shrinkage is checked first, so a tip-less anchor whose
+     * sequence the chain no longer reaches stays tamper evidence.
+     */
+    #[Test]
+    public function aTiplessAnchorAboveTheChainIsStillATableReset(): void
+    {
+        $finding = $this->assertFindingSeverity(
+            FindingSeverity::Critical,
+            $this->check(chainTip: 0, sinks: ['file'], anchor: new ChainTipAnchor(7, '', 1_700_000_000, 3))
+                ->run($this->doctorContext(SecurityProfile::Hardened)),
+            'audit.anchor',
+        );
+
+        self::assertSame('TABLE_RESET', $finding->details['reasonCode']);
+    }
+
     #[Test]
     public function sinkDeliveryFailuresAreAWarningNamingTheSink(): void
     {

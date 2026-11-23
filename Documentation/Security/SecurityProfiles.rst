@@ -106,7 +106,8 @@ Exact technical differences
         -   Opt-in. No sink is no finding.
         -   Required. No enabled and usable sink, or no readable chain-tip
             anchor, is reported as ``NO_EXTERNAL_SINK`` by
-            ``vault:audit-verify``.
+            ``vault:audit-verify``. An anchor without a chain tip counts as
+            missing once the chain has rows.
 
     *   -   Deployment gate
         -   ``vault:doctor`` is advisory.
@@ -182,7 +183,9 @@ profile before them is what produces an unreadable vault.
 
 #.  **Enable at least one external audit sink** and schedule anchoring and
     verification (:ref:`operations-monitoring-and-alerting`). Without this,
-    hardened verification reports ``NO_EXTERNAL_SINK``.
+    hardened verification reports ``NO_EXTERNAL_SINK``. It does the same
+    while the newest anchor carries no chain tip and the chain has rows, so
+    run the anchor task again once the first audit row exists.
 
 #.  **Set the profile.**
 

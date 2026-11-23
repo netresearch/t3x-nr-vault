@@ -252,13 +252,19 @@ The anchor file is NDJSON, one record per line. Read it directly; do not take
 the application's word for it:
 
 ..  code-block:: bash
-    :caption: The anchor with the highest sequence is the effective baseline
+    :caption: The highest-sequence anchor with a chain tip is the effective baseline
 
     jq -c 'select(.type=="anchor") | .anchor' < /var/log/typo3/nr-vault-anchors.ndjson \
         | tail -20 > evidence/anchors-recent.json
 
-    # The effective baseline — the reader takes the MAXIMUM sequence, not the last line.
-    jq -s 'map(select(.type=="anchor") | .anchor) | max_by(.sequence)' \
+    # The effective baseline, computed as the reader does: the MAXIMUM sequence
+    # among anchors with a chain tip (not the last line), a tip-less anchor only
+    # when no other exists, the first of equal sequences, broken lines skipped.
+    jq -nR '[inputs | fromjson? | select(type == "object" and .type == "anchor")
+            | .anchor
+            | select((.sequence | type) == "number" and (.chainTip | type) == "string")]
+        | (map(select(.sequence > 0 and .chainTip != "")) | select(length > 0)) // .
+        | reduce .[] as $a (null; if . == null or $a.sequence > .sequence then $a else . end)' \
         < /var/log/typo3/nr-vault-anchors.ndjson > evidence/anchor-effective.json
 
 Each anchor carries ``sequence``, ``chainTip``, ``timestamp`` and
@@ -268,7 +274,7 @@ none of these is covered by a ``vault:doctor`` control:
 #.  **Freshness.** Compare the newest ``timestamp`` against the configured
     anchoring interval. A stale anchor means the detection baseline is old even
     though nothing reported an error. **No automated control checks anchor
-    age** — ``audit.anchor`` covers presence and shrinkage only — so the blind
+    age** — ``audit.anchor`` covers presence, a chain tip under the hardened profile, and shrinkage only — so the blind
     window is the anchoring *interval*, and confirming it is a manual step.
 #.  **Continuity.** Sequences should rise across the file. A long flat stretch
     means anchoring was not running.
@@ -555,7 +561,7 @@ Assembling the evidence package
     ├── break-glass-status.txt       # adminOverrideDisabledEffective
     ├── audit-verify.json            # chain + anchor, with reason codes
     ├── audit-chain.txt              # chain only
-    ├── anchor-effective.json        # highest-sequence anchor
+    ├── anchor-effective.json        # baseline anchor (highest sequence with a chain tip)
     ├── anchors-recent.json          # recent anchor history
     ├── audit-<period>.json          # entry sequence WITH hash columns
     ├── audit-denials.json

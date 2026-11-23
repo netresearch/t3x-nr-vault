@@ -352,6 +352,26 @@ final class ChainTipAnchorServiceTest extends AbstractVaultFunctionalTestCase
         self::assertTrue($report->isValid(), 'findings: ' . implode(',', $report->getReasonCodes()));
     }
 
+    /**
+     * #551 through the real AnchorFileReader: an anchor published while the
+     * chain was empty is the only one in the file, then rows are written.
+     */
+    #[Test]
+    public function hardenedProfileWithOnlyAnEmptyChainAnchorReportsNoExternalSink(): void
+    {
+        $this->switchToHardenedProfile();
+
+        $service = $this->getAnchorService();
+        $service->publish($service->capture());
+
+        $this->get(AuditLogServiceInterface::class)->log('anchor_test_secret', 'create', true);
+
+        $report = $service->verify();
+
+        self::assertTrue($report->hasReason(AuditIntegrityReason::NoExternalSink), 'findings: ' . implode(',', $report->getReasonCodes()));
+        self::assertFalse($report->hasTamperEvidence());
+    }
+
     #[Test]
     public function theFileSinkIsReportedAsAnExternalAuditSink(): void
     {

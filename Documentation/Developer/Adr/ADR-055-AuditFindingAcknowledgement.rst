@@ -116,8 +116,9 @@ Findings fall in three classes:
     record decides nothing, because whoever can append to the file could set it
     to anything. The flow publishes the fresh anchor; without an external sink
     the request is refused before anything is written. The reader keeps the
-    anchor with the highest sequence, which after a restore stays the old one, so
-    the later anchors are read from the file directly.
+    anchor with the highest sequence among those with a chain tip, which after a
+    restore stays the old one, so the later anchors are read from the file
+    directly.
 *   **The in-database anchor errors** are never covered. They carry no
     per-incident state, so an acknowledgement would also hide a later incident
     of the same kind. The flow resets and re-arms the in-database anchor in the

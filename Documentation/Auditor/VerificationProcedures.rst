@@ -331,7 +331,10 @@ Disable every audit sink, keep ``securityProfile = hardened``, and run:
 
 *Expected:* a ``NO_EXTERNAL_SINK`` finding. Repeat with a sink enabled but no
 anchor ever published — also ``NO_EXTERNAL_SINK``, this time about the missing
-anchor. Then set ``securityProfile = standard`` and repeat: **no** such finding,
+anchor. Repeat with a sink enabled and an anchor file whose only anchors carry
+no chain tip — one published while the chain was empty, or a line with an
+empty ``chainTip`` — on a chain that has rows: again ``NO_EXTERNAL_SINK``,
+because an anchor without a chain tip compares nothing. Then set ``securityProfile = standard`` and repeat: **no** such finding,
 because the standard profile treats sinks as opt-in.
 
 **Restore** the original configuration and confirm with a probe decrypt and

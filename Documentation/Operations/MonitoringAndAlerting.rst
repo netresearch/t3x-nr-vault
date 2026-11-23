@@ -236,8 +236,8 @@ that is normal traffic, and the reader skips non-anchor lines.
 
 If you rotate these files, **do not rotate the anchor file with a policy that
 truncates or discards old lines** unless the copies are archived. The reader
-takes the highest anchored sequence it can find; losing history shortens your
-detection reach.
+takes the highest anchored sequence that carries a chain tip (an anchor without
+one only when no other exists); losing history shortens your detection reach.
 
 Webhook
 -------

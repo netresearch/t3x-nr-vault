@@ -29,6 +29,15 @@ use function is_array;
  * must rewrite or truncate the file, which is exactly what append-only storage
  * (or an off-host copy) is there to prevent.
  *
+ * ## Anchors without a chain tip do not count while a real one exists
+ *
+ * An anchor whose chain tip is empty compares nothing (see
+ * {@see ChainTipAnchor::isEmpty()}). Taken as the baseline it would switch the
+ * reset comparison off, and an appended line with a huge sequence and no tip
+ * would do exactly that. So the highest anchor WITH a tip wins; a tip-less
+ * anchor is returned only when the file holds no other, so the verifier can
+ * still tell "anchored while empty" from "no anchor at all".
+ *
  * ## Bounded reading
  *
  * The file grows by one line per anchoring run, so it stays small — but it lives
@@ -69,12 +78,21 @@ final readonly class AnchorFileReader implements AnchorReaderInterface
             return null;
         }
 
-        $best = null;
+        $best      = null;
+        $bestEmpty = null;
 
         try {
             while (($line = fgets($handle)) !== false) {
                 $anchor = $this->parseLine($line);
                 if (!$anchor instanceof ChainTipAnchor) {
+                    continue;
+                }
+
+                if ($anchor->isEmpty()) {
+                    if (!$bestEmpty instanceof ChainTipAnchor || $anchor->sequence > $bestEmpty->sequence) {
+                        $bestEmpty = $anchor;
+                    }
+
                     continue;
                 }
 
@@ -86,7 +104,7 @@ final readonly class AnchorFileReader implements AnchorReaderInterface
             fclose($handle);
         }
 
-        return $best;
+        return $best ?? $bestEmpty;
     }
 
     public function isAvailable(): bool

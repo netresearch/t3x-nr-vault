@@ -804,8 +804,8 @@ EPOCH_DOWNGRADE
 
 NO_EXTERNAL_SINK
    The hardened security profile is active but no external audit sink is enabled
-   and usable, or no anchor could be read. Configuration finding, not tamper
-   evidence.
+   and usable, or no anchor could be read, or the newest anchor carries no chain
+   tip while the chain has rows. Configuration finding, not tamper evidence.
 
 SINK_FAILURE
    An external sink could not be delivered to during this process. Availability

@@ -884,6 +884,79 @@ final class ChainTipAnchorServiceTest extends TestCase
     }
 
     /**
+     * #551: an anchor taken while the chain was empty carries no hash, so
+     * compareWithAnchor() has nothing to compare and a full table reset stays
+     * undetectable. Once the chain has rows, the hardened requirement must treat
+     * it like a missing anchor.
+     */
+    #[Test]
+    public function theHardenedProfileCountsAnEmptyAnchorOverANonEmptyChainAsMissing(): void
+    {
+        $anchorReader = self::createStub(AnchorReaderInterface::class);
+        $anchorReader->method('readLatestAnchor')->willReturn(new ChainTipAnchor(0, '', 1_700_000_000, 3));
+        $anchorReader->method('isAvailable')->willReturn(true);
+
+        $report = $this->createSubject(
+            anchorReader: $anchorReader,
+            maxUid: 5,
+            profile: SecurityProfile::Hardened,
+        )->verify();
+
+        $findings = array_values(array_filter(
+            $report->findings,
+            static fn (AuditIntegrityAlert $finding): bool => $finding->reason === AuditIntegrityReason::NoExternalSink,
+        ));
+
+        self::assertCount(1, $findings);
+        self::assertStringContainsString('carries no chain tip', $findings[0]->detail);
+        self::assertSame(0, $findings[0]->context['emptyAnchorSequence']);
+        self::assertSame(5, $findings[0]->context['currentSequence']);
+        self::assertArrayNotHasKey('anchoredSequence', $findings[0]->context, 'AuditController reads that key as a mismatch');
+        self::assertFalse($report->hasTamperEvidence(), 'a missing baseline is not tamper evidence');
+    }
+
+    /**
+     * #551: a tip-less anchor with a sequence above zero over an empty table is
+     * the reset itself; under the hardened profile it must not pass silently.
+     */
+    #[Test]
+    public function theHardenedProfileCountsATiplessAnchorWithASequenceOverAnEmptyChainAsMissing(): void
+    {
+        $anchorReader = self::createStub(AnchorReaderInterface::class);
+        $anchorReader->method('readLatestAnchor')->willReturn(new ChainTipAnchor(7, '', 1_700_000_000, 3));
+        $anchorReader->method('isAvailable')->willReturn(true);
+
+        $report = $this->createSubject(
+            anchorReader: $anchorReader,
+            maxUid: 0,
+            profile: SecurityProfile::Hardened,
+        )->verify();
+
+        self::assertTrue($report->hasReason(AuditIntegrityReason::NoExternalSink));
+    }
+
+    /**
+     * Guard test (passes before and after #551): on an empty chain an anchor
+     * with sequence 0 is the whole truth, and a fresh hardened installation
+     * must not be flagged.
+     */
+    #[Test]
+    public function theHardenedProfileAcceptsAnEmptyAnchorWhileTheChainIsEmpty(): void
+    {
+        $anchorReader = self::createStub(AnchorReaderInterface::class);
+        $anchorReader->method('readLatestAnchor')->willReturn(new ChainTipAnchor(0, '', 1_700_000_000, 3));
+        $anchorReader->method('isAvailable')->willReturn(true);
+
+        $report = $this->createSubject(
+            anchorReader: $anchorReader,
+            maxUid: 0,
+            profile: SecurityProfile::Hardened,
+        )->verify();
+
+        self::assertFalse($report->hasReason(AuditIntegrityReason::NoExternalSink));
+    }
+
+    /**
      * An empty audit table reports sequence 0 rather than failing on the absent
      * row — `vault:audit-verify` runs on fresh installations too.
      */
