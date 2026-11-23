@@ -345,6 +345,8 @@ final class VaultStoreCommandTest extends TestCase
             'comma-separated groups'    => [['--groups' => ['1,2']], 'Invalid --groups value "1,2"'],
             'group zero'                => [['--groups' => ['0']], 'Invalid --groups value "0"'],
             'group name'                => [['--groups' => ['editors']], 'Invalid --groups value "editors"'],
+            'group beyond int range'    => [['--groups' => ['99999999999999999999']], 'Invalid --groups value "99999999999999999999"'],
+            'expiry beyond int range'   => [['--metadata' => ['expiresAt=99999999999999999999']], 'expiresAt must be a non-negative integer'],
         ];
     }
 

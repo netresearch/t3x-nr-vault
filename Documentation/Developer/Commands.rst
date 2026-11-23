@@ -114,7 +114,8 @@ Options
 --groups=UID, -g UID
    Backend user group ID that may read this secret. **Repeatable** — pass the
    option once per group (``--groups=1 --groups=2``). Each value must be a
-   positive group UID; a comma-separated ``--groups="1,2"`` is refused. On an
+   positive group UID; a comma-separated ``--groups="1,2"`` is refused. The UID
+   is not checked against ``be_groups``: a UID created later gets the access. On an
    existing secret that holds a value, changing its groups is a policy change
    and needs ``secret.manage_policy``, which the default
    :confval:`ext-nrvault-cliAllowedOperations` does not include. With

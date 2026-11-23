@@ -25,6 +25,7 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
 use function array_key_exists;
+use function filter_var;
 use function in_array;
 use function is_array;
 use function is_string;
@@ -286,7 +287,7 @@ final class VaultStoreCommand extends Command
                 throw new InvalidArgumentException(sprintf('--metadata %s is not accepted: %s.', $key, self::REFUSED_KEYS[$key]), 2664192772);
             }
 
-            if (in_array($key, self::DIGIT_FIELD_KEYS, true) && !ctype_digit($value)) {
+            if (in_array($key, self::DIGIT_FIELD_KEYS, true) && filter_var($value, FILTER_VALIDATE_INT, ['options' => ['min_range' => 0]]) === false) {
                 throw new InvalidArgumentException(sprintf('--metadata %s must be a non-negative integer, got "%s".', $key, $value), 8227215868);
             }
 
@@ -310,7 +311,7 @@ final class VaultStoreCommand extends Command
         $groups = [];
         foreach (is_array($option) ? $option : [] as $group) {
             $groupStr = is_string($group) ? $group : '';
-            if (!ctype_digit($groupStr) || (int) $groupStr === 0) {
+            if (filter_var($groupStr, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]) === false) {
                 throw new InvalidArgumentException(sprintf(
                     'Invalid --groups value "%s": pass one positive backend group UID per option, e.g. --groups=1 --groups=2.',
                     $groupStr,
