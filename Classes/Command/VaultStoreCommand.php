@@ -48,8 +48,9 @@ final class VaultStoreCommand extends Command
     private const FIELD_KEYS = ['description', 'context', 'expiresAt', 'owner', 'scopePid'];
 
     /**
-     * Field keys the service coerces with (int): anything but digits would
-     * silently become 0 (no expiry, owner 0, root scope).
+     * Numeric field keys: a non-numeric expiresAt or owner silently became 0
+     * (no expiry, owner 0) in the service, and a non-numeric scopePid was
+     * ignored.
      */
     private const DIGIT_FIELD_KEYS = ['expiresAt', 'owner', 'scopePid'];
 
