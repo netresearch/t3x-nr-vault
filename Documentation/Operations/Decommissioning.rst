@@ -156,11 +156,19 @@ So the steps below run against a vault nobody writes to.
 
     ..  code-block:: bash
 
-        vendor/bin/typo3 vault:audit-verify --as-auditor > decommission-verify.txt \
+        vendor/bin/typo3 vault:audit-verify --as-auditor > decommission-verify.txt
+        grep -q 'Audit log integrity verified' decommission-verify.txt \
             && echo "chain verified"
 
     Stop if it did not print ``chain verified``: a failed verification is
-    not fixed by re-running the later steps. The export check below compares
+    not fixed by re-running the later steps. The command also exits with 0
+    when every finding was acknowledged by an administrator (``No open
+    findings: …``); the evidence set then has a known break, and this step
+    does not pass either. Whether to destroy the key anyway is a decision for
+    the decommission owner: copy the acknowledged findings from
+    ``decommission-verify.txt`` into the decommissioning record with that
+    decision before continuing, and run the tip comparison below without its
+    first line. The export check below compares
     the export only with the newest anchor, which is the one published in the
     next step; a mismatch with an earlier anchor, such as a reset chain that
     has grown again, is reported by this verification alone.
@@ -239,7 +247,8 @@ So the steps below run against a vault nobody writes to.
 
     ..  code-block:: bash
 
-        grep -q 'Audit log integrity verified' decommission-verify.txt \
+        { grep -q 'Audit log integrity verified' decommission-verify.txt \
+            || { echo 'CHAIN NOT VERIFIED: see the verification step' >&2; false; }; } \
             && jq -R 'fromjson? | objects | select(.type == "anchor") | .anchor' <anchor-file> \
             | jq -s 'max_by(.sequence)' > decommission-final-anchor.json \
             && jq -r \
@@ -258,7 +267,7 @@ So the steps below run against a vault nobody writes to.
     Anything else — ``NOT CONFIRMED``, or an error because a file is missing
     or the chain length could not be read — means the final anchor is missing
     or older than the export: it was not published. Find out why, and run the
-    anchor step and this check again. If the ``grep`` failed, the chain
+    anchor step and this check again. ``CHAIN NOT VERIFIED`` means the chain
     verification did not pass: stop, that is not fixed by publishing again.
 
     The check above reads a host-local file, which is weak evidence
