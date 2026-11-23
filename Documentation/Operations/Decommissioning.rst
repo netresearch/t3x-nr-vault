@@ -260,9 +260,12 @@ So the steps below run against a vault nobody writes to.
 
     It prints ``verified and exported up to uid …`` and exits with 0.
     ``CHAIN NOT VERIFIED`` means the chain verification did not pass: stop,
-    that is not fixed by publishing again. Only where the decommission owner
-    decided to proceed over acknowledged findings (verification step), run
-    this instead, which leaves out the verification result:
+    that is not fixed by publishing again. ``NOT CONFIRMED`` means a row was
+    written between the verification and the export: a writer is still
+    running. Stop it and start again at the verification step. Only where the
+    decommission owner decided to proceed over acknowledged findings
+    (verification step), run this instead, which leaves out the verification
+    result:
 
     ..  code-block:: bash
 
@@ -273,10 +276,6 @@ So the steps below run against a vault nobody writes to.
              else error("NOT CONFIRMED: verified up to \($verified), exported up to \(.export.lastUid)")
              end' \
             decommission-audit.json
-
-    ``NOT CONFIRMED`` here means a row was
-    written between the verification and the export: a writer is still
-    running. Stop it and start again at the verification step.
 
     Then, with a file sink, compare against the anchor file
     (:confval:`ext-nrvault-auditSinkAnchorPath`). Like the extension's own
