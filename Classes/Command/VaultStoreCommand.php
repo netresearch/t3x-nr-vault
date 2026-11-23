@@ -52,6 +52,8 @@ final class VaultStoreCommand extends Command
      * (no expiry, owner 0) in the service, and a non-numeric scopePid was
      * ignored.
      */
+    private const RECORD_LINK_REASON = 'reserved for the record link that orphan cleanup reads';
+
     private const DIGIT_FIELD_KEYS = ['expiresAt', 'owner', 'scopePid'];
 
     /**
@@ -64,11 +66,11 @@ final class VaultStoreCommand extends Command
         'groups'             => 'use --groups (repeatable) to set the groups that may read the secret',
         'frontendAccessible' => 'frontend availability cannot be set by vault:store; use the backend module or the VaultService API',
         'metadata'           => 'pass metadata entries as key=value pairs directly',
-        'source'             => 'reserved for the record link that orphan cleanup reads',
-        'table'              => 'reserved for the record link that orphan cleanup reads',
-        'field'              => 'reserved for the record link that orphan cleanup reads',
-        'flexField'          => 'reserved for the record link that orphan cleanup reads',
-        'uid'                => 'reserved for the record link that orphan cleanup reads',
+        'source'             => self::RECORD_LINK_REASON,
+        'table'              => self::RECORD_LINK_REASON,
+        'field'              => self::RECORD_LINK_REASON,
+        'flexField'          => self::RECORD_LINK_REASON,
+        'uid'                => self::RECORD_LINK_REASON,
     ];
 
     public function __construct(

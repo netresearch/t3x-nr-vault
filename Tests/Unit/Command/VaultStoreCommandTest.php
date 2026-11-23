@@ -34,6 +34,10 @@ use Symfony\Component\Console\Tester\CommandTester;
 #[AllowMockObjectsWithoutExpectations]
 final class VaultStoreCommandTest extends TestCase
 {
+    private const ORPHAN_CLEANUP = 'orphan cleanup';
+
+    private const EXPIRES_AT_REFUSAL = 'expiresAt must be a non-negative integer';
+
     private VaultServiceInterface&MockObject $vaultService;
 
     private ExtensionConfigurationInterface&MockObject $configuration;
@@ -332,26 +336,26 @@ final class VaultStoreCommandTest extends TestCase
     public static function refusedOptionProvider(): array
     {
         return [
-            'metadata without equals'   => [['--metadata' => ['valid=value', 'invalid-no-equals']], 'expected key=value'],
-            'metadata with empty key'   => [['--metadata' => ['=value']], 'the key is empty'],
-            'groups through metadata'   => [['--metadata' => ['groups=1']], 'use --groups'],
-            'frontend flag'             => [['--metadata' => ['frontendAccessible=0']], 'frontend availability'],
-            'nested metadata key'       => [['--metadata' => ['metadata=x']], 'key=value pairs directly'],
-            'orphan link source'        => [['--metadata' => ['source=tca_field']], 'orphan cleanup'],
-            'orphan link uid'           => [['--metadata' => ['uid=7']], 'orphan cleanup'],
-            'orphan link table'         => [['--metadata' => ['table=tt_content']], 'orphan cleanup'],
-            'orphan link field'         => [['--metadata' => ['field=bodytext']], 'orphan cleanup'],
-            'orphan link flexField'     => [['--metadata' => ['flexField=settings.apiKey']], 'orphan cleanup'],
-            'expiry that is not a time' => [['--metadata' => ['expiresAt=2026-12-31']], 'expiresAt must be a non-negative integer'],
-            'owner that is not a uid'   => [['--metadata' => ['owner=ci']], 'owner must be a non-negative integer'],
-            'scope that is not a pid'   => [['--metadata' => ['scopePid=root']], 'scopePid must be a non-negative integer'],
-            'comma-separated groups'    => [['--groups' => ['1,2']], 'Invalid --groups value "1,2"'],
-            'group zero'                => [['--groups' => ['0']], 'Invalid --groups value "0"'],
-            'group name'                => [['--groups' => ['editors']], 'Invalid --groups value "editors"'],
-            'group beyond int range'    => [['--groups' => ['99999999999999999999']], 'Invalid --groups value "99999999999999999999"'],
-            'group beyond column range' => [['--groups' => ['4294967296']], 'Invalid --groups value "4294967296"'],
-            'expiry beyond column range' => [['--metadata' => ['expiresAt=4294967296']], 'expiresAt must be a non-negative integer'],
-            'expiry beyond int range'   => [['--metadata' => ['expiresAt=99999999999999999999']], 'expiresAt must be a non-negative integer'],
+            'metadata without equals'    => [['--metadata' => ['valid=value', 'invalid-no-equals']], 'expected key=value'],
+            'metadata with empty key'    => [['--metadata' => ['=value']], 'the key is empty'],
+            'groups through metadata'    => [['--metadata' => ['groups=1']], 'use --groups'],
+            'frontend flag'              => [['--metadata' => ['frontendAccessible=0']], 'frontend availability'],
+            'nested metadata key'        => [['--metadata' => ['metadata=x']], 'key=value pairs directly'],
+            'orphan link source'         => [['--metadata' => ['source=tca_field']], self::ORPHAN_CLEANUP],
+            'orphan link uid'            => [['--metadata' => ['uid=7']], self::ORPHAN_CLEANUP],
+            'orphan link table'          => [['--metadata' => ['table=tt_content']], self::ORPHAN_CLEANUP],
+            'orphan link field'          => [['--metadata' => ['field=bodytext']], self::ORPHAN_CLEANUP],
+            'orphan link flexField'      => [['--metadata' => ['flexField=settings.apiKey']], self::ORPHAN_CLEANUP],
+            'expiry that is not a time'  => [['--metadata' => ['expiresAt=2026-12-31']], self::EXPIRES_AT_REFUSAL],
+            'owner that is not a uid'    => [['--metadata' => ['owner=ci']], 'owner must be a non-negative integer'],
+            'scope that is not a pid'    => [['--metadata' => ['scopePid=root']], 'scopePid must be a non-negative integer'],
+            'comma-separated groups'     => [['--groups' => ['1,2']], 'Invalid --groups value "1,2"'],
+            'group zero'                 => [['--groups' => ['0']], 'Invalid --groups value "0"'],
+            'group name'                 => [['--groups' => ['editors']], 'Invalid --groups value "editors"'],
+            'group beyond int range'     => [['--groups' => ['99999999999999999999']], 'Invalid --groups value "99999999999999999999"'],
+            'group beyond column range'  => [['--groups' => ['4294967296']], 'Invalid --groups value "4294967296"'],
+            'expiry beyond column range' => [['--metadata' => ['expiresAt=4294967296']], self::EXPIRES_AT_REFUSAL],
+            'expiry beyond int range'    => [['--metadata' => ['expiresAt=99999999999999999999']], self::EXPIRES_AT_REFUSAL],
         ];
     }
 
