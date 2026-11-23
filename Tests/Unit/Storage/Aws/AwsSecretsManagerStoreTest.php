@@ -479,21 +479,30 @@ final class AwsSecretsManagerStoreTest extends TestCase
     }
 
     /**
-     * @return array<string, array{Response|Throwable, int}>
+     * @return array<string, array{list<Response|Throwable>, int, int}>
      */
     public static function notRetriedProvider(): array
     {
+        $json = ['Content-Type' => 'application/x-amz-json-1.1'];
+        $down = static fn (): ConnectException => new ConnectException('connection refused', new Request('POST', 'https://secretsmanager.eu-central-1.amazonaws.com'));
+
         return [
-            'name exists'   => [new Response(400, ['Content-Type' => 'application/x-amz-json-1.1'], '{"__type":"ResourceExistsException","Message":"x"}'), 1794500012],
-            'access denied' => [new Response(400, ['Content-Type' => 'application/x-amz-json-1.1'], '{"__type":"AccessDeniedException","Message":"x"}'), 1794500006],
+            'name exists'   => [[new Response(400, $json, '{"__type":"ResourceExistsException","Message":"x"}')], 1794500012, 1],
+            'access denied' => [[new Response(400, $json, '{"__type":"AccessDeniedException","Message":"x"}')], 1794500006, 1],
+            // The SDK client retries a transport failure once itself
+            // (AwsClientFactory, retries => 1); the store adds nothing.
+            'transport' => [[$down(), $down()], 1794500007, 2],
         ];
     }
 
+    /**
+     * @param list<Response|Throwable> $answers
+     */
     #[Test]
     #[DataProvider('notRetriedProvider')]
-    public function createRetriesNothingButTheDeletionWindow(Response|Throwable $answer, int $code): void
+    public function createRetriesNothingButTheDeletionWindow(array $answers, int $code, int $requests): void
     {
-        $store = $this->store($answer, $this->json(200, ['VersionId' => 'never-reached']));
+        $store = $this->store(...[...$answers, $this->json(200, ['VersionId' => 'never-reached'])]);
 
         try {
             $store->create('api_key', ['k' => 'v']);
@@ -502,7 +511,7 @@ final class AwsSecretsManagerStoreTest extends TestCase
             self::assertSame($code, $e->getCode());
         }
 
-        self::assertCount(1, $this->requests);
+        self::assertCount($requests, $this->requests);
         self::assertSame([], $this->sleeps);
     }
 

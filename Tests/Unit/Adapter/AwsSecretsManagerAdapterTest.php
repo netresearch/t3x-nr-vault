@@ -314,7 +314,7 @@ final class AwsSecretsManagerAdapterTest extends TestCase
         }
 
         self::assertSame(['foreign' => 'value'], $this->aws['api_key']);
-        self::assertCount(1, array_filter($this->warnings, static fn (string $w): bool => str_contains($w, 'belongs to another writer')));
+        self::assertCount(1, array_filter($this->warnings, static fn (string $w): bool => str_contains($w, 'was not put back')));
     }
 
     #[Test]

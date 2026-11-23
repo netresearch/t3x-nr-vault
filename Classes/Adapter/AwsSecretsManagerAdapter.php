@@ -347,7 +347,7 @@ final readonly class AwsSecretsManagerAdapter implements CreateCompensatingAdapt
             // The original failure is the one to report.
             if ($e->getCode() === 1794500012) {
                 $this->logger->warning(
-                    'nr-vault: the AWS Secrets Manager value destroyed by this call was not put back, because a secret of that name exists again and belongs to another writer. Check the secret.',
+                    'nr-vault: the AWS Secrets Manager value destroyed by this call was not put back, because a secret of that name exists (another writer, or AWS has not finished the deletion). Check the secret and its row.',
                     ['secret' => $identifier],
                 );
 
