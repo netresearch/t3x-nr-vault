@@ -167,8 +167,8 @@ So the steps below run against a vault nobody writes to.
     does not pass either. Whether to destroy the key anyway is a decision for
     the decommission owner: copy the acknowledged findings from
     ``decommission-verify.txt`` into the decommissioning record with that
-    decision before continuing, and run the tip comparison below without its
-    first line. The export check below compares
+    decision before continuing, and skip the ``grep`` command of the first
+    check below. The export check below compares
     the export only with the newest anchor, which is the one published in the
     next step; a mismatch with an earlier anchor, such as a reset chain that
     has grown again, is reported by this verification alone.
@@ -240,16 +240,36 @@ So the steps below run against a vault nobody writes to.
     skip the task and exit with 0 without a new anchor, and a file sink can
     accept the anchor while the off-host copy is missing.
 
-    With a file sink, compare against the anchor file
+    First, in every sink configuration, check that the verification passed
+    and ended where the export ends:
+
+    ..  code-block:: bash
+
+        grep -q 'Audit log integrity verified' decommission-verify.txt \
+            || { echo 'CHAIN NOT VERIFIED: see the verification step' >&2; false; }
+        jq -er \
+            --argjson verified "$(sed -n 's/^ *Chain length (max uid) *\([0-9][0-9]*\).*/\1/p' decommission-verify.txt)" \
+            'if .export.lastUid == $verified
+             then "verified and exported up to uid \($verified)"
+             else error("NOT CONFIRMED: verified up to \($verified), exported up to \(.export.lastUid)")
+             end' \
+            decommission-audit.json
+
+    ``CHAIN NOT VERIFIED`` means the chain verification did not pass: stop,
+    that is not fixed by publishing again. Where the decommission owner
+    decided to proceed over acknowledged findings (verification step), skip
+    the ``grep`` command only. ``NOT CONFIRMED`` here means a row was
+    written between the verification and the export: a writer is still
+    running. Stop it and start again at the verification step.
+
+    Then, with a file sink, compare against the anchor file
     (:confval:`ext-nrvault-auditSinkAnchorPath`). Like the extension's own
     reader, the command takes the anchor with the highest ``sequence`` and
     skips a truncated line:
 
     ..  code-block:: bash
 
-        { grep -q 'Audit log integrity verified' decommission-verify.txt \
-            || { echo 'CHAIN NOT VERIFIED: see the verification step' >&2; false; }; } \
-            && jq -R 'fromjson? | objects | select(.type == "anchor") | .anchor' <anchor-file> \
+        jq -R 'fromjson? | objects | select(.type == "anchor") | .anchor' <anchor-file> \
             | jq -s 'max_by(.sequence)' > decommission-final-anchor.json \
             && jq -r \
                 --argjson verified "$(sed -n 's/^ *Chain length (max uid) *\([0-9][0-9]*\).*/\1/p' decommission-verify.txt)" \
@@ -267,17 +287,17 @@ So the steps below run against a vault nobody writes to.
     Anything else — ``NOT CONFIRMED``, or an error because a file is missing
     or the chain length could not be read — means the final anchor is missing
     or older than the export: it was not published. Find out why, and run the
-    anchor step and this check again. ``CHAIN NOT VERIFIED`` means the chain
-    verification did not pass: stop, that is not fixed by publishing again.
+    anchor step and both checks again.
 
-    The check above reads a host-local file, which is weak evidence
+    The anchor check reads a host-local file, which is weak evidence
     (:ref:`auditor-evidence-chain`). The anchor record that is kept is the
     off-host copy, so make the same comparison there by hand: in the syslog
     archive or the SIEM, the newest anchor event (``vault audit chain
     anchored at sequence …`` in syslog, ``type`` ``anchor`` from the
     webhook) must carry ``sequence`` equal to ``.export.lastUid`` and
     ``chainTip`` equal to that row's ``entry_hash``. With only webhook or
-    syslog sinks configured, this hand comparison is the whole check.
+    syslog sinks configured, the first check plus this hand comparison is the
+    whole gate.
 
 #.  **Collect the external evidence** from where it actually lives: the anchor
     file, the syslog archive, the SIEM's retained records. This is the half
