@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Functional\Service;
 
+use Netresearch\NrVault\Audit\AuditLogServiceInterface;
 use Netresearch\NrVault\Service\VaultService;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Netresearch\NrVault\Tests\Functional\AbstractVaultFunctionalTestCase;
@@ -75,5 +76,9 @@ final class VaultServiceMetadataMergeTest extends AbstractVaultFunctionalTestCas
         }
 
         self::assertSame(['team' => 'a', 'note' => 'new'], $service->getMetadata('merge_in_transaction')->metadata);
+        self::assertTrue(
+            $this->get(AuditLogServiceInterface::class)->verifyHashChain()->isValid(),
+            'Both stores write audit entries; the chain must stay intact.',
+        );
     }
 }

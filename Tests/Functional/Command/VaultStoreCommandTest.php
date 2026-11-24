@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Functional\Command;
 
+use Netresearch\NrVault\Audit\AuditLogServiceInterface;
 use Netresearch\NrVault\Command\VaultStoreCommand;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Security\TechnicalActorContextInterface;
@@ -305,6 +306,10 @@ final class VaultStoreCommandTest extends AbstractVaultFunctionalTestCase
                 $vaultService->getMetadata($identifier)->metadata,
             );
             self::assertSame('second', $vaultService->retrieve($identifier));
+            self::assertTrue(
+                $this->get(AuditLogServiceInterface::class)->verifyHashChain()->isValid(),
+                'The concurrent and the merging store write audit entries; the chain must stay intact.',
+            );
         } finally {
             $this->safeDelete($vaultService, $identifier);
         }
