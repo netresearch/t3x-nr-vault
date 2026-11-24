@@ -48,6 +48,7 @@ use SensitiveParameter;
 use Throwable;
 use TYPO3\CMS\Core\SingletonInterface;
 
+use function array_replace;
 use function is_array;
 use function is_int;
 use function is_string;
@@ -707,6 +708,12 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
         if (isset($options['metadata'])) {
             /** @var array<string, mixed> $metadata */
             $metadata = (array) $options['metadata'];
+        } elseif (isset($options['mergeMetadata']) && is_array($options['mergeMetadata'])) {
+            // $existing is the read doStore() made inside the store's own
+            // mutation, so on the stock path no other vault mutation can commit
+            // between this base and the write (#570).
+            /** @var array<string, mixed> $metadata */
+            $metadata = array_replace($metadata, $options['mergeMetadata']);
         }
 
         return [
@@ -730,6 +737,29 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
                 : ($existing?->getExpiresAt() ?? 0),
             'metadata' => $metadata,
         ];
+    }
+
+    /**
+     * `metadata` replaces the map, `mergeMetadata` merges into it; one call
+     * that asks for both has no defined order.
+     *
+     * @param array<string, mixed> $options
+     *
+     * @throws ValidationException
+     */
+    private function assertMetadataOptions(array $options): void
+    {
+        if (!isset($options['mergeMetadata'])) {
+            return;
+        }
+
+        if (!is_array($options['mergeMetadata'])) {
+            throw ValidationException::invalidOption('mergeMetadata', 'expected an array of metadata entries');
+        }
+
+        if (isset($options['metadata'])) {
+            throw ValidationException::invalidOption('mergeMetadata', 'pass either metadata, which replaces the stored map, or mergeMetadata, which merges into it, not both');
+        }
     }
 
     /**
@@ -894,6 +924,8 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
             if ($secret === '') {
                 throw ValidationException::emptySecret();
             }
+
+            $this->assertMetadataOptions($options);
 
             // Administrative lookup: a disabled secret still occupies its
             // identifier (UNIQUE KEY identifier/deleted), so classifying this

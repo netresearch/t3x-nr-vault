@@ -33,6 +33,7 @@ use Netresearch\NrVault\Service\VaultService;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
 
@@ -1712,6 +1713,90 @@ final class VaultServiceTest extends TestCase
             ->willReturnArgument(0);
 
         $this->subject->store($identifier, $secretValue);
+    }
+
+    /**
+     * #570: `mergeMetadata` merges into the map of the record the store read,
+     * keeping the keys it does not name and replacing the ones it does.
+     */
+    #[Test]
+    public function storeMergesMergeMetadataIntoTheStoredMap(): void
+    {
+        $existing = $this->createSecretEntity('merge', uid: 42, metadata: ['team' => 'a', 'note' => 'old']);
+        $this->encryptionService->method('encrypt')->willReturn(new EncryptedData('enc', 'dek', 'n1', 'n2', 'cs'));
+        $this->adapter->method('retrieve')->willReturn($existing);
+        $this->accessControlService->method('canWrite')->willReturn(true);
+
+        $this->adapter
+            ->expects(self::once())
+            ->method('store')
+            ->with(self::callback(static fn (Secret $s): bool => $s->getMetadata() === ['team' => 'a', 'note' => 'new', 'ticket' => 'OPS-1']))
+            ->willReturnArgument(0);
+
+        $this->subject->store('merge', 'value', ['mergeMetadata' => ['note' => 'new', 'ticket' => 'OPS-1']]);
+    }
+
+    #[Test]
+    public function storeWithMergeMetadataOnANewSecretStoresTheGivenMap(): void
+    {
+        $this->encryptionService->method('encrypt')->willReturn(new EncryptedData('enc', 'dek', 'n1', 'n2', 'cs'));
+        $this->adapter->method('retrieve')->willReturn(null);
+
+        $this->adapter
+            ->expects(self::once())
+            ->method('store')
+            ->with(self::callback(static fn (Secret $s): bool => $s->getMetadata() === ['ticket' => 'OPS-1']))
+            ->willReturnArgument(0);
+
+        $this->subject->store('fresh', 'value', ['mergeMetadata' => ['ticket' => 'OPS-1']]);
+    }
+
+    #[Test]
+    public function storeWithMetadataStillReplacesTheStoredMap(): void
+    {
+        $existing = $this->createSecretEntity('replace', uid: 42, metadata: ['team' => 'a']);
+        $this->encryptionService->method('encrypt')->willReturn(new EncryptedData('enc', 'dek', 'n1', 'n2', 'cs'));
+        $this->adapter->method('retrieve')->willReturn($existing);
+        $this->accessControlService->method('canWrite')->willReturn(true);
+
+        $this->adapter
+            ->expects(self::once())
+            ->method('store')
+            ->with(self::callback(static fn (Secret $s): bool => $s->getMetadata() === ['ticket' => 'OPS-1']))
+            ->willReturnArgument(0);
+
+        $this->subject->store('replace', 'value', ['metadata' => ['ticket' => 'OPS-1']]);
+    }
+
+    /**
+     * @return array<string, array{array<string, mixed>, string}>
+     */
+    public static function refusedMergeMetadataProvider(): array
+    {
+        return [
+            'not an array'           => [['mergeMetadata' => 'note=x'], 'expected an array'],
+            'together with metadata' => [['metadata' => ['a' => 'b'], 'mergeMetadata' => ['c' => 'd']], 'not both'],
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $options
+     */
+    #[Test]
+    #[DataProvider('refusedMergeMetadataProvider')]
+    public function storeRefusesAMergeMetadataItCannotApplyBeforeAnyWrite(array $options, string $message): void
+    {
+        $this->adapter->method('retrieve')->willReturn(null);
+        $this->adapter->expects(self::never())->method('store');
+        $this->encryptionService->expects(self::never())->method('encrypt');
+
+        try {
+            $this->subject->store('refused', 'value', $options);
+            self::fail('The store must be refused.');
+        } catch (ValidationException $e) {
+            self::assertSame(1703800014, $e->getCode());
+            self::assertStringContainsString($message, $e->getMessage());
+        }
     }
 
     #[Test]

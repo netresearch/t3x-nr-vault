@@ -9,7 +9,10 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Functional\Command;
 
+use Netresearch\NrVault\Audit\AuditLogServiceInterface;
 use Netresearch\NrVault\Command\VaultStoreCommand;
+use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
+use Netresearch\NrVault\Security\TechnicalActorContextInterface;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Netresearch\NrVault\Tests\Functional\AbstractVaultFunctionalTestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -255,6 +258,58 @@ final class VaultStoreCommandTest extends AbstractVaultFunctionalTestCase
             self::assertSame(0, $exitCode, $tester->getDisplay());
             self::assertSame(['team' => 'a', 'source' => 'tca_field', 'note' => 'x'], $vaultService->getMetadata($identifier)->metadata);
             self::assertSame('second', $vaultService->retrieve($identifier));
+        } finally {
+            $this->safeDelete($vaultService, $identifier);
+        }
+    }
+
+    /**
+     * #570: a metadata write that commits after the command decided what to
+     * merge and before its store lands must survive the store. The
+     * interleaving is forced by the service the command calls: its store()
+     * first commits the concurrent write through the real service, as a second
+     * `vault:store --metadata` run would, and then hands over.
+     */
+    #[Test]
+    public function aConcurrentMetadataWriteSurvivesTheMerge(): void
+    {
+        $identifier   = 'cmd_store_race_' . bin2hex(random_bytes(4));
+        $vaultService = $this->get(VaultServiceInterface::class);
+
+        $racing = self::createStub(VaultServiceInterface::class);
+        $racing->method('getMetadata')->willReturnCallback($vaultService->getMetadata(...));
+        $racing->method('store')->willReturnCallback(
+            static function (string $id, string $secret, array $options) use ($vaultService): void {
+                $vaultService->store($id, 'concurrent', ['metadata' => ['team' => 'a', 'concurrent' => 'kept']]);
+                $vaultService->store($id, $secret, $options);
+            },
+        );
+
+        $tester = new CommandTester(new VaultStoreCommand(
+            $racing,
+            $this->get(ExtensionConfigurationInterface::class),
+            $this->get(TechnicalActorContextInterface::class),
+        ));
+
+        try {
+            $vaultService->store($identifier, 'first', ['metadata' => ['team' => 'a']]);
+
+            $exitCode = $tester->execute([
+                'identifier' => $identifier,
+                '--value'    => 'second',
+                '--metadata' => ['note=x'],
+            ]);
+
+            self::assertSame(0, $exitCode, $tester->getDisplay());
+            self::assertSame(
+                ['team' => 'a', 'concurrent' => 'kept', 'note' => 'x'],
+                $vaultService->getMetadata($identifier)->metadata,
+            );
+            self::assertSame('second', $vaultService->retrieve($identifier));
+            self::assertTrue(
+                $this->get(AuditLogServiceInterface::class)->verifyHashChain()->isValid(),
+                'The concurrent and the merging store write audit entries; the chain must stay intact.',
+            );
         } finally {
             $this->safeDelete($vaultService, $identifier);
         }

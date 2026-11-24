@@ -11,8 +11,6 @@ namespace Netresearch\NrVault\Command;
 
 use InvalidArgumentException;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
-use Netresearch\NrVault\Exception\AccessDeniedException;
-use Netresearch\NrVault\Exception\SecretNotFoundException;
 use Netresearch\NrVault\Exception\VaultException;
 use Netresearch\NrVault\Security\TechnicalActorContextInterface;
 use Netresearch\NrVault\Service\VaultServiceInterface;
@@ -173,17 +171,18 @@ final class VaultStoreCommand extends Command
             return Command::FAILURE;
         }
 
+        // The service merges the pairs into the stored map inside the store's
+        // own mutation: a read here and a write in store() were two steps, and
+        // a metadata write committed between them was lost (#570).
+        if ($freeForm !== []) {
+            $options['mergeMetadata'] = $freeForm;
+        }
+
         // $value by REFERENCE: capturing it by value gives the closure its own
         // copy of the plaintext, and sodium_memzero() below separates the
         // copy-on-write pair instead of wiping both — the secret would survive
-        // in memory in the copy the command believes it has cleared. The
-        // metadata merge reads inside the closure, so it runs as the same actor
-        // and inside the `finally` that wipes the value.
-        $store = function () use ($identifier, &$value, $options, $freeForm): void {
-            if ($freeForm !== []) {
-                $options['metadata'] = $this->mergeMetadata($identifier, $freeForm);
-            }
-
+        // in memory in the copy the command believes it has cleared.
+        $store = function () use ($identifier, &$value, $options): void {
             $this->vaultService->store($identifier, $value, $options);
         };
 
@@ -325,31 +324,5 @@ final class VaultStoreCommand extends Command
         }
 
         return array_values(array_unique($groups));
-    }
-
-    /**
-     * The service replaces the metadata map; merge the given entries into the
-     * stored one so an update keeps the entries it does not name. A secret
-     * that does not exist yet (disabled ones included: getMetadata() sees them,
-     * exists() does not) starts from an empty map.
-     *
-     * @param array<string, string> $entries
-     *
-     * @return array<string, mixed>
-     */
-    private function mergeMetadata(string $identifier, array $entries): array
-    {
-        try {
-            $stored = $this->vaultService->getMetadata($identifier)->metadata;
-        } catch (SecretNotFoundException) {
-            return $entries;
-        } catch (AccessDeniedException) {
-            throw AccessDeniedException::forIdentifier(
-                $identifier,
-                'reading its metadata to merge --metadata is not permitted; leave out --metadata to store without reading it',
-            );
-        }
-
-        return array_replace($stored, $entries);
     }
 }
