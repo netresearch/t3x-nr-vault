@@ -1,0 +1,1 @@
+- `vault:store --metadata` on an existing secret no longer reads the secret's metadata first, so it no longer needs read access to the secret; write access, as for any store, is enough. `VaultService::store()` takes a `mergeMetadata` option that merges entries into the stored metadata instead of replacing it; passing it together with `metadata` is refused (#570).

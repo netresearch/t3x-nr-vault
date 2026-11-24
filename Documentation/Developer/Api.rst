@@ -537,6 +537,12 @@ Storing a secret
        }
    }
 
+The ``metadata`` option replaces the stored metadata map. To add or change
+single entries of an existing secret, pass ``mergeMetadata`` instead: the
+service merges the entries into the map it reads inside the store's own
+mutation, so with the local storage adapter a metadata write committed by
+another vault call is kept. The two options cannot be combined.
+
 .. _api-example-retrieving:
 
 Retrieving a secret

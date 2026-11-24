@@ -103,8 +103,11 @@ Options
    timestamp), ``owner`` and ``scopePid`` must be digits. There are no
    separate ``--description`` / ``--context`` / ``--expires`` options.
    Every other key is stored in the secret's metadata. On an existing secret
-   the pairs are merged into the stored metadata, which needs read access to
-   the secret; leave out ``--metadata`` to store a value without reading.
+   the pairs are merged into the stored metadata. With the local storage
+   adapter (the default) the merge runs inside the store's own locked
+   transaction, so a metadata write by another vault command is kept; with
+   the HashiCorp or AWS adapter the read and the write are not one
+   transaction.
    Refused: ``groups`` (use ``--groups``), ``frontendAccessible`` (set it
    in the backend module or through the API), ``metadata``, and the record
    link keys ``source``, ``table``, ``field``, ``flexField`` and ``uid``

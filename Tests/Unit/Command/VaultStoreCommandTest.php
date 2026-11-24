@@ -12,9 +12,6 @@ namespace Netresearch\NrVault\Tests\Unit\Command;
 use ArrayObject;
 use Netresearch\NrVault\Command\VaultStoreCommand;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
-use Netresearch\NrVault\Domain\Dto\SecretDetails;
-use Netresearch\NrVault\Exception\AccessDeniedException;
-use Netresearch\NrVault\Exception\SecretNotFoundException;
 use Netresearch\NrVault\Exception\ValidationException;
 use Netresearch\NrVault\Exception\VaultException;
 use Netresearch\NrVault\Security\TechnicalActorContextInterface;
@@ -201,19 +198,20 @@ final class VaultStoreCommandTest extends TestCase
     }
 
     /**
-     * #524: free-form pairs belong under `metadata`, the key the service reads.
+     * #524, #570: free-form pairs go to the service as `mergeMetadata`, which
+     * merges them into the stored map inside the store's own mutation.
      */
     #[Test]
     public function parsesMetadataOptions(): void
     {
-        $this->vaultService->method('getMetadata')->willThrowException(SecretNotFoundException::forIdentifier('metadata-test'));
+        $this->vaultService->expects($this->never())->method('getMetadata');
         $this->vaultService
             ->expects($this->once())
             ->method('store')
             ->with(
                 'metadata-test',
                 'secret',
-                ['metadata' => ['service' => 'stripe', 'env' => 'production']],
+                ['mergeMetadata' => ['service' => 'stripe', 'env' => 'production']],
             );
 
         $exitCode = $this->commandTester->execute([
@@ -402,49 +400,34 @@ final class VaultStoreCommandTest extends TestCase
     }
 
     /**
-     * The service replaces the metadata map, so the command merges the given
-     * pairs into the stored ones.
+     * #570: the command does not read the stored map itself. A read here and
+     * the write in store() were two steps, and a metadata write committed
+     * between them was lost; field keys and merge entries go in one store().
      */
     #[Test]
-    public function mergesFreeFormMetadataIntoTheStoredMap(): void
+    public function leavesTheMetadataMergeToTheStore(): void
     {
-        $this->vaultService->method('getMetadata')->willReturn($this->details(['team' => 'a', 'note' => 'old']));
+        $this->vaultService->expects($this->never())->method('getMetadata');
         $this->vaultService
             ->expects($this->once())
             ->method('store')
-            ->with('merge', 'secret', ['metadata' => ['team' => 'a', 'note' => 'new', 'ticket' => 'OPS-1']]);
+            ->with('merge', 'secret', ['description' => 'Key', 'mergeMetadata' => ['note' => 'new', 'ticket' => 'OPS-1']]);
 
         $exitCode = $this->commandTester->execute([
             'identifier' => 'merge',
             '--value'    => 'secret',
-            '--metadata' => ['note=new', 'ticket=OPS-1'],
+            '--metadata' => ['note=new', 'description=Key', 'ticket=OPS-1'],
         ]);
 
         self::assertSame(0, $exitCode);
     }
 
-    #[Test]
-    public function aMetadataReadDenialNamesTheWayAround(): void
-    {
-        $this->vaultService->method('getMetadata')->willThrowException(AccessDeniedException::forIdentifier('merge'));
-        $this->vaultService->expects($this->never())->method('store');
-
-        $exitCode = $this->commandTester->execute([
-            'identifier' => 'merge',
-            '--value'    => 'secret',
-            '--metadata' => ['note=new'],
-        ]);
-
-        self::assertSame(1, $exitCode);
-        self::assertStringContainsString('leave out --metadata', preg_replace('/\s+/', ' ', $this->commandTester->getDisplay()) ?? '');
-    }
-
     /**
-     * The merge read runs as the provisioning actor: outside its scope the
+     * The merging store runs as the provisioning actor: outside its scope the
      * plain CLI user would be checked instead (and refused without CLI access).
      */
     #[Test]
-    public function theMetadataReadRunsInsideTheProvisionerScope(): void
+    public function theMetadataMergeRunsInsideTheProvisionerScope(): void
     {
         $this->configuration->method('getProvisioningBeUserUid')->willReturn(991);
         $scope = new ArrayObject(['active' => false]);
@@ -459,16 +442,14 @@ final class VaultStoreCommandTest extends TestCase
                     $scope['active'] = false;
                 }
             });
-        $readInScope = [];
+        $storeInScope = [];
+        $this->vaultService->expects($this->never())->method('getMetadata');
         $this->vaultService
             ->expects($this->once())
-            ->method('getMetadata')
-            ->willReturnCallback(function () use ($scope, &$readInScope): SecretDetails {
-                $readInScope[] = $scope['active'];
-
-                return $this->details(['team' => 'a']);
+            ->method('store')
+            ->willReturnCallback(static function (string $identifier, string $secret, array $options) use ($scope, &$storeInScope): void {
+                $storeInScope[] = [$scope['active'], $options];
             });
-        $this->vaultService->expects($this->once())->method('store');
 
         $exitCode = $this->commandTester->execute([
             'identifier'       => 'scoped',
@@ -478,7 +459,7 @@ final class VaultStoreCommandTest extends TestCase
         ]);
 
         self::assertSame(0, $exitCode);
-        self::assertSame([true], $readInScope, 'getMetadata() ran outside the technical actor scope.');
+        self::assertSame([[true, ['mergeMetadata' => ['note' => 'x']]]], $storeInScope, 'The merging store() ran outside the technical actor scope.');
     }
 
     #[Test]
@@ -559,31 +540,6 @@ final class VaultStoreCommandTest extends TestCase
         ]);
 
         self::assertSame(0, $exitCode);
-    }
-
-    /**
-     * @param array<string, mixed> $metadata
-     */
-    private function details(array $metadata): SecretDetails
-    {
-        return new SecretDetails(
-            uid: 1,
-            identifier: 'merge',
-            description: '',
-            ownerUid: 1,
-            groups: [],
-            context: '',
-            frontendAccessible: false,
-            version: 1,
-            createdAt: 0,
-            updatedAt: 0,
-            expiresAt: null,
-            lastRotatedAt: null,
-            readCount: 0,
-            lastReadAt: null,
-            metadata: $metadata,
-            scopePid: 0,
-        );
     }
 
     private function createCommand(): VaultStoreCommand

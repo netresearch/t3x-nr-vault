@@ -38,7 +38,10 @@ interface VaultServiceInterface
      *                                         - groups: int[] - BE user group UIDs allowed to access
      *                                         - context: string - Permission scoping
      *                                         - expiresAt: int|\DateTimeInterface|null - When secret expires
-     *                                         - metadata: array - Custom metadata
+     *                                         - metadata: array - Custom metadata; replaces the stored map
+     *                                         - mergeMetadata: array - Custom metadata merged into the stored map
+     *                                         (keys it names are replaced, others kept). The merge reads the map
+     *                                         inside the store's own mutation; not together with metadata
      *                                         - description: string - Human-readable description
      *                                         - scopePid: int - Page ID for multi-site scoping
      *
