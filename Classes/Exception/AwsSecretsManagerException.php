@@ -84,19 +84,6 @@ final class AwsSecretsManagerException extends VaultException
         );
     }
 
-    /**
-     * A read whose response names no version id. Its own code, so that a
-     * caller that tolerates a document which is not a JSON object (code
-     * 1794500008) does not tolerate this too.
-     */
-    public static function versionMissing(string $operation): self
-    {
-        return new self(
-            sprintf('AWS Secrets Manager %s returned an unusable response: response has no VersionId', $operation),
-            1794500015,
-        );
-    }
-
     public static function backingObjectMissing(string $identifier): self
     {
         return new self(

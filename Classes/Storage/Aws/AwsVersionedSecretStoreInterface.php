@@ -24,9 +24,11 @@ interface AwsVersionedSecretStoreInterface
 {
     /**
      * The stored fields and the version id of AWSCURRENT, from one response,
-     * or null when the secret does not exist.
+     * or null when the secret does not exist. The version id is null when the
+     * response names none; the caller then takes a write back without the
+     * stage move.
      *
-     * @return array{data: array<string, mixed>, versionId: string}|null
+     * @return array{data: array<string, mixed>, versionId: string|null}|null
      *
      * @throws AwsSecretsManagerException
      */
@@ -38,18 +40,16 @@ interface AwsVersionedSecretStoreInterface
      * UpdateSecretVersionStage. AWS refuses the move when AWSCURRENT is on any
      * other version, so a writer that landed after the write keeps its value.
      *
-     * When the move fails, nothing is written: it counts as applied only when
-     * two consecutive reads show the version moved back to (the move applied
-     * and its answer was lost), and as skipped otherwise. Only a refusal for
-     * lack of the permission (AccessDeniedException, or a 403 without an error
-     * code) falls back to {@see AwsSecretStoreInterface::restoreIfCurrent()}.
+     * Applied is reported only when a move call succeeded. When the first move
+     * fails and the secret is still at the given version, the move is called
+     * once more; when AWSCURRENT shows the version moved back to instead, the
+     * outcome is unconfirmed. Nothing is written in either case. Only a refusal
+     * for lack of the permission (AccessDeniedException, or a 403 without an
+     * error code) falls back to {@see AwsSecretStoreInterface::restoreIfCurrent()}.
      *
      * @param array<string, mixed> $data The fields of the version the write replaced, for that fallback
      *
-     * @return bool True when the write was taken back; false when it was skipped (somebody wrote since, the
-     *              secret is gone, or the move failed and did not apply)
-     *
      * @throws AwsSecretsManagerException When a read or the fallback fails
      */
-    public function restoreToVersionIfCurrent(string $identifier, array $data, string $versionId, string $previousVersionId): bool;
+    public function restoreToVersionIfCurrent(string $identifier, array $data, string $versionId, string $previousVersionId): AwsRestoreOutcome;
 }

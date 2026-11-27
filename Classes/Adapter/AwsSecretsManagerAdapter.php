@@ -14,6 +14,7 @@ use Netresearch\NrVault\Domain\Dto\SecretFilters;
 use Netresearch\NrVault\Domain\Model\Secret;
 use Netresearch\NrVault\Exception\AwsSecretsManagerException;
 use Netresearch\NrVault\Exception\ConfigurationException;
+use Netresearch\NrVault\Storage\Aws\AwsRestoreOutcome;
 use Netresearch\NrVault\Storage\Aws\AwsSecretsEndpoint;
 use Netresearch\NrVault\Storage\Aws\AwsSecretStoreInterface;
 use Netresearch\NrVault\Storage\Aws\AwsVersionedSecretStoreInterface;
@@ -309,10 +310,12 @@ final readonly class AwsSecretsManagerAdapter implements CreateCompensatingAdapt
                 return true;
             }
 
-            if ($previous !== null) {
-                $applied = $previousVersion !== null && $this->store instanceof AwsVersionedSecretStoreInterface
-                    ? $this->store->restoreToVersionIfCurrent($identifier, $previous, $version, $previousVersion)
-                    : $this->store->restoreIfCurrent($identifier, $previous, $version);
+            $outcome = null;
+            if ($previous !== null && $previousVersion !== null && $this->store instanceof AwsVersionedSecretStoreInterface) {
+                $outcome = $this->store->restoreToVersionIfCurrent($identifier, $previous, $version, $previousVersion);
+                $applied = $outcome === AwsRestoreOutcome::Applied;
+            } elseif ($previous !== null) {
+                $applied = $this->store->restoreIfCurrent($identifier, $previous, $version);
             } elseif ($rowIsBeingRemoved || !$this->registry->exists($identifier)) {
                 $applied = $this->store->destroyIfCurrent($identifier, $version);
             } else {
@@ -320,10 +323,7 @@ final readonly class AwsSecretsManagerAdapter implements CreateCompensatingAdapt
             }
 
             if (!$applied) {
-                $this->logger->warning(
-                    'nr-vault: the rollback of an AWS Secrets Manager write was skipped because the secret is not at the version this call wrote (somebody wrote since, or the read was stale). The secret was left as it is.',
-                    ['secret' => $identifier],
-                );
+                $this->logger->warning($this->skippedRollbackMessage($outcome), ['secret' => $identifier]);
             }
 
             return $applied;
@@ -333,6 +333,18 @@ final readonly class AwsSecretsManagerAdapter implements CreateCompensatingAdapt
 
             return true;
         }
+    }
+
+    /**
+     * One message per skipped rollback, matching what the store reported.
+     */
+    private function skippedRollbackMessage(?AwsRestoreOutcome $outcome): string
+    {
+        return match ($outcome) {
+            AwsRestoreOutcome::NotApplied  => 'nr-vault: the rollback of an AWS Secrets Manager write was not applied: UpdateSecretVersionStage failed twice while the secret was still at the version this call wrote. The write stays; check the secret.',
+            AwsRestoreOutcome::Unconfirmed => 'nr-vault: the outcome of the rollback of an AWS Secrets Manager write is unconfirmed: UpdateSecretVersionStage failed, and AWSCURRENT showed the version it moves back to, which a read that lags behind this write also shows. Nothing was written; check the secret.',
+            default                        => 'nr-vault: the rollback of an AWS Secrets Manager write was skipped because the secret is not at the version this call wrote (somebody wrote since, or the read was stale). The secret was left as it is.',
+        };
     }
 
     private function warnRollbackFailed(string $identifier, Throwable $e): void

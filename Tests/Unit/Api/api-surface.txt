@@ -779,7 +779,6 @@ Netresearch\NrVault\Exception\AwsSecretsManagerException (class)
   method static requestRejected(string $operation, int $status, string $awsCode): self
   method static transportFailure(string $operation, string $detail): self
   method static unsafeName(string $what): self
-  method static versionMissing(string $operation): self
 
 Netresearch\NrVault\Exception\ConfigurationException (class)
   method static awsSdkMissing(): self
@@ -1159,6 +1158,17 @@ Netresearch\NrVault\Service\VaultServiceInterface (interface)
   method setEnabled(string $identifier, bool $enabled, string $reason = …): void
   method store(string $identifier, string $secret, array $options = …): void
 
+Netresearch\NrVault\Storage\Aws\AwsRestoreOutcome (enum)
+  case Applied = "applied"
+  case NotApplied = "not-applied"
+  case OtherWriter = "other-writer"
+  case Unconfirmed = "unconfirmed"
+  method static cases(): array
+  method static from(int|string $value): static
+  method static tryFrom(int|string $value): ?static
+  property readonly name: string
+  property readonly value: string
+
 Netresearch\NrVault\Storage\Aws\AwsSecretStoreInterface (interface)
   method create(string $identifier, array $data): string
   method destroy(string $identifier): void
@@ -1171,7 +1181,7 @@ Netresearch\NrVault\Storage\Aws\AwsSecretStoreInterface (interface)
 
 Netresearch\NrVault\Storage\Aws\AwsVersionedSecretStoreInterface (interface)
   method readWithVersion(string $identifier): ?array
-  method restoreToVersionIfCurrent(string $identifier, array $data, string $versionId, string $previousVersionId): bool
+  method restoreToVersionIfCurrent(string $identifier, array $data, string $versionId, string $previousVersionId): Netresearch\NrVault\Storage\Aws\AwsRestoreOutcome
 
 Netresearch\NrVault\Storage\HashiCorp\AtomicKvStoreInterface (interface)
   method create(string $identifier, array $data): int

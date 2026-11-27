@@ -19,6 +19,7 @@ use Netresearch\NrVault\Domain\Model\Secret;
 use Netresearch\NrVault\Domain\Repository\SecretRepositoryInterface;
 use Netresearch\NrVault\Exception\AwsSecretsManagerException;
 use Netresearch\NrVault\Exception\ConfigurationException;
+use Netresearch\NrVault\Storage\Aws\AwsRestoreOutcome;
 use Netresearch\NrVault\Storage\Aws\AwsSecretStoreInterface;
 use Netresearch\NrVault\Storage\Aws\AwsVersionedSecretStoreInterface;
 use Netresearch\NrVault\Storage\ExternalStoreJournal;
@@ -75,6 +76,11 @@ final class AwsSecretsManagerAdapterTest extends TestCase
     /** @var list<string> The previous version id each restoreToVersionIfCurrent() was given */
     private array $restoredToVersions = [];
 
+    /** The outcome the fake store reports for the next stage move, instead of moving */
+    private ?AwsRestoreOutcome $forcedOutcome = null;
+
+    private bool $versionlessReads = false;
+
     /** @var array<string, list<string>> Every version id written per secret, oldest first */
     private array $history = [];
 
@@ -100,6 +106,8 @@ final class AwsSecretsManagerAdapterTest extends TestCase
         $this->warnings                       = [];
         $this->restoredToVersions             = [];
         $this->history                        = [];
+        $this->forcedOutcome                  = null;
+        $this->versionlessReads               = false;
         $this->awsWritesAllowed               = null;
         $this->masterKey                      = sodium_crypto_secretbox_keygen();
         $this->journal                        = new ExternalStoreJournal();
@@ -263,6 +271,59 @@ final class AwsSecretsManagerAdapterTest extends TestCase
 
         self::assertSame($before, $this->aws['api_key']);
         self::assertSame([$replaced], $this->restoredToVersions, 'the rollback names the version the update replaced, read with the previous envelope (#567)');
+    }
+
+    /**
+     * @return array<string, array{AwsRestoreOutcome, string}>
+     */
+    public static function skippedOutcomeProvider(): array
+    {
+        return [
+            'not applied'  => [AwsRestoreOutcome::NotApplied, 'was not applied: UpdateSecretVersionStage failed twice'],
+            'unconfirmed'  => [AwsRestoreOutcome::Unconfirmed, 'is unconfirmed'],
+            'other writer' => [AwsRestoreOutcome::OtherWriter, 'somebody wrote since'],
+        ];
+    }
+
+    #[Test]
+    #[DataProvider('skippedOutcomeProvider')]
+    public function aSkippedRowWriteRollbackIsLoggedOnceWithItsReason(AwsRestoreOutcome $outcome, string $reason): void
+    {
+        $adapter = $this->adapter();
+        $adapter->store($this->envelopeSecret('api_key'));
+
+        $this->failRowWrite  = true;
+        $this->forcedOutcome = $outcome;
+
+        try {
+            $adapter->store($this->envelopeSecret('api_key', 'newer')->withUid(1));
+            self::fail('The row failure must propagate.');
+        } catch (RuntimeException) {
+        }
+
+        self::assertCount(1, $this->warnings, 'one warning per skipped rollback');
+        self::assertStringContainsString($reason, $this->warnings[0]);
+    }
+
+    #[Test]
+    public function anUpdateReadWithoutAVersionIdIsTakenBackByReadThenWrite(): void
+    {
+        $adapter = $this->adapter();
+        $adapter->store($this->envelopeSecret('api_key'));
+
+        $before                 = $this->aws['api_key'];
+        $this->versionlessReads = true;
+        $this->failRowWrite     = true;
+
+        try {
+            $adapter->store($this->envelopeSecret('api_key', 'newer')->withUid(1));
+            self::fail('The row failure must propagate.');
+        } catch (RuntimeException $e) {
+            self::assertSame(4778462882, $e->getCode(), 'the write itself did not fail on the missing version id');
+        }
+
+        self::assertSame($before, $this->aws['api_key'], 'put back by read-then-write');
+        self::assertSame([], $this->restoredToVersions, 'no stage move without a version id');
     }
 
     #[Test]
@@ -1158,6 +1219,16 @@ final class AwsSecretsManagerAdapterTest extends TestCase
         return in_array($versionId, $history, true) && $versionId !== $this->awsVersion($identifier);
     }
 
+    public function forcedOutcome(): ?AwsRestoreOutcome
+    {
+        return $this->forcedOutcome;
+    }
+
+    public function awsVersionForRead(string $identifier): ?string
+    {
+        return $this->versionlessReads ? null : $this->awsVersion($identifier);
+    }
+
     public function recordVersionedRead(string $identifier): void
     {
         $this->awsCalls[] = 'readWithVersion:' . $identifier;
@@ -1279,7 +1350,7 @@ final class AwsSecretsManagerAdapterTest extends TestCase
                 $this->test->recordVersionedRead($identifier);
                 $data = $this->test->awsRead($identifier);
 
-                return $data === null ? null : ['data' => $data, 'versionId' => $this->test->awsVersion($identifier)];
+                return $data === null ? null : ['data' => $data, 'versionId' => $this->test->awsVersionForRead($identifier)];
             }
 
             public function create(string $identifier, array $data): string
@@ -1292,21 +1363,26 @@ final class AwsSecretsManagerAdapterTest extends TestCase
                 return $this->test->awsWrite($identifier, $data);
             }
 
-            public function restoreToVersionIfCurrent(string $identifier, array $data, string $versionId, string $previousVersionId): bool
+            public function restoreToVersionIfCurrent(string $identifier, array $data, string $versionId, string $previousVersionId): AwsRestoreOutcome
             {
                 $this->test->recordRestoreTo($previousVersionId);
+
+                $forced = $this->test->forcedOutcome();
+                if ($forced instanceof AwsRestoreOutcome) {
+                    return $forced;
+                }
 
                 // A stage move: AWSCURRENT must still be on the version the
                 // write created, and the one to move back to an earlier one.
                 if ($this->test->awsVersion($identifier) !== $versionId) {
-                    return false;
+                    return AwsRestoreOutcome::OtherWriter;
                 }
 
                 if (!$this->test->awsHasEarlierVersion($identifier, $previousVersionId)) {
                     throw new LogicException('MoveToVersionId ' . $previousVersionId . ' is not an earlier version of ' . $identifier . '.', 1794567010);
                 }
 
-                return $this->restoreIfCurrent($identifier, $data, $versionId);
+                return $this->restoreIfCurrent($identifier, $data, $versionId) ? AwsRestoreOutcome::Applied : AwsRestoreOutcome::OtherWriter;
             }
 
             public function restoreIfCurrent(string $identifier, array $data, string $versionId): bool

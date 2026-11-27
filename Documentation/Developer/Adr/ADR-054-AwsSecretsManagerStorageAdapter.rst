@@ -205,25 +205,26 @@ only while ``AWSCURRENT`` is still that version.
     version is written: the previous version is current again, and AWS moves
     ``AWSPREVIOUS`` to the version the rollback removed ``AWSCURRENT`` from.
 *   **A move that fails writes nothing**, unless it was refused for lack of
-    the permission (below). The SDK has already retried a throttled or failed
+    the permission (below), and the rollback counts as applied only when a move
+    call itself succeeded. The SDK has already retried a throttled or failed
     request once. AWS does not document the error code of a mismatch, so the
-    outcome is read from ``AWSCURRENT``: the store reads until it sees our
-    version or the version moved back to, at most three times with the delay
-    between reads.
+    store reads ``AWSCURRENT`` until it sees our version or the version moved
+    back to, at most three times with the delay between reads, and reports one
+    of four outcomes (:php:`AwsRestoreOutcome`):
 
-    -   The version moved back to, twice in a row (a second read after the
-        delay): the move applied and only its answer was lost (the SDK's retry
-        of an applied move is refused). The rollback counts as applied. A read
-        that has not caught up with our write shows the same version, which is
-        why one read is not enough; if the second read shows anything else, the
-        outcome is unconfirmed, the rollback is skipped and a warning names the
-        secret.
-    -   Our version: the move did not apply. The rollback is skipped, a warning
-        names the secret and the error code, and our write stays.
-    -   Any other version, or none: a concurrent writer won, or the secret is
-        gone. The rollback is skipped, and the adapter logs it.
+    -   Our version: the move is called once more; it is conditional, so that
+        is safe. If that call succeeds, the rollback is applied; if it fails,
+        the rollback is not applied and our write stays.
+    -   The version moved back to: unconfirmed. An applied move whose answer
+        was lost shows it, and so does a read that lags behind our own write;
+        no number of reads tells them apart, so this is never counted as
+        applied.
+    -   Any other version, or none: another writer won, or the secret is gone.
 
-    The row failure is the error the caller sees either way.
+    The adapter logs one warning per skipped rollback, naming the secret and
+    the reason. The row failure is the error the caller sees either way. A read
+    of the previous document that names no ``VersionId`` does not fail the
+    write: the rollback then uses read-then-write.
 *   **On that path the rollback falls back to read-then-write** only when the
     move is refused for lack of the permission, and when the store does not
     implement :php:`AwsVersionedSecretStoreInterface`, as before #567. A

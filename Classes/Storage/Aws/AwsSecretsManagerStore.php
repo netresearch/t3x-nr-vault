@@ -89,12 +89,11 @@ final class AwsSecretsManagerStore implements AwsSecretStoreInterface, AwsVersio
             return null;
         }
 
+        // Without a version id the caller takes a write back by
+        // read-then-write, as before #567; the read itself is fine.
         $version = $fetched[1]['VersionId'] ?? null;
-        if (!is_string($version) || $version === '') {
-            throw AwsSecretsManagerException::versionMissing('read');
-        }
 
-        return ['data' => $fetched[0], 'versionId' => $version];
+        return ['data' => $fetched[0], 'versionId' => is_string($version) && $version !== '' ? $version : null];
     }
 
     public function create(string $identifier, #[SensitiveParameter] array $data): string
@@ -170,7 +169,7 @@ final class AwsSecretsManagerStore implements AwsSecretStoreInterface, AwsVersio
         return true;
     }
 
-    public function restoreToVersionIfCurrent(string $identifier, #[SensitiveParameter] array $data, string $versionId, string $previousVersionId): bool
+    public function restoreToVersionIfCurrent(string $identifier, #[SensitiveParameter] array $data, string $versionId, string $previousVersionId): AwsRestoreOutcome
     {
         // The stage move is conditional (API_UpdateSecretVersionStage): it
         // fails when AWSCURRENT is attached to any version but ours, so a
@@ -180,19 +179,17 @@ final class AwsSecretsManagerStore implements AwsSecretStoreInterface, AwsVersio
         try {
             $this->moveBack($identifier, $versionId, $previousVersionId);
 
-            return true;
+            return AwsRestoreOutcome::Applied;
         } catch (Throwable $e) {
             if ($this->isAccessDenied($e)) {
                 // Without the permission, the read-then-write of
                 // restoreIfCurrent() is the rollback, as before #567.
                 $this->warnDenied($identifier, $e);
 
-                return $this->restoreIfCurrent($identifier, $data, $versionId);
+                return $this->restoreIfCurrent($identifier, $data, $versionId) ? AwsRestoreOutcome::Applied : AwsRestoreOutcome::OtherWriter;
             }
 
-            // Any other failure writes nothing: the move either applied (its
-            // answer was lost) or it did not.
-            return $this->moveApplied($identifier, $versionId, $previousVersionId, $e);
+            return $this->outcomeAfterFailedMove($identifier, $versionId, $previousVersionId);
         }
     }
 
@@ -315,15 +312,18 @@ final class AwsSecretsManagerStore implements AwsSecretStoreInterface, AwsVersio
     }
 
     /**
-     * Whether a move that failed applied after all (its answer was lost, and
-     * the SDK's retry was refused). AWSCURRENT is read until it shows our
-     * version or the version moved back to, at most VERSION_READ_ATTEMPTS
-     * times. The version moved back to is also what a read that lags behind
-     * our own write shows, so it counts as applied only when the next read,
-     * after the delay, shows it again. Everything else is skipped: nothing is
-     * written either way.
+     * What a failed move leaves, read from AWSCURRENT rather than from the
+     * error code, which AWS does not document for a mismatch. Nothing is
+     * written. AWSCURRENT is read until it shows our version or the version
+     * moved back to, at most VERSION_READ_ATTEMPTS times.
+     *
+     * - Our version: the move is called once more; it is conditional, so that
+     *   is safe. Only a move call that succeeds counts as applied.
+     * - The version moved back to: unconfirmed. An applied move whose answer
+     *   was lost shows it, and so does a read that lags behind our own write.
+     * - Anything else: another writer won, or the secret is gone.
      */
-    private function moveApplied(string $identifier, string $versionId, string $previousVersionId, Throwable $failure): bool
+    private function outcomeAfterFailedMove(string $identifier, string $versionId, string $previousVersionId): AwsRestoreOutcome
     {
         $current = null;
         for ($attempt = 1; $attempt <= self::VERSION_READ_ATTEMPTS && $current !== $versionId && $current !== $previousVersionId; ++$attempt) {
@@ -334,31 +334,22 @@ final class AwsSecretsManagerStore implements AwsSecretStoreInterface, AwsVersio
             $current = $this->currentVersion($identifier);
         }
 
-        if ($current === $previousVersionId) {
-            ($this->sleep)(self::VERSION_READ_DELAY_MICROSECONDS);
-            if ($this->currentVersion($identifier) !== $previousVersionId) {
-                $this->warnUnconfirmed($identifier);
-                $current = null;
-            }
-        } elseif ($current === $versionId) {
-            $this->logger?->warning(
-                'nr-vault: AWS Secrets Manager UpdateSecretVersionStage failed ({code}) while the secret was still at the version this call wrote. The write was not taken back.',
-                ['secret' => $identifier, 'code' => $this->failureCode($failure)],
-            );
-        }
-
-        return $current === $previousVersionId;
+        return match ($current) {
+            $versionId         => $this->moveAgain($identifier, $versionId, $previousVersionId),
+            $previousVersionId => AwsRestoreOutcome::Unconfirmed,
+            default            => AwsRestoreOutcome::OtherWriter,
+        };
     }
 
-    /**
-     * The first read showed the version moved back to, the second did not.
-     */
-    private function warnUnconfirmed(string $identifier): void
+    private function moveAgain(string $identifier, string $versionId, string $previousVersionId): AwsRestoreOutcome
     {
-        $this->logger?->warning(
-            'nr-vault: the outcome of an AWS Secrets Manager rollback is unconfirmed: UpdateSecretVersionStage failed, and AWSCURRENT showed the version moved back to once, then not again. The rollback is treated as skipped; check the secret.',
-            ['secret' => $identifier],
-        );
+        try {
+            $this->moveBack($identifier, $versionId, $previousVersionId);
+
+            return AwsRestoreOutcome::Applied;
+        } catch (Throwable) {
+            return AwsRestoreOutcome::NotApplied;
+        }
     }
 
     /**
