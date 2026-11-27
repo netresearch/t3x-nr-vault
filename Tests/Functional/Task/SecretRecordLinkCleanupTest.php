@@ -413,7 +413,9 @@ final class SecretRecordLinkCleanupTest extends AbstractVaultFunctionalTestCase
 
     /**
      * PostgreSQL returns a CHAR column padded to its length. The padding is
-     * not a mismatch: the record migrates and its secret stays (#565).
+     * not a mismatch: the record migrates and its secret stays (#565). The
+     * value is stored as the database returns it, which on PostgreSQL
+     * includes that padding.
      */
     #[Test]
     public function theMigrateFieldCommandMigratesAFixedWidthColumn(): void
@@ -428,7 +430,7 @@ final class SecretRecordLinkCleanupTest extends AbstractVaultFunctionalTestCase
 
         self::assertSame(0, $exitCode, $tester->getDisplay());
         $identifier = rtrim($this->fetchField(self::RESERVED_TABLE, $uid, 'padded'), ' ');
-        self::assertSame('char-secret', $this->get(VaultServiceInterface::class)->retrieve($identifier));
+        self::assertSame('char-secret', rtrim((string) $this->get(VaultServiceInterface::class)->retrieve($identifier), ' '));
     }
 
     /**
