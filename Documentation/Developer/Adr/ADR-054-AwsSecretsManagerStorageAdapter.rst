@@ -199,9 +199,14 @@ only while ``AWSCURRENT`` is still that version.
     version is written: the previous version is current again, and AWS moves
     ``AWSPREVIOUS`` to the version the rollback removed ``AWSCURRENT`` from.
     AWS does not document the error code of that refusal, so the code does not
-    decide: after any failure the store reads ``AWSCURRENT``. On another version
-    the rollback is skipped (false, a warning from the adapter), exactly as for
-    a concurrent writer.
+    decide: after any failure the store reads ``AWSCURRENT``. On the version
+    the rollback moved back to, the move applied and only its answer was lost
+    (the SDK's one retry of an applied move is refused, because ``AWSCURRENT``
+    is no longer on the write's version), so the rollback counts as applied.
+    On any other version the rollback is skipped (false, a warning from the
+    adapter), exactly as for a concurrent writer. A read that has not caught up
+    with the write and still shows the replaced version would be taken for an
+    applied move; the reads are retried for that, as below.
 *   **The rollback falls back to read-then-write** in three cases, and then has
     the gap described below: the policy lacks
     ``secretsmanager:UpdateSecretVersionStage`` (``AccessDeniedException``; the
@@ -334,7 +339,7 @@ Negative
 Not verified against real AWS
 -----------------------------
 
-The functional suite runs against Moto only. Three things it cannot show:
+The functional suite runs against Moto only. Four things it cannot show:
 
 -  **Resource-scoped IAM.** Moto evaluates a policy's ``Resource`` against ``*``
    for Secrets Manager calls instead of the secret's ARN: a policy scoped to the
@@ -352,6 +357,15 @@ The functional suite runs against Moto only. Three things it cannot show:
    store a wrong value.
 -  **Colons in names.** Moto accepts a colon in a secret name and AWS does not.
    The mapping is pinned by unit tests on the name, not by the emulation.
+-  **The conditional stage move.** Moto 5.2.5 does not move the default version
+   on ``UpdateSecretVersionStage``, so the rollback's move is tested against a
+   unit-test fake that follows the API reference. Two error codes were not
+   measured: the one AWS returns when ``RemoveFromVersionId`` does not match
+   (Moto: ``InvalidParameterException``), and the one for a missing
+   ``UpdateSecretVersionStage`` permission (``AccessDeniedException`` is
+   assumed; Moto answers an XML ``403`` without a readable code). Neither
+   decides the outcome, because the store reads ``AWSCURRENT`` after any
+   failed move; only the wording of the warning depends on the second.
 
 Alternatives considered
 =======================

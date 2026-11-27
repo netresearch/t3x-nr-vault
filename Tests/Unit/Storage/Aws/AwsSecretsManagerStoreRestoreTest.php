@@ -170,6 +170,27 @@ final class AwsSecretsManagerStoreRestoreTest extends TestCase
     }
 
     #[Test]
+    public function aMoveThatAppliedButWhoseAnswerWasLostCountsAsApplied(): void
+    {
+        $secret   = new FakeSecretsManagerSecret(self::SECRET_NAME);
+        $previous = $secret->seed(['v' => 'previous']);
+        $store    = $this->store($secret);
+
+        $ours = $store->write('api_key', ['v' => 'ours']);
+        $secret->applyThenFail('UpdateSecretVersionStage');
+        $before = count($secret->targets());
+
+        // The SDK retries the 500 once; the retry is refused because
+        // AWSCURRENT is no longer on our version.
+        self::assertTrue($store->restoreIfCurrent('api_key', ['v' => 'previous'], $ours, $previous), 'the rollback applied');
+
+        self::assertSame(['UpdateSecretVersionStage', 'UpdateSecretVersionStage', 'GetSecretValue', 'GetSecretValue', 'GetSecretValue'], array_slice($secret->targets(), $before), 'no put after the move applied');
+        self::assertSame($previous, $secret->versionLabelled('AWSCURRENT'));
+        self::assertSame(2, $secret->versionCount(), 'nothing was put back on top');
+        self::assertSame([], $this->warnings());
+    }
+
+    #[Test]
     public function withoutThePreviousVersionIdTheRollbackReadsThenWrites(): void
     {
         $secret = new FakeSecretsManagerSecret(self::SECRET_NAME);

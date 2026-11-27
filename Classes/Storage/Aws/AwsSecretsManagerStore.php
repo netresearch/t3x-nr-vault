@@ -170,7 +170,7 @@ final class AwsSecretsManagerStore implements AwsSecretStoreInterface
 
             return true;
         } catch (Throwable $e) {
-            return $this->restoreAfterFailedMove($identifier, $data, $versionId, $e);
+            return $this->restoreAfterFailedMove($identifier, $data, $versionId, $previousVersionId, $e);
         }
     }
 
@@ -300,13 +300,14 @@ final class AwsSecretsManagerStore implements AwsSecretStoreInterface
     }
 
     /**
-     * The stage move failed. Whether a concurrent writer won is read from
-     * AWSCURRENT, not from the error code; while the secret is still at our
-     * version, the value is put back as a new version.
+     * The stage move failed. What happened is read from AWSCURRENT, not from
+     * the error code: still our version, the value is put back as a new
+     * version; the version moved back to, the move applied and only its answer
+     * was lost; any other, a concurrent writer won.
      *
      * @param array<string, mixed> $data
      */
-    private function restoreAfterFailedMove(string $identifier, #[SensitiveParameter] array $data, string $versionId, Throwable $e): bool
+    private function restoreAfterFailedMove(string $identifier, #[SensitiveParameter] array $data, string $versionId, string $previousVersionId, Throwable $e): bool
     {
         $code = $this->failureCode($e);
 
@@ -320,22 +321,25 @@ final class AwsSecretsManagerStore implements AwsSecretStoreInterface
         }
 
         // AWS does not document the error of a version mismatch, so the
-        // label decides, not the code: AWSCURRENT on another version means
-        // a concurrent writer won (or the secret is gone).
-        if (!$this->isCurrent($identifier, $versionId)) {
-            return false;
+        // label decides, not the code.
+        $current = $this->settledVersion($identifier, $versionId);
+
+        if ($current === $versionId) {
+            // Still ours, so the move failed for another reason (the version
+            // to move back to was removed, a throttled request): put the value
+            // back as a new version, as before the stage move existed.
+            $this->logger?->warning(
+                'nr-vault: AWS Secrets Manager UpdateSecretVersionStage failed ({code}) while the secret was still at the version this call wrote; the rollback fell back to read-then-write. If the policy lacks secretsmanager:UpdateSecretVersionStage, grant it.',
+                ['code' => $code],
+            );
+            $this->write($identifier, $data);
         }
 
-        // Still ours, so the move failed for another reason (the version to
-        // move back to was removed, a throttled request): put the value
-        // back as a new version, as before the stage move existed.
-        $this->logger?->warning(
-            'nr-vault: AWS Secrets Manager UpdateSecretVersionStage failed ({code}) while the secret was still at the version this call wrote; the rollback fell back to read-then-write. If the policy lacks secretsmanager:UpdateSecretVersionStage, grant it.',
-            ['code' => $code],
-        );
-        $this->write($identifier, $data);
-
-        return true;
+        // On the version moved back to, the move applied and its answer was
+        // lost: the SDK's retry of an applied move is refused, because
+        // AWSCURRENT is no longer on our version. On any other version a
+        // concurrent writer won, or the secret is gone.
+        return $current === $versionId || $current === $previousVersionId;
     }
 
     private function put(SecretsManagerClient $client, string $name, #[SensitiveParameter] string $encoded): string
@@ -351,12 +355,22 @@ final class AwsSecretsManagerStore implements AwsSecretStoreInterface
      */
     private function isCurrent(string $identifier, string $versionId): bool
     {
+        return $this->settledVersion($identifier, $versionId) === $versionId;
+    }
+
+    /**
+     * The AWSCURRENT version id, read until it is the given one or the
+     * attempts run out; null when the secret does not exist.
+     */
+    private function settledVersion(string $identifier, string $versionId): ?string
+    {
+        $current = null;
         for ($attempt = 1; $attempt <= self::VERSION_READ_ATTEMPTS; ++$attempt) {
             // Not found is retried too: a read that has not caught up with the
             // create looks like a missing secret for a moment.
             $current = $this->currentVersion($identifier);
             if ($current === $versionId) {
-                return true;
+                return $current;
             }
 
             if ($attempt < self::VERSION_READ_ATTEMPTS) {
@@ -364,7 +378,7 @@ final class AwsSecretsManagerStore implements AwsSecretStoreInterface
             }
         }
 
-        return false;
+        return $current;
     }
 
     /**

@@ -52,6 +52,8 @@ final class FakeSecretsManagerSecret
 
     private ?string $concurrentValue = null;
 
+    private ?string $applyThenFail = null;
+
     public function __construct(
         private readonly string $name,
         private readonly string $mismatchCode = 'InvalidParameterException',
@@ -77,12 +79,20 @@ final class FakeSecretsManagerSecret
             $this->concurrentValue = null;
         }
 
-        return match ($target) {
+        $answer = match ($target) {
             'GetSecretValue'           => $this->getSecretValue(),
             'PutSecretValue'           => $this->putSecretValue($body),
             'UpdateSecretVersionStage' => $this->updateSecretVersionStage($body),
             default                    => throw new LogicException('The fake does not model ' . $target . '.', 1794567002),
         };
+
+        if ($this->applyThenFail === $target) {
+            $this->applyThenFail = null;
+
+            return $this->json(['__type' => 'InternalServiceError', 'Message' => 'details that must not surface'], 500);
+        }
+
+        return $answer;
     }
 
     /**
@@ -101,6 +111,15 @@ final class FakeSecretsManagerSecret
     public function deny(string $action): void
     {
         $this->denied[] = $action;
+    }
+
+    /**
+     * The next request of this action is carried out, but answered with a
+     * server error, as when the response is lost on the way back.
+     */
+    public function applyThenFail(string $action): void
+    {
+        $this->applyThenFail = $action;
     }
 
     /**
@@ -186,7 +205,8 @@ final class FakeSecretsManagerSecret
             return $this->error('InvalidParameterException');
         }
 
-        if ($attached !== null && $attached !== $moveTo && $remove !== $attached) {
+        // As documented, even when the label is already on MoveToVersionId.
+        if ($attached !== null && $remove !== $attached) {
             return $this->error($this->mismatchCode);
         }
 
