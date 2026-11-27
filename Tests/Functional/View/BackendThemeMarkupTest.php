@@ -338,6 +338,25 @@ final class BackendThemeMarkupTest extends FunctionalTestCase
         $this->assertNoFixedColourBadge($html);
     }
 
+    /**
+     * The reasons of failed rows are page text, not a tooltip, and the list
+     * is named by the visible label; a column with only row failures stays
+     * Partial (#565).
+     */
+    public function testMigrationVerifyListsTheReasonsOfFailedRowsVisibly(): void
+    {
+        $html = $this->renderTemplate('Migration/Verify', [
+            'totalMigrated' => 1, 'totalFailed' => 1, 'clearOriginals' => false,
+            'results'       => [[
+                'table'          => 'tx_demo', 'column' => 'secret', 'migrated' => 1, 'skipped' => 0, 'failed' => 1,
+                'failureReasons' => ['uid 7: the value is kept in the secret tx_demo__7'],
+            ]],
+        ]);
+
+        self::assertSame('badge badge-warning', $this->badgeClassFor($html, 'Partial'));
+        self::assertSame(1, preg_match('/<p[^>]*id="(failure-reasons-0)"[^>]*>\s*Rows that failed:\s*<\/p>\s*<ul[^>]*aria-labelledby="\1"[^>]*>\s*<li>uid 7: the value is kept in the secret tx_demo__7<\/li>/', $html), $html);
+    }
+
     public function testTheAuditLogUsesCoreBadgesForCountsAndActions(): void
     {
         $entry = [

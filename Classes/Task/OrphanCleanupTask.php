@@ -16,7 +16,6 @@ use Netresearch\NrVault\Service\OrphanReferenceChecker;
 use Netresearch\NrVault\Service\OrphanReferenceCheckerInterface;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Psr\Log\LoggerInterface;
-use Psr\Log\NullLogger;
 use Throwable;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Log\LogManager;
@@ -233,11 +232,10 @@ final class OrphanCleanupTask extends AbstractTask
 
     private function getLogger(): LoggerInterface
     {
-        if (!$this->logManager instanceof LogManager) {
-            return new NullLogger();
-        }
-
-        return $this->logManager
+        // The scheduler builds the task without DI (v13 unserializes it; v14
+        // falls back to makeInstance() for a task that is not a public
+        // service), so the constructor arguments are null there.
+        return ($this->logManager ?? GeneralUtility::makeInstance(LogManager::class))
             ->getLogger(self::class);
     }
 }

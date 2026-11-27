@@ -10,8 +10,7 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Command;
 
 use Doctrine\DBAL\Schema\Column;
-use Netresearch\NrVault\Service\FieldValueMigrator;
-use Netresearch\NrVault\Service\VaultServiceInterface;
+use Netresearch\NrVault\Service\FieldValueMigratorInterface;
 use Netresearch\NrVault\Utility\IdentifierValidator;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
@@ -52,14 +51,10 @@ final class VaultMigrateFieldCommand extends Command
     /** Length of the UUID v7 identifiers this command writes. */
     private const IDENTIFIER_LENGTH = 36;
 
-    private readonly FieldValueMigrator $migrator;
-
     public function __construct(
-        private readonly VaultServiceInterface $vaultService,
         private readonly ConnectionPool $connectionPool,
-        ?FieldValueMigrator $migrator = null,
+        private readonly FieldValueMigratorInterface $migrator,
     ) {
-        $this->migrator = $migrator ?? new FieldValueMigrator($vaultService, $connectionPool);
         parent::__construct();
     }
 
@@ -369,7 +364,8 @@ final class VaultMigrateFieldCommand extends Command
 
     private function isExistingVaultIdentifier(string $value): bool
     {
-        return IdentifierValidator::isValid($value) && $this->vaultService->exists($value);
+        // A disabled secret owns its identifier too.
+        return IdentifierValidator::isValid($value) && $this->migrator->identifierInUse($value);
     }
 
     /**
@@ -393,14 +389,8 @@ final class VaultMigrateFieldCommand extends Command
 
     private function tableExists(string $table): bool
     {
-        $connection = $this->connectionPool->getConnectionByName(ConnectionPool::DEFAULT_CONNECTION_NAME);
-
-        return $connection->createSchemaManager()->tablesExist([$table]);
-    }
-
-    private function fieldExists(string $table, string $field): bool
-    {
-        return $this->migrator->findColumn($table, $field) instanceof Column;
+        // A table mapped to another connection lives in that database.
+        return $this->connectionPool->getConnectionForTable($table)->createSchemaManager()->tablesExist([$table]);
     }
 
     /**
@@ -414,9 +404,6 @@ final class VaultMigrateFieldCommand extends Command
         bool $force,
     ): array {
         $queryBuilder = $this->connectionPool->getQueryBuilderForTable($table);
-        // Hidden and time-restricted records hold plaintext secrets too; only
-        // deleted records stay out (below).
-        $queryBuilder->getRestrictions()->removeAll();
         $queryBuilder
             ->select($uidField, $field)
             ->from($table)
@@ -424,6 +411,9 @@ final class VaultMigrateFieldCommand extends Command
                 $queryBuilder->expr()->neq($field, $queryBuilder->createNamedParameter('')),
                 $queryBuilder->expr()->isNotNull($field),
             );
+        // Hidden and time-restricted records hold plaintext secrets too;
+        // deleted records stay out.
+        $this->migrator->restrictToMigratableRows($queryBuilder, $table);
 
         // Skip records that already have vault identifiers (UUIDs) (unless forced)
         if (!$force) {
@@ -439,13 +429,6 @@ final class VaultMigrateFieldCommand extends Command
         // Apply additional where clause
         if ($whereClause !== null && $whereClause !== '') {
             $queryBuilder->andWhere($whereClause);
-        }
-
-        // Check for deleted field
-        if ($this->fieldExists($table, 'deleted')) {
-            $queryBuilder->andWhere(
-                $queryBuilder->expr()->eq('deleted', 0),
-            );
         }
 
         return $queryBuilder->executeQuery()->fetchAllAssociative();

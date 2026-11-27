@@ -26,6 +26,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
 use Psr\Log\LoggerInterface;
+use ReflectionMethod;
 use RuntimeException;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
@@ -90,6 +91,19 @@ final class OrphanCleanupTaskTest extends TestCase
     {
         GeneralUtility::purgeInstances();
         parent::tearDown();
+    }
+
+    /**
+     * The scheduler builds the task without DI (v13 unserializes it, v14
+     * falls back to makeInstance()), so no LogManager is injected. The task
+     * still logs through the LogManager instead of a NullLogger (#565).
+     */
+    #[Test]
+    public function aTaskBuiltWithoutDiLogsThroughTheLogManager(): void
+    {
+        $task = new OrphanCleanupTask();
+
+        self::assertSame($this->logger, (new ReflectionMethod(OrphanCleanupTask::class, 'getLogger'))->invoke($task));
     }
 
     #[Test]

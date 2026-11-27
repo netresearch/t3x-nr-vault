@@ -1107,17 +1107,26 @@ The value is never left without a copy:
    counts as a match.
 *  The secret gets its record link only once the field holds the identifier.
    Orphan cleanup deletes only linked secrets, so a secret kept after a failed
-   write stays until you remove it.
+   write stays until you remove it. The link is written as metadata of the
+   creation: it needs ``secret.create``, like the creation, not
+   ``secret.rotate``.
+*  The update names the value the row held when the command read it. A value
+   an editor saved in between is not overwritten; the record fails and the
+   new secret is deleted again.
 *  When the update matched no row, the field still holds the plaintext and the
    secret just stored is deleted again.
-*  When the update changed the field but the read-back differs (a truncating
-   column), the command writes the original value back and reads it back. Only
-   then does it delete the secret. If that fails, the secret is kept and named
-   in the error list: it holds the value.
+*  When the update changed the field but the read-back is a truncated
+   identifier (a truncating column), the command writes the original value
+   back, again only over the value it read, and reads it back. Only then does
+   it delete the secret. If that fails, or the read-back shows another value
+   than a truncated identifier, the secret is kept and named in the error
+   list: it holds the value.
 *  When the update changed more than one row, or the read-back fails, the
    record counts as failed and the secret is kept and named.
 
 Hidden and time-restricted records are migrated too; deleted records are not.
+The deleted check follows the table's TCA ``ctrl.delete`` column; a table
+without TCA is filtered on a ``deleted`` column if it has one.
 Before anything is stored, the command refuses a field that is not a text
 column or is too short for an identifier (36 characters), and a
 ``--uid-field`` that does not exist or whose value several rows share.
@@ -1126,7 +1135,8 @@ A run skips values that already have the UUID v7 format of a migrated field
 unless ``--force`` is given. Even with ``--force`` it never wraps a value that
 is the identifier of an existing secret in a new one, because the existing
 secret would then be referenced by nothing; such records are listed as
-skipped. When the vault cannot answer whether a value is such an identifier,
+skipped; a disabled secret counts as existing. When the vault cannot answer
+whether a value is such an identifier,
 that record counts as failed and the run continues.
 
 The backend migration module moves values with the same safeguards. Its

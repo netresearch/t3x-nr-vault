@@ -15,7 +15,7 @@ use Doctrine\DBAL\Schema\Table;
 use Exception;
 use Netresearch\NrVault\Domain\Dto\MigrationResult;
 use Netresearch\NrVault\Security\VaultPermission;
-use Netresearch\NrVault\Service\FieldValueMigrator;
+use Netresearch\NrVault\Service\FieldValueMigratorInterface;
 use Netresearch\NrVault\Service\SecretDetectionService;
 use Netresearch\NrVault\Utility\IdentifierValidator;
 use Psr\Http\Message\ResponseInterface;
@@ -83,7 +83,7 @@ final readonly class MigrationController
         private IconFactory $iconFactory,
         private PageRenderer $pageRenderer,
         private ModuleAccessGuard $accessGuard,
-        private FieldValueMigrator $fieldValueMigrator,
+        private FieldValueMigratorInterface $fieldValueMigrator,
     ) {}
 
     /**
@@ -488,8 +488,9 @@ final readonly class MigrationController
 
         // Validate table and column names against database schema to prevent SQL injection
         try {
+            // A table mapped to another connection lives in that database.
             $schemaManager = $this->connectionPool
-                ->getConnectionByName(ConnectionPool::DEFAULT_CONNECTION_NAME)
+                ->getConnectionForTable($table)
                 ->createSchemaManager();
             $tableNames = array_map(
                 static fn (Table $t): string => $t->getName(), /** @phpstan-ignore method.internalClass, method.deprecated (getObjectName() needs doctrine/dbal 4.3; TYPO3 13.4.0 allows 4.2) */
@@ -517,9 +518,6 @@ final readonly class MigrationController
 
         try {
             $queryBuilder = $this->connectionPool->getQueryBuilderForTable($table);
-            // Hidden and time-restricted records hold plaintext secrets too;
-            // only deleted records stay out.
-            $queryBuilder->getRestrictions()->removeAll();
             $queryBuilder
                 ->select('uid', $column)
                 ->from($table)
@@ -527,9 +525,9 @@ final readonly class MigrationController
                     $queryBuilder->expr()->isNotNull($column),
                     $queryBuilder->expr()->neq($column, $queryBuilder->createNamedParameter('')),
                 );
-            if ($this->fieldValueMigrator->findColumn($table, 'deleted') instanceof Column) {
-                $queryBuilder->andWhere($queryBuilder->expr()->eq('deleted', 0));
-            }
+            // Hidden and time-restricted records hold plaintext secrets too;
+            // deleted records stay out.
+            $this->fieldValueMigrator->restrictToMigratableRows($queryBuilder, $table);
 
             $rows = $queryBuilder->executeQuery()->fetchAllAssociative();
 
@@ -540,6 +538,7 @@ final readonly class MigrationController
                 $value    = is_string($valueVal) ? $valueVal : '';
 
                 $error = $this->migrateRow($table, $column, $columnSchema, $uid, $value, $identifierPattern);
+                sodium_memzero($value);
                 if ($error === null) {
                     ++$migrated;
                 } elseif ($error === '') {
@@ -553,16 +552,14 @@ final readonly class MigrationController
             return MigrationResult::error($table, $column, $e->getMessage());
         }
 
-        // The reasons name any secret kept as the only copy of a value.
-        $error = null;
-        if ($errors !== []) {
-            $error = implode('; ', array_slice($errors, 0, self::MAX_REPORTED_ERRORS));
-            if (count($errors) > self::MAX_REPORTED_ERRORS) {
-                $error .= sprintf('; and %d more', count($errors) - self::MAX_REPORTED_ERRORS);
-            }
+        // The reasons name any secret kept as the only copy of a value. They
+        // describe rows; `error` stays for a failure of the whole column.
+        $failureReasons = array_slice($errors, 0, self::MAX_REPORTED_ERRORS);
+        if (count($errors) > self::MAX_REPORTED_ERRORS) {
+            $failureReasons[] = sprintf('and %d more', count($errors) - self::MAX_REPORTED_ERRORS);
         }
 
-        return new MigrationResult($table, $column, $migrated, $failed, $skipped, $error);
+        return new MigrationResult($table, $column, $migrated, $failed, $skipped, failureReasons: $failureReasons);
     }
 
     /**

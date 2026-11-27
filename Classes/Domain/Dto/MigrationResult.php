@@ -24,6 +24,12 @@ readonly class MigrationResult
         public int $failed,
         public int $skipped,
         public ?string $error = null,
+        /**
+         * Why individual rows failed; `error` is a failure of the whole column.
+         *
+         * @var list<string>
+         */
+        public array $failureReasons = [],
     ) {}
 
     /**
@@ -96,7 +102,7 @@ readonly class MigrationResult
     /**
      * Convert to array for JSON serialization.
      *
-     * @return array{table: string, column: string, migrated: int, failed: int, skipped: int, error?: string}
+     * @return array{table: string, column: string, migrated: int, failed: int, skipped: int, error?: string, failureReasons?: list<string>}
      */
     public function toArray(): array
     {
@@ -110,6 +116,10 @@ readonly class MigrationResult
 
         if ($this->error !== null) {
             $result['error'] = $this->error;
+        }
+
+        if ($this->failureReasons !== []) {
+            $result['failureReasons'] = $this->failureReasons;
         }
 
         return $result;

@@ -56,7 +56,7 @@
                     </tr>
                 </thead>
                 <tbody>
-                    <f:for each="{results}" as="result">
+                    <f:for each="{results}" as="result" iteration="iterator">
                         <tr class="{f:if(condition: result.error, then: 'table-danger', else: f:if(condition: result.failed, then: 'table-warning'))}">
                             <td><code>{result.table}</code></td>
                             <td><code>{result.column}</code></td>
@@ -87,6 +87,14 @@
                                             </f:else>
                                         </f:if>
                                     </f:else>
+                                </f:if>
+                                <f:if condition="{result.failureReasons}">
+                                    <p class="mb-0 mt-2 small" id="failure-reasons-{iterator.index}">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.verify.failureReasons')}</p>
+                                    <ul class="mb-0 small" aria-labelledby="failure-reasons-{iterator.index}">
+                                        <f:for each="{result.failureReasons}" as="reason">
+                                            <li>{reason}</li>
+                                        </f:for>
+                                    </ul>
                                 </f:if>
                             </td>
                         </tr>

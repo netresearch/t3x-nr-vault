@@ -14,6 +14,7 @@ use Doctrine\DBAL\Types\Types;
 use Netresearch\NrVault\Controller\MigrationController;
 use Netresearch\NrVault\Domain\Dto\MigrationResult;
 use Netresearch\NrVault\Service\FieldValueMigrator;
+use Netresearch\NrVault\Service\FieldValueMigratorInterface;
 use Netresearch\NrVault\Service\SecretDetectionServiceInterface;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Netresearch\NrVault\Tests\Functional\AbstractVaultFunctionalTestCase;
@@ -218,7 +219,8 @@ final class MigrationControllerTest extends AbstractVaultFunctionalTestCase
 
         self::assertSame(0, $result->migrated);
         self::assertSame(1, $result->failed);
-        self::assertStringContainsString('holds at most 20 characters', $result->error ?? '');
+        self::assertNull($result->error, 'A row failure is no failure of the whole column');
+        self::assertStringContainsString('holds at most 20 characters', implode('; ', $result->failureReasons));
         self::assertSame('short-secret', $connection->select(['narrow'], self::FIXTURE_TABLE, ['uid' => $uid])->fetchOne());
         self::assertFalse($this->get(VaultServiceInterface::class)->exists($identifier));
     }
@@ -244,11 +246,85 @@ final class MigrationControllerTest extends AbstractVaultFunctionalTestCase
 
         self::assertSame(0, $result->migrated);
         self::assertSame(1, $result->failed);
-        self::assertStringContainsString('already exists', $result->error ?? '');
+        self::assertStringContainsString('already exists', implode('; ', $result->failureReasons));
         self::assertSame('someone-elses-secret', $vaultService->retrieve($identifier));
         self::assertSame('row-plaintext', $connection->select([self::FIXTURE_COLUMN], self::FIXTURE_TABLE, ['uid' => $uid])->fetchOne());
 
         $vaultService->delete($identifier, 'test cleanup');
+    }
+
+    /**
+     * A table without TCA has no ctrl.delete for the deleted restriction to
+     * follow; its conventional `deleted` column still keeps deleted rows out
+     * (#565).
+     */
+    #[Test]
+    public function migrateColumnSkipsDeletedRowsOfATableWithoutTca(): void
+    {
+        $this->createMigrationFixtureTable();
+        $connection = $this->get(ConnectionPool::class)->getConnectionForTable(self::FIXTURE_TABLE);
+        $connection->insert(self::FIXTURE_TABLE, [self::FIXTURE_COLUMN => 'deleted-plaintext', 'deleted' => 1]);
+
+        $uid = (int) $connection->lastInsertId();
+
+        $result = $this->invokeMigrateColumn(self::FIXTURE_TABLE, self::FIXTURE_COLUMN, self::FIXTURE_TABLE . '__deleted__{uid}');
+
+        self::assertSame(0, $result->migrated);
+        self::assertSame('deleted-plaintext', $connection->select([self::FIXTURE_COLUMN], self::FIXTURE_TABLE, ['uid' => $uid])->fetchOne());
+    }
+
+    /**
+     * A disabled secret still owns its identifier: the row fails, and the
+     * secret is neither overwritten nor deleted (#565).
+     */
+    #[Test]
+    public function migrateColumnDoesNotOverwriteADisabledSecret(): void
+    {
+        $this->createMigrationFixtureTable();
+        $connection = $this->get(ConnectionPool::class)->getConnectionForTable(self::FIXTURE_TABLE);
+        $connection->insert(self::FIXTURE_TABLE, [self::FIXTURE_COLUMN => 'row-plaintext']);
+
+        $uid = (int) $connection->lastInsertId();
+
+        $identifier   = self::FIXTURE_TABLE . '__disabled__' . $uid;
+        $vaultService = $this->get(VaultServiceInterface::class);
+        $vaultService->store($identifier, 'disabled-secret-value');
+        $vaultService->setEnabled($identifier, false);
+
+        $result = $this->invokeMigrateColumn(self::FIXTURE_TABLE, self::FIXTURE_COLUMN, self::FIXTURE_TABLE . '__disabled__{uid}');
+
+        self::assertSame(0, $result->migrated);
+        self::assertSame(1, $result->failed);
+        self::assertStringContainsString('already exists', implode('; ', $result->failureReasons));
+        self::assertSame('row-plaintext', $connection->select([self::FIXTURE_COLUMN], self::FIXTURE_TABLE, ['uid' => $uid])->fetchOne());
+
+        $vaultService->setEnabled($identifier, true);
+        self::assertSame('disabled-secret-value', $vaultService->retrieve($identifier), 'The disabled secret keeps its value');
+
+        $vaultService->delete($identifier, 'test cleanup');
+    }
+
+    /**
+     * A row an editor changed after the migration read it keeps the editor's
+     * value: the UPDATE names the value read, matches nothing, and the secret
+     * just stored is discarded (#565).
+     */
+    #[Test]
+    public function aValueChangedAfterItWasReadIsNotOverwritten(): void
+    {
+        $this->createMigrationFixtureTable();
+        $connection = $this->get(ConnectionPool::class)->getConnectionForTable(self::FIXTURE_TABLE);
+        $connection->insert(self::FIXTURE_TABLE, [self::FIXTURE_COLUMN => 'saved-by-an-editor']);
+
+        $uid        = (int) $connection->lastInsertId();
+        $identifier = self::FIXTURE_TABLE . '__stale__' . $uid;
+
+        $error = $this->get(FieldValueMigratorInterface::class)
+            ->migrate(self::FIXTURE_TABLE, self::FIXTURE_COLUMN, 'uid', (string) $uid, 'value-as-read-earlier', $identifier);
+
+        self::assertStringContainsString('the row changed or is gone', (string) $error);
+        self::assertSame('saved-by-an-editor', $connection->select([self::FIXTURE_COLUMN], self::FIXTURE_TABLE, ['uid' => $uid])->fetchOne());
+        self::assertFalse($this->get(VaultServiceInterface::class)->exists($identifier), 'The secret just stored is discarded');
     }
 
     /**
@@ -287,6 +363,7 @@ final class MigrationControllerTest extends AbstractVaultFunctionalTestCase
         $table->addColumn('uid', Types::INTEGER, ['autoincrement' => true, 'unsigned' => true]);
         $table->addColumn(self::FIXTURE_COLUMN, Types::TEXT, ['notnull' => false]);
         $table->addColumn('narrow', Types::STRING, ['length' => 20, 'notnull' => false]);
+        $table->addColumn('deleted', Types::SMALLINT, ['default' => 0]);
         $table->setPrimaryKey(['uid']);
 
         $schemaManager->createTable($table);

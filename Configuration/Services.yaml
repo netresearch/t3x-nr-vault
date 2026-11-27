@@ -65,6 +65,9 @@ services:
   Netresearch\NrVault\Service\OrphanReferenceCheckerInterface:
     alias: Netresearch\NrVault\Service\OrphanReferenceChecker
 
+  Netresearch\NrVault\Service\FieldValueMigratorInterface:
+    alias: Netresearch\NrVault\Service\FieldValueMigrator
+
   Netresearch\NrVault\Hook\RecordLinkFactoryInterface:
     alias: Netresearch\NrVault\Hook\RecordLinkFactory
 

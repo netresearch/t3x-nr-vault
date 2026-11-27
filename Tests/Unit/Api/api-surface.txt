@@ -525,7 +525,7 @@ Netresearch\NrVault\Crypto\ReEncryptedDek (class)
   property readonly nonce: string
 
 Netresearch\NrVault\Domain\Dto\MigrationResult (class)
-  constructor(string $table, string $column, int $migrated, int $failed, int $skipped, ?string $error = …)
+  constructor(string $table, string $column, int $migrated, int $failed, int $skipped, ?string $error = …, array $failureReasons = …)
   method getTotal(): int
   method hasError(): bool
   method isSuccess(): bool
@@ -536,6 +536,7 @@ Netresearch\NrVault\Domain\Dto\MigrationResult (class)
   property readonly column: string
   property readonly error: ?string
   property readonly failed: int
+  property readonly failureReasons: array
   property readonly migrated: int
   property readonly skipped: int
   property readonly table: string
@@ -1133,6 +1134,14 @@ Netresearch\NrVault\Service\Doctor\ReadinessCheckInterface (interface, extension
 
 Netresearch\NrVault\Service\Doctor\VaultDoctorServiceInterface (interface)
   method run(?Netresearch\NrVault\Configuration\SecurityProfile $targetProfile = …, bool $activeProbes = …): Netresearch\NrVault\Service\Doctor\DoctorReport
+
+Netresearch\NrVault\Service\FieldValueMigratorInterface (interface)
+  method columnProblem(Doctrine\DBAL\Schema\Column $column, int $identifierLength): ?string
+  method countRowsWithDuplicateKey(string $table, string $keyField): ?int
+  method findColumn(string $table, string $field): ?Doctrine\DBAL\Schema\Column
+  method identifierInUse(string $identifier): bool
+  method migrate(string $table, string $field, string $keyField, string $key, string $value, string $identifier): ?string
+  method restrictToMigratableRows(TYPO3\CMS\Core\Database\Query\QueryBuilder $queryBuilder, string $table): void
 
 Netresearch\NrVault\Service\OrphanReferenceCheckerInterface (interface)
   const MINIMUM_AGE_SECONDS = 900

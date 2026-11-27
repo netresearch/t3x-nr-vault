@@ -62,6 +62,8 @@ final class SecretRecordLinkCleanupTest extends AbstractVaultFunctionalTestCase
 
     private const FLEX_TABLE = 'tx_nrvaulttest_flex';
 
+    private const CUSTOM_DELETE_TABLE = 'tx_nrvaulttest_customdelete';
+
     private const RESERVED_TABLE = 'tx_nrvaulttest_reserved';
 
     /** @var list<string> */
@@ -537,6 +539,62 @@ final class SecretRecordLinkCleanupTest extends AbstractVaultFunctionalTestCase
         self::assertSame('hidden-plain', $vaultService->retrieve('wizard_key_' . $hiddenUid));
         self::assertSame('scheduled-plain', $vaultService->retrieve('wizard_key_' . $scheduledUid));
         self::assertSame('deleted-plain', $this->fetchField(self::RESERVED_TABLE, $deletedUid, 'key'), 'A deleted record must not be migrated');
+    }
+
+    /**
+     * The delete flag follows TCA ctrl.delete, here `removed`: both
+     * migrations skip a removed row and migrate a hidden one (#565).
+     */
+    #[Test]
+    public function bothMigrationsFollowTheTcaDeleteColumn(): void
+    {
+        $connection = $this->getConnectionPool()->getConnectionForTable(self::CUSTOM_DELETE_TABLE);
+        $connection->insert(self::CUSTOM_DELETE_TABLE, ['pid' => 1, 'title' => 'Hidden', 'secret' => 'hidden-plain', 'hidden' => 1]);
+
+        $hiddenUid = (int) $connection->lastInsertId();
+        $connection->insert(self::CUSTOM_DELETE_TABLE, ['pid' => 1, 'title' => 'Removed', 'secret' => 'removed-plain', 'removed' => 1]);
+        $removedUid = (int) $connection->lastInsertId();
+
+        $tester = new CommandTester($this->get(VaultMigrateFieldCommand::class));
+        $tester->setInputs(['yes']);
+        self::assertSame(0, $tester->execute(['table' => self::CUSTOM_DELETE_TABLE, 'field' => 'secret']), $tester->getDisplay());
+
+        self::assertSame('hidden-plain', $this->get(VaultServiceInterface::class)->retrieve($this->fetchField(self::CUSTOM_DELETE_TABLE, $hiddenUid, 'secret')));
+        self::assertSame('removed-plain', $this->fetchField(self::CUSTOM_DELETE_TABLE, $removedUid, 'secret'), 'The command must skip a removed record');
+
+        $connection->insert(self::CUSTOM_DELETE_TABLE, ['pid' => 1, 'title' => 'Hidden 2', 'secret' => 'hidden-plain-2', 'hidden' => 1]);
+        $hiddenUid2 = (int) $connection->lastInsertId();
+
+        $result = (new ReflectionMethod(MigrationController::class, 'migrateColumn'))
+            ->invoke($this->get(MigrationController::class), self::CUSTOM_DELETE_TABLE, 'secret', 'custom_delete_{uid}');
+        self::assertInstanceOf(MigrationResult::class, $result);
+        self::assertSame('hidden-plain-2', $this->get(VaultServiceInterface::class)->retrieve('custom_delete_' . $hiddenUid2));
+        self::assertSame('removed-plain', $this->fetchField(self::CUSTOM_DELETE_TABLE, $removedUid, 'secret'), 'The module must skip a removed record');
+    }
+
+    /**
+     * A field holding the identifier of a disabled secret is skipped, also
+     * with --force: wrapping it would orphan the disabled secret (#565).
+     */
+    #[Test]
+    public function theMigrateFieldCommandSkipsTheIdentifierOfADisabledSecret(): void
+    {
+        $vaultService = $this->get(VaultServiceInterface::class);
+        $identifier   = $this->generateUuidV7();
+        $vaultService->store($identifier, 'disabled-plain');
+        $vaultService->setEnabled($identifier, false);
+        $this->insertRow(self::RESERVED_TABLE, ['pid' => 1, 'title' => 'Disabled', 'key' => $identifier]);
+        $uid    = (int) $this->getConnectionPool()->getConnectionForTable(self::RESERVED_TABLE)->lastInsertId();
+        $before = $this->secretCount();
+
+        $tester = new CommandTester($this->get(VaultMigrateFieldCommand::class));
+        $tester->setInputs(['yes']);
+
+        $exitCode = $tester->execute(['table' => self::RESERVED_TABLE, 'field' => 'key', '--force' => true]);
+
+        self::assertSame(0, $exitCode, $tester->getDisplay());
+        self::assertSame($identifier, $this->fetchField(self::RESERVED_TABLE, $uid, 'key'));
+        self::assertSame($before, $this->secretCount(), 'No secret may wrap the identifier of a disabled secret');
     }
 
     /**

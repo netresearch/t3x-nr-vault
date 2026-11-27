@@ -1039,6 +1039,9 @@
       <trans-unit id="migration.verify.status.complete">
         <source>Complete</source>
       </trans-unit>
+      <trans-unit id="migration.verify.failureReasons">
+        <source>Rows that failed:</source>
+      </trans-unit>
       <trans-unit id="migration.verify.db_updated.title">
         <source>Database Updated</source>
       </trans-unit>

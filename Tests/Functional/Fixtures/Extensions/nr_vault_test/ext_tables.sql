@@ -38,3 +38,8 @@ CREATE TABLE tx_nrvaulttest_reserved (
     narrow varchar(20) DEFAULT '' NOT NULL,
     padded char(40) DEFAULT '' NOT NULL
 );
+
+CREATE TABLE tx_nrvaulttest_customdelete (
+    title varchar(255) DEFAULT '' NOT NULL,
+    secret varchar(255) DEFAULT '' NOT NULL
+);

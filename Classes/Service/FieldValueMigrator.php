@@ -13,14 +13,26 @@ use Doctrine\DBAL\Exception as DbalException;
 use Doctrine\DBAL\Schema\Column;
 use Doctrine\DBAL\Types\StringType;
 use Doctrine\DBAL\Types\TextType;
+use Netresearch\NrVault\Adapter\VaultAdapterInterface;
 use Netresearch\NrVault\Domain\Dto\SecretRecordLink;
+use Netresearch\NrVault\Domain\Model\Secret;
+use Netresearch\NrVault\Security\AccessControlServiceInterface;
+use Netresearch\NrVault\Security\VaultPermission;
+use RuntimeException;
 use Throwable;
 use TYPO3\CMS\Core\Database\ConnectionPool;
+use TYPO3\CMS\Core\Database\Query\QueryBuilder;
+use TYPO3\CMS\Core\Database\Query\Restriction\EndTimeRestriction;
+use TYPO3\CMS\Core\Database\Query\Restriction\HiddenRestriction;
+use TYPO3\CMS\Core\Database\Query\Restriction\StartTimeRestriction;
 
+use function is_array;
 use function is_numeric;
 use function is_scalar;
+use function is_string;
 use function rtrim;
 use function sprintf;
+use function str_starts_with;
 use function strtolower;
 use function time;
 use function trim;
@@ -37,17 +49,21 @@ use function trim;
  *   deletes linked secrets, so a secret kept after a failed write cannot be
  *   deleted behind the operator's back. The link is added once the row
  *   verifiably holds the identifier.
+ * - Both UPDATEs name the value the row is expected to hold, so a value an
+ *   editor saved in between is never overwritten.
  * - The secret is deleted only when the row verifiably holds the plaintext:
  *   the UPDATE matched no row, or the original value was written back and
  *   read back.
  *
  * @internal shared by the migration command and the migration wizard
  */
-final readonly class FieldValueMigrator
+final readonly class FieldValueMigrator implements FieldValueMigratorInterface
 {
     public function __construct(
         private VaultServiceInterface $vaultService,
         private ConnectionPool $connectionPool,
+        private VaultAdapterInterface $adapter,
+        private AccessControlServiceInterface $accessControlService,
     ) {}
 
     /**
@@ -56,7 +72,7 @@ final readonly class FieldValueMigrator
      */
     public function findColumn(string $table, string $field): ?Column
     {
-        $connection = $this->connectionPool->getConnectionByName(ConnectionPool::DEFAULT_CONNECTION_NAME);
+        $connection = $this->connectionPool->getConnectionForTable($table);
 
         foreach ($connection->createSchemaManager()->listTableColumns($table) as $key => $column) {
             if (trim((string) $key, '`"[]') === strtolower($field)) {
@@ -117,6 +133,33 @@ final readonly class FieldValueMigrator
         return (int) $total - (int) $distinct;
     }
 
+    public function restrictToMigratableRows(QueryBuilder $queryBuilder, string $table): void
+    {
+        $restrictions = $queryBuilder->getRestrictions();
+        $restrictions->removeByType(HiddenRestriction::class);
+        $restrictions->removeByType(StartTimeRestriction::class);
+        $restrictions->removeByType(EndTimeRestriction::class);
+
+        // DeletedRestriction filters on TCA ctrl.delete. A table without it
+        // may still carry the conventional column.
+        $tca    = $GLOBALS['TCA'] ?? null;
+        $ctrl   = is_array($tca) && is_array($tca[$table] ?? null) ? ($tca[$table]['ctrl'] ?? null) : null;
+        $delete = is_array($ctrl) ? ($ctrl['delete'] ?? null) : null;
+        if ((!is_string($delete) || $delete === '') && $this->findColumn($table, 'deleted') instanceof Column) {
+            $queryBuilder->andWhere($queryBuilder->expr()->eq('deleted', 0));
+        }
+    }
+
+    /**
+     * Whether a secret holds the identifier in any state. A disabled secret
+     * still owns it: store() would update that secret instead of creating
+     * one, and the service's exists() does not see it.
+     */
+    public function identifierInUse(string $identifier): bool
+    {
+        return $this->adapter->retrieveIncludingDisabled($identifier) instanceof Secret;
+    }
+
     /**
      * Store the value under the identifier and write the identifier into the
      * row whose key column holds the key. Returns null on success, otherwise
@@ -137,9 +180,9 @@ final readonly class FieldValueMigrator
         $migratedAt = time();
 
         try {
-            // A secret under this identifier belongs to someone else: storing
-            // would overwrite its value.
-            if ($this->vaultService->exists($identifier)) {
+            // A secret under this identifier, enabled or not, belongs to
+            // someone else: storing would overwrite its value.
+            if ($this->identifierInUse($identifier)) {
                 return sprintf('a secret with the identifier %s already exists', $identifier);
             }
 
@@ -149,13 +192,15 @@ final readonly class FieldValueMigrator
         }
 
         try {
-            $affected = $this->writeField($table, $field, $keyField, $key, $identifier);
+            $affected = $this->writeField($table, $field, $keyField, $key, $identifier, $value);
         } catch (DbalException $e) {
             return $this->afterFailedUpdate($table, $field, $keyField, $key, $value, $identifier, $e->getMessage());
         }
 
+        // The UPDATE matched nothing: the row is gone or holds another value
+        // than the one read, either way not the identifier.
         if ($affected === 0) {
-            return $this->discard($identifier, 'no row matched the key');
+            return $this->discard($identifier, 'no row with this key holds the value read before the update (the row changed or is gone)');
         }
 
         if ($affected !== 1) {
@@ -178,7 +223,7 @@ final readonly class FieldValueMigrator
         }
 
         if (!$this->holdsIdentifier($written, $identifier)) {
-            return $this->restore($table, $field, $keyField, $key, $value, $identifier);
+            return $this->restore($table, $field, $keyField, $key, $value, $identifier, $written);
         }
 
         if ($keyField !== 'uid' || !is_numeric($key)) {
@@ -186,15 +231,13 @@ final readonly class FieldValueMigrator
         }
 
         try {
-            $this->vaultService->store($identifier, $value, [
-                'mergeMetadata' => SecretRecordLink::forField(
-                    SecretRecordLink::SOURCE_MIGRATION,
-                    $table,
-                    $field,
-                    (int) $key,
-                    ['migrated_at' => $migratedAt],
-                ),
-            ]);
+            $this->attachRecordLink($identifier, ['migrated_at' => $migratedAt], SecretRecordLink::forField(
+                SecretRecordLink::SOURCE_MIGRATION,
+                $table,
+                $field,
+                (int) $key,
+                ['migrated_at' => $migratedAt],
+            ));
         } catch (Throwable $e) {
             return sprintf(
                 'the field holds the identifier %s, but the record link could not be stored (%s); orphan cleanup will not consider this secret',
@@ -204,6 +247,31 @@ final readonly class FieldValueMigrator
         }
 
         return null;
+    }
+
+    /**
+     * Add the record link to the secret this run just created. The link is
+     * metadata of a creation, not a new value: going through store() again
+     * would be an update, gated by secret.rotate and audited a second time.
+     * The write is limited to the secret as created here (its metadata still
+     * exactly what the creation stored) and to an actor holding the
+     * secret.create permission the creation required.
+     *
+     * @param array<string, mixed> $createdMetadata
+     * @param array<string, mixed> $link
+     */
+    private function attachRecordLink(string $identifier, array $createdMetadata, array $link): void
+    {
+        if (!$this->accessControlService->isGranted(VaultPermission::SecretCreate)) {
+            throw new RuntimeException('missing ' . VaultPermission::SecretCreate->value . ' permission', 5690811857);
+        }
+
+        $secret = $this->adapter->retrieveIncludingDisabled($identifier);
+        if (!$secret instanceof Secret || $secret->getMetadata() !== $createdMetadata) {
+            throw new RuntimeException('the secret changed after it was stored', 6074293625);
+        }
+
+        $this->adapter->updateMetadata($identifier, $link);
     }
 
     /**
@@ -218,12 +286,28 @@ final readonly class FieldValueMigrator
         string $key,
         string $value,
         string $identifier,
+        mixed $written,
     ): string {
         $reason = 'the field does not hold the identifier after the update';
 
+        // A truncating column leaves a prefix of the identifier. Any other
+        // value was written by someone else after this run's UPDATE: it is
+        // not this run's to replace.
+        $truncated = is_scalar($written) && rtrim((string) $written, ' ') !== ''
+            && str_starts_with($identifier, rtrim((string) $written, ' '));
+        if (!$truncated) {
+            return sprintf(
+                '%s but another value, so the row was left as it is; the value read before the update is kept in the secret %s',
+                $reason,
+                $identifier,
+            );
+        }
+
         try {
-            $affected = $this->writeField($table, $field, $keyField, $key, $value);
-            $restored = $affected === 1 && $this->readField($table, $field, $keyField, $key) === $value;
+            // Only the value this run wrote is replaced: a row an editor
+            // changed since then keeps the editor's value.
+            $restored = $this->writeField($table, $field, $keyField, $key, $value, (string) $written) === 1
+                && $this->readField($table, $field, $keyField, $key) === $value;
         } catch (DbalException) {
             $restored = false;
         }
@@ -309,7 +393,10 @@ final readonly class FieldValueMigrator
             ->fetchOne();
     }
 
-    private function writeField(string $table, string $field, string $keyField, string $key, string $value): int
+    /**
+     * Write $value where the key matches AND the field still holds $expected.
+     */
+    private function writeField(string $table, string $field, string $keyField, string $key, string $value, string $expected): int
     {
         $queryBuilder = $this->connectionPool->getQueryBuilderForTable($table);
         $queryBuilder->getRestrictions()->removeAll();
@@ -319,6 +406,7 @@ final readonly class FieldValueMigrator
             ->set($field, $value)
             ->where(
                 $queryBuilder->expr()->eq($keyField, $queryBuilder->createNamedParameter($key)),
+                $queryBuilder->expr()->eq($field, $queryBuilder->createNamedParameter($expected)),
             )
             ->executeStatement();
     }

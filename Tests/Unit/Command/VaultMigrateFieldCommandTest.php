@@ -16,8 +16,11 @@ use Doctrine\DBAL\Schema\AbstractSchemaManager;
 use Doctrine\DBAL\Schema\Column;
 use Doctrine\DBAL\Types\Type;
 use Doctrine\DBAL\Types\Types;
+use Netresearch\NrVault\Adapter\VaultAdapterInterface;
 use Netresearch\NrVault\Command\VaultMigrateFieldCommand;
+use Netresearch\NrVault\Domain\Model\Secret;
 use Netresearch\NrVault\Exception\VaultException;
+use Netresearch\NrVault\Security\AccessControlServiceInterface;
 use Netresearch\NrVault\Service\FieldValueMigrator;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Netresearch\NrVault\Tests\Unit\TestCase;
@@ -26,6 +29,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
+use PHPUnit\Framework\MockObject\Stub;
 use RuntimeException;
 use Symfony\Component\Console\Application;
 use Symfony\Component\Console\Tester\CommandTester;
@@ -58,6 +62,9 @@ final class VaultMigrateFieldCommandTest extends TestCase
     /** What the field holds: the first record's value until an UPDATE succeeds. */
     private mixed $lastWrittenValue = null;
 
+    /** @var array<int|string, string> The rows: key => field value. */
+    private array $rows = [];
+
     /** What the UPDATE being built would write. */
     private mixed $pendingValue = null;
 
@@ -70,7 +77,7 @@ final class VaultMigrateFieldCommandTest extends TestCase
     /** When set, the mocked UPDATE throws it. */
     private ?Throwable $updateFailure = null;
 
-    /** When set, the read-back returns the written value cut to this length. */
+    /** When set, the column keeps only this many characters of a written value. */
     private ?int $truncateAt = null;
 
     /** Appended to the written value by the read-back (CHAR padding). */
@@ -85,6 +92,33 @@ final class VaultMigrateFieldCommandTest extends TestCase
     /** @var array<string, int> What the --uid-field uniqueness count returns. */
     private array $keyCounts = ['total' => 1, 'distinct_keys' => 1];
 
+    /** @var array<string, array<mixed>> The adapter's secrets (identifier => metadata), disabled ones included. */
+    private array $secrets = [];
+
+    /** @var array<string, Throwable> Lookups of these identifiers throw. */
+    private array $lookupFailures = [];
+
+    /** @var array<string, array<mixed>> What updateMetadata() merged in, per identifier. */
+    private array $linkedMetadata = [];
+
+    /** @var array<string, mixed>|null When set, what a stored secret's metadata reads as afterwards. */
+    private ?array $metadataAfterStore = null;
+
+    /** Whether the actor holds secret.create. */
+    private bool $mayCreate = true;
+
+    /** When set, the vault's store() throws it. */
+    private ?Throwable $storeFailure = null;
+
+    /** Set by an UPDATE right after the read-back: an editor saving the row in between. */
+    private ?string $editorValueAfterReadBack = null;
+
+    /** @var array<string, mixed> Values of the named parameters of the query being built. */
+    private array $parameters = [];
+
+    /** @var list<array{string, string}> The eq() conditions of the query being built: [column, parameter]. */
+    private array $conditions = [];
+
     private VaultServiceInterface $vaultService;
 
     private ConnectionPool $connectionPool;
@@ -97,6 +131,7 @@ final class VaultMigrateFieldCommandTest extends TestCase
 
         $this->vaultService   = $this->createStub(VaultServiceInterface::class);
         $this->connectionPool = $this->createStub(ConnectionPool::class);
+        $this->registerStores($this->vaultService);
 
         $this->rebuildCommandTester();
     }
@@ -104,10 +139,7 @@ final class VaultMigrateFieldCommandTest extends TestCase
     #[Test]
     public function hasCorrectName(): void
     {
-        $command = new VaultMigrateFieldCommand(
-            $this->vaultService,
-            $this->connectionPool,
-        );
+        $command = new VaultMigrateFieldCommand($this->connectionPool, $this->migrator());
 
         self::assertSame('vault:migrate-field', $command->getName());
     }
@@ -134,7 +166,7 @@ final class VaultMigrateFieldCommandTest extends TestCase
         $connection->method('createSchemaManager')->willReturn($schemaManager);
 
         $this->connectionPool
-            ->method('getConnectionByName')
+            ->method('getConnectionForTable')
             ->willReturn($connection);
 
         $exitCode = $this->commandTester->execute([
@@ -203,7 +235,7 @@ final class VaultMigrateFieldCommandTest extends TestCase
             ['uid' => 1, 'api_key' => 'secret123'],
         ]);
 
-        $calls = $this->recordStores($vaultService, 2);
+        $calls = $this->recordStores($vaultService, 1);
 
         $this->commandTester->setInputs(['yes']);
         $exitCode = $this->commandTester->execute([
@@ -216,8 +248,8 @@ final class VaultMigrateFieldCommandTest extends TestCase
         $capturedIdentifier = $this->storeCall($calls, 0)['identifier'];
         self::assertSame('secret123', $this->storeCall($calls, 0)['value']);
         self::assertSame(['migrated_at'], array_keys($this->metadataOf($this->storeCall($calls, 0)['options'], 'metadata')));
-        self::assertSame($capturedIdentifier, $this->storeCall($calls, 1)['identifier']);
-        $link = $this->metadataOf($this->storeCall($calls, 1)['options'], 'mergeMetadata');
+        // The link is metadata of the creation: written without a second store().
+        $link = $this->linkedMetadata[$capturedIdentifier] ?? [];
         self::assertSame(['source' => 'migration', 'table' => 'tx_myext_settings', 'field' => 'api_key', 'uid' => 1], [
             'source' => $link['source'] ?? null,
             'table'  => $link['table'] ?? null,
@@ -262,9 +294,7 @@ final class VaultMigrateFieldCommandTest extends TestCase
             ['uid' => 1, 'api_key' => 'secret123'],
         ]);
 
-        $this->vaultService
-            ->method('store')
-            ->willThrowException(new VaultException('Storage failed'));
+        $this->storeFailure = new VaultException('Storage failed');
 
         $this->commandTester->setInputs(['yes']);
         $exitCode = $this->commandTester->execute([
@@ -315,8 +345,8 @@ final class VaultMigrateFieldCommandTest extends TestCase
             ['uid' => 2, 'api_key' => 'secret2'],
         ]);
 
-        // Each record: the value, then the record link once the row holds it.
-        $vaultService->expects(self::exactly(4))->method('store');
+        // One store() per record; the link is no second store.
+        $this->recordStores($vaultService, 2);
 
         $this->commandTester->setInputs(['yes']);
         $exitCode = $this->commandTester->execute([
@@ -379,9 +409,10 @@ final class VaultMigrateFieldCommandTest extends TestCase
     {
         $vaultService = $this->useStrictVaultServiceMock();
         $stored       = null;
-        $vaultService->expects(self::exactly(2))->method('store')
-            ->willReturnCallback(static function (string $identifier) use (&$stored): void {
+        $vaultService->expects(self::once())->method('store')
+            ->willReturnCallback(function (string $identifier) use (&$stored): void {
                 $stored ??= $identifier;
+                $this->secrets[$identifier] = ['migrated_at' => time()];
             });
 
         $schemaManager = $this->createStub(AbstractSchemaManager::class);
@@ -395,7 +426,7 @@ final class VaultMigrateFieldCommandTest extends TestCase
         $connection->method('createSchemaManager')->willReturn($schemaManager);
 
         $this->connectionPool
-            ->method('getConnectionByName')
+            ->method('getConnectionForTable')
             ->willReturn($connection);
 
         $result = $this->createStub(Result::class);
@@ -484,9 +515,7 @@ final class VaultMigrateFieldCommandTest extends TestCase
             ['uid' => 1, 'api_key' => '01234567-89ab-7cde-f012-3456789abcde'],
         ]);
 
-        $vaultService
-            ->expects(self::exactly(2))
-            ->method('store');
+        $this->recordStores($vaultService, 1);
 
         $this->commandTester->setInputs(['yes']);
         $exitCode = $this->commandTester->execute([
@@ -508,7 +537,7 @@ final class VaultMigrateFieldCommandTest extends TestCase
             ['uid' => 5, 'api_key' => 'secret5'],
         ]);
 
-        $vaultService->expects(self::exactly(2))->method('store');
+        $this->recordStores($vaultService, 1);
 
         $this->commandTester->setInputs(['yes']);
         $exitCode = $this->commandTester->execute([
@@ -532,9 +561,7 @@ final class VaultMigrateFieldCommandTest extends TestCase
 
         $this->mockQueryReturnsRecords($records);
 
-        $this->vaultService
-            ->method('store')
-            ->willThrowException(new VaultException('Store failed'));
+        $this->storeFailure = new VaultException('Store failed');
 
         $this->commandTester->setInputs(['yes']);
         $exitCode = $this->commandTester->execute([
@@ -627,7 +654,7 @@ final class VaultMigrateFieldCommandTest extends TestCase
             ['uid' => 7, 'api_key' => null],
         ]);
 
-        $calls = $this->recordStores($vaultService, 2);
+        $calls = $this->recordStores($vaultService, 1);
 
         $this->commandTester->setInputs(['yes']);
         $exitCode = $this->commandTester->execute([
@@ -637,7 +664,7 @@ final class VaultMigrateFieldCommandTest extends TestCase
 
         self::assertSame(0, $exitCode);
         self::assertSame('', $this->storeCall($calls, 0)['value'], 'null is cast to the empty string');
-        self::assertSame(7, $this->metadataOf($this->storeCall($calls, 1)['options'], 'mergeMetadata')['uid'] ?? null);
+        self::assertSame(7, $this->linkedMetadata[$this->storeCall($calls, 0)['identifier']]['uid'] ?? null);
     }
 
     /**
@@ -654,7 +681,7 @@ final class VaultMigrateFieldCommandTest extends TestCase
             ['uid' => '42', 'api_key' => 'secret-str-uid'],
         ]);
 
-        $calls = $this->recordStores($vaultService, 2);
+        $calls = $this->recordStores($vaultService, 1);
 
         $this->commandTester->setInputs(['yes']);
         $exitCode = $this->commandTester->execute([
@@ -664,7 +691,7 @@ final class VaultMigrateFieldCommandTest extends TestCase
 
         self::assertSame(0, $exitCode);
         self::assertSame('secret-str-uid', $this->storeCall($calls, 0)['value']);
-        $uid = $this->metadataOf($this->storeCall($calls, 1)['options'], 'mergeMetadata')['uid'] ?? null;
+        $uid = $this->linkedMetadata[$this->storeCall($calls, 0)['identifier']]['uid'] ?? null;
         self::assertTrue(is_int($uid) && $uid === 42);
     }
 
@@ -718,8 +745,9 @@ final class VaultMigrateFieldCommandTest extends TestCase
 
         $stored = null;
         $vaultService->expects(self::once())->method('store')
-            ->willReturnCallback(static function (string $identifier) use (&$stored): void {
-                $stored = $identifier;
+            ->willReturnCallback(function (string $identifier) use (&$stored): void {
+                $stored                     = $identifier;
+                $this->secrets[$identifier] = ['migrated_at' => time()];
             });
         $vaultService->expects(self::once())->method('delete')
             ->with(self::callback(static function (string $identifier) use (&$stored): bool {
@@ -744,8 +772,8 @@ final class VaultMigrateFieldCommandTest extends TestCase
     {
         $vaultService = $this->useStrictVaultServiceMock();
         $this->mockTableAndFieldExist('api_key');
-        $this->mockQueryReturnsRecords([['uid' => 1, 'api_key' => 'secret-lost']]);
-        $this->readBackOverride = 'garbage';
+        $this->mockQueryReturnsRecords([['uid' => 1, 'api_key' => 'a-secret-longer-than-the-column']]);
+        $this->truncateAt = 16;
 
         $calls = $this->recordStores($vaultService, 1);
         $vaultService->expects(self::never())->method('delete');
@@ -754,8 +782,128 @@ final class VaultMigrateFieldCommandTest extends TestCase
         $exitCode = $this->commandTester->execute(['table' => 'tx_myext_settings', 'field' => 'api_key']);
 
         self::assertSame(1, $exitCode);
-        self::assertStringContainsString('the value is kept in the secret ' . $this->storeCall($calls, 0)['identifier'], $this->normalizedDisplay());
+        self::assertStringContainsString('could not be written back; the value is kept in the secret ' . $this->storeCall($calls, 0)['identifier'], $this->normalizedDisplay());
         self::assertSame(['migrated_at'], array_keys($this->metadataOf($this->storeCall($calls, 0)['options'], 'metadata')), 'A kept secret has no record link, so orphan cleanup cannot delete it');
+        self::assertSame([], $this->linkedMetadata);
+    }
+
+    /**
+     * A read-back that is not a truncation of the identifier was written by
+     * someone else after the UPDATE: the row is left alone and the secret
+     * kept (#565).
+     */
+    #[Test]
+    public function aValueSomeoneElseWroteAfterTheUpdateIsLeftAlone(): void
+    {
+        $vaultService = $this->useStrictVaultServiceMock();
+        $this->mockTableAndFieldExist('api_key');
+        $this->mockQueryReturnsRecords([['uid' => 1, 'api_key' => 'secret-before-edit']]);
+        $this->readBackOverride = 'edited-by-an-editor';
+
+        $calls = $this->recordStores($vaultService, 1);
+        $vaultService->expects(self::never())->method('delete');
+
+        $this->commandTester->setInputs(['yes']);
+        $exitCode = $this->commandTester->execute(['table' => 'tx_myext_settings', 'field' => 'api_key']);
+
+        self::assertSame(1, $exitCode);
+        self::assertStringContainsString('so the row was left as it is', $this->normalizedDisplay());
+        self::assertSame($this->storeCall($calls, 0)['identifier'], $this->lastWrittenValue, 'No restore UPDATE may run');
+    }
+
+    /**
+     * An editor saving the row between the read-back and the restore keeps
+     * the editor's value: the restore UPDATE names the value it replaces
+     * (#565).
+     */
+    #[Test]
+    public function aRestoreDoesNotOverwriteAnEditMadeAfterTheReadBack(): void
+    {
+        $vaultService = $this->useStrictVaultServiceMock();
+        $this->mockTableAndFieldExist('api_key');
+        $this->mockQueryReturnsRecords([['uid' => 1, 'api_key' => 'secret-truncated']]);
+        $this->truncateAt               = 16;
+        $this->editorValueAfterReadBack = 'edited';
+
+        $this->recordStores($vaultService, 1);
+        $vaultService->expects(self::never())->method('delete');
+
+        $this->commandTester->setInputs(['yes']);
+        $exitCode = $this->commandTester->execute(['table' => 'tx_myext_settings', 'field' => 'api_key']);
+
+        self::assertSame(1, $exitCode);
+        self::assertSame('edited', $this->lastWrittenValue, "The editor's value must survive");
+        self::assertStringContainsString('could not be written back', $this->normalizedDisplay());
+    }
+
+    /**
+     * A value changed between the SELECT and the UPDATE is not overwritten:
+     * the UPDATE names the value read, matches nothing, and the secret just
+     * stored is discarded (#565).
+     */
+    #[Test]
+    public function aValueChangedBeforeTheUpdateIsNotOverwritten(): void
+    {
+        $vaultService = $this->useStrictVaultServiceMock();
+        $this->mockTableAndFieldExist('api_key');
+        $this->mockQueryReturnsRecords([['uid' => 1, 'api_key' => 'secret-as-read']]);
+        $this->rows['1'] = 'changed-meanwhile';
+
+        $calls = $this->recordStores($vaultService, 1);
+        $vaultService->expects(self::once())->method('delete')
+            ->with(self::callback(fn (string $identifier): bool => $identifier === $this->storeCall($calls, 0)['identifier']));
+
+        $this->commandTester->setInputs(['yes']);
+        $exitCode = $this->commandTester->execute(['table' => 'tx_myext_settings', 'field' => 'api_key']);
+
+        self::assertSame(1, $exitCode);
+        self::assertSame('changed-meanwhile', $this->rowValue('1'));
+        self::assertStringContainsString('the row changed or is gone', $this->normalizedDisplay());
+    }
+
+    /**
+     * The record link is written for an actor holding secret.create, the
+     * permission the creation needed; without it the link is refused and the
+     * secret, now referenced by the row, stays unlinked (#565).
+     */
+    #[Test]
+    public function theRecordLinkNeedsTheCreatePermission(): void
+    {
+        $vaultService = $this->useStrictVaultServiceMock();
+        $this->mockTableAndFieldExist('api_key');
+        $this->mockQueryReturnsRecords([['uid' => 1, 'api_key' => 'secret-no-create']]);
+        $this->mayCreate = false;
+
+        $this->recordStores($vaultService, 1);
+
+        $this->commandTester->setInputs(['yes']);
+        $exitCode = $this->commandTester->execute(['table' => 'tx_myext_settings', 'field' => 'api_key']);
+
+        self::assertSame(1, $exitCode);
+        self::assertStringContainsString('the record link could not be stored (missing secret.create permission)', $this->normalizedDisplay());
+        self::assertSame([], $this->linkedMetadata);
+    }
+
+    /**
+     * The link is written only to the secret as this run created it: when
+     * its metadata changed in between, the link is refused (#565).
+     */
+    #[Test]
+    public function theRecordLinkIsRefusedForASecretChangedSinceItWasStored(): void
+    {
+        $vaultService = $this->useStrictVaultServiceMock();
+        $this->mockTableAndFieldExist('api_key');
+        $this->mockQueryReturnsRecords([['uid' => 1, 'api_key' => 'secret-changed']]);
+        $this->metadataAfterStore = ['source' => 'tca_field'];
+
+        $this->recordStores($vaultService, 1);
+
+        $this->commandTester->setInputs(['yes']);
+        $exitCode = $this->commandTester->execute(['table' => 'tx_myext_settings', 'field' => 'api_key']);
+
+        self::assertSame(1, $exitCode);
+        self::assertStringContainsString('the secret changed after it was stored', $this->normalizedDisplay());
+        self::assertSame([], $this->linkedMetadata);
     }
 
     /**
@@ -800,7 +948,7 @@ final class VaultMigrateFieldCommandTest extends TestCase
         $exitCode = $this->commandTester->execute(['table' => 'tx_myext_settings', 'field' => 'api_key']);
 
         self::assertSame(1, $exitCode);
-        self::assertStringContainsString('no row matched the key; the stored secret was deleted again', $this->normalizedDisplay());
+        self::assertStringContainsString('no row with this key holds the value read before the update (the row changed or is gone); the stored secret was deleted again', $this->normalizedDisplay());
     }
 
     /**
@@ -837,7 +985,7 @@ final class VaultMigrateFieldCommandTest extends TestCase
         $this->mockQueryReturnsRecords([['uid' => 1, 'api_key' => 'secret-char']]);
         $this->readBackSuffix = '    ';
 
-        $this->recordStores($vaultService, 2);
+        $this->recordStores($vaultService, 1);
         $vaultService->expects(self::never())->method('delete');
 
         $this->commandTester->setInputs(['yes']);
@@ -895,14 +1043,8 @@ final class VaultMigrateFieldCommandTest extends TestCase
             ['uid' => 4, 'api_key' => 'secret-after'],
         ]);
 
-        $vaultService->method('exists')->willReturnCallback(static function (string $identifier) use ($existingLooking): bool {
-            if ($identifier === $existingLooking) {
-                throw new VaultException('vault unreachable', 9950960190);
-            }
-
-            return false;
-        });
-        $calls = $this->recordStores($vaultService, 2);
+        $this->lookupFailures[$existingLooking] = new VaultException('vault unreachable', 9950960190);
+        $calls                                  = $this->recordStores($vaultService, 1);
 
         $this->commandTester->setInputs(['yes']);
         $exitCode = $this->commandTester->execute(['table' => 'tx_myext_settings', 'field' => 'api_key', '--force' => true]);
@@ -929,8 +1071,9 @@ final class VaultMigrateFieldCommandTest extends TestCase
 
         $stored = null;
         $vaultService->expects(self::once())->method('store')
-            ->willReturnCallback(static function (string $identifier) use (&$stored): void {
-                $stored = $identifier;
+            ->willReturnCallback(function (string $identifier) use (&$stored): void {
+                $stored                     = $identifier;
+                $this->secrets[$identifier] = ['migrated_at' => time()];
             });
         $vaultService->expects(self::once())->method('delete')
             ->with(self::callback(static function (string $identifier) use (&$stored): bool {
@@ -1000,7 +1143,7 @@ final class VaultMigrateFieldCommandTest extends TestCase
         $existing = '01937b6e-4b6c-7abc-8def-0123456789ab';
         $this->mockQueryReturnsRecords([['uid' => 3, 'api_key' => $existing]]);
 
-        $vaultService->expects(self::once())->method('exists')->with($existing)->willReturn(true);
+        $this->secrets[$existing] = [];
         $vaultService->expects(self::never())->method('store');
 
         $this->commandTester->setInputs(['yes']);
@@ -1018,10 +1161,7 @@ final class VaultMigrateFieldCommandTest extends TestCase
      */
     private function rebuildCommandTester(): void
     {
-        $command = new VaultMigrateFieldCommand(
-            $this->vaultService,
-            $this->connectionPool,
-        );
+        $command = new VaultMigrateFieldCommand($this->connectionPool, $this->migrator());
 
         $application = new Application();
         $application->addCommand($command);
@@ -1033,6 +1173,7 @@ final class VaultMigrateFieldCommandTest extends TestCase
     {
         $mock               = $this->createMock(VaultServiceInterface::class);
         $this->vaultService = $mock;
+        $this->registerStores($mock);
         $this->rebuildCommandTester();
 
         return $mock;
@@ -1052,7 +1193,7 @@ final class VaultMigrateFieldCommandTest extends TestCase
         $connection->method('createSchemaManager')->willReturn($schemaManager);
 
         $this->connectionPool
-            ->method('getConnectionByName')
+            ->method('getConnectionForTable')
             ->willReturn($connection);
     }
 
@@ -1063,7 +1204,15 @@ final class VaultMigrateFieldCommandTest extends TestCase
     {
         // The read-back after the UPDATE returns what the UPDATE wrote, as a
         // database would.
-        $result                 = $this->createStub(Result::class);
+        $result = $this->createStub(Result::class);
+        foreach ($records as $record) {
+            $key = $record['uid'] ?? $record['legacy_id'] ?? null;
+            if (is_scalar($key)) {
+                $value                     = $record['api_key'] ?? '';
+                $this->rows[(string) $key] = is_scalar($value) ? (string) $value : '';
+            }
+        }
+
         $this->lastWrittenValue = $records[0]['api_key'] ?? null;
         $result->method('fetchAllAssociative')->willReturn($records);
         $result->method('fetchAssociative')->willReturnCallback(fn (): array => $this->keyCounts);
@@ -1076,47 +1225,79 @@ final class VaultMigrateFieldCommandTest extends TestCase
                 return $this->readBackOverride;
             }
 
-            $written = is_scalar($this->lastWrittenValue) ? (string) $this->lastWrittenValue : '';
+            $key      = $this->keyOfQuery();
+            $written  = $this->rows[$key] ?? '';
+            $readBack = $written . $this->readBackSuffix;
+            if ($this->editorValueAfterReadBack !== null) {
+                $this->writeRow($key, $this->editorValueAfterReadBack);
+                $this->editorValueAfterReadBack = null;
+            }
 
-            return ($this->truncateAt === null ? $written : substr($written, 0, $this->truncateAt)) . $this->readBackSuffix;
+            return $readBack;
         });
 
         $expressionBuilder = $this->createStub(ExpressionBuilder::class);
         $expressionBuilder->method('neq')->willReturn('field != ""');
         $expressionBuilder->method('isNotNull')->willReturn('field IS NOT NULL');
         $expressionBuilder->method('notLike')->willReturn('field NOT LIKE pattern');
-        $expressionBuilder->method('eq')->willReturn('deleted = 0');
+        $expressionBuilder->method('eq')->willReturnCallback(function (string $column, mixed $parameter): string {
+            $this->conditions[] = [$column, is_scalar($parameter) ? (string) $parameter : ''];
+
+            return 'eq';
+        });
 
         $queryBuilder = $this->createStub(QueryBuilder::class);
-        $queryBuilder->method('update')->willReturnSelf();
+        $queryBuilder->method('update')->willReturnCallback(function () use (&$queryBuilder): QueryBuilder {
+            $this->conditions = [];
+
+            return $queryBuilder;
+        });
         $queryBuilder->method('set')->willReturnCallback(function (string $field, mixed $value) use (&$queryBuilder): QueryBuilder {
             $this->pendingValue = $value;
 
             return $queryBuilder;
         });
         $queryBuilder->method('executeStatement')->willReturnCallback(function (): int {
-            if ($this->updateFailure instanceof Throwable) {
+            $key     = $this->keyOfQuery();
+            $failure = $this->updateFailure;
+            if ($failure instanceof Throwable) {
                 if ($this->failedUpdateApplied) {
-                    $this->lastWrittenValue = $this->pendingValue;
+                    $this->writeRow($key, $this->pendingValue);
                 }
 
-                throw $this->updateFailure;
+                throw $failure;
+            }
+
+            // `api_key = :expected` matches only while the row holds that value.
+            foreach ($this->conditions as [$column, $parameter]) {
+                if ($column === 'api_key' && ($this->parameters[$parameter] ?? null) !== ($this->rows[$key] ?? null)) {
+                    return 0;
+                }
             }
 
             if ($this->affectedRows > 0) {
-                $this->lastWrittenValue = $this->pendingValue;
+                $this->writeRow($key, $this->pendingValue);
             }
 
             return $this->affectedRows;
         });
-        $queryBuilder->method('select')->willReturnSelf();
+        $queryBuilder->method('select')->willReturnCallback(function () use (&$queryBuilder): QueryBuilder {
+            $this->conditions = [];
+
+            return $queryBuilder;
+        });
         $queryBuilder->method('selectLiteral')->willReturnSelf();
         $queryBuilder->method('quoteIdentifier')->willReturnArgument(0);
         $queryBuilder->method('from')->willReturnSelf();
         $queryBuilder->method('where')->willReturnSelf();
         $queryBuilder->method('andWhere')->willReturnSelf();
         $queryBuilder->method('expr')->willReturn($expressionBuilder);
-        $queryBuilder->method('createNamedParameter')->willReturn(':dcValue1');
+        $queryBuilder->method('createNamedParameter')->willReturnCallback(function (mixed $value): string {
+            $placeholder                    = ':dcValue' . (count($this->parameters) + 1);
+            $this->parameters[$placeholder] = $value;
+
+            return $placeholder;
+        });
         $queryBuilder->method('executeQuery')->willReturn($result);
 
         $this->connectionPool
@@ -1136,8 +1317,100 @@ final class VaultMigrateFieldCommandTest extends TestCase
             ->willReturnCallback(static function (string $identifier, string $value, array $options = []) use ($calls): void {
                 $calls[] = ['identifier' => $identifier, 'value' => $value, 'options' => $options];
             });
+        $this->registerStores($vaultService);
 
         return $calls;
+    }
+
+    /**
+     * The key the query being built selects or updates: its eq() condition on
+     * a column other than the field.
+     */
+    private function keyOfQuery(): string
+    {
+        foreach ($this->conditions as [$column, $parameter]) {
+            if ($column !== 'api_key') {
+                $value = $this->parameters[$parameter] ?? '';
+
+                return is_scalar($value) ? (string) $value : '';
+            }
+        }
+
+        return '';
+    }
+
+    /**
+     * @param array<mixed> $metadata
+     *
+     * @return array<string, mixed>
+     */
+    private function stringKeyed(array $metadata): array
+    {
+        $result = [];
+        foreach ($metadata as $key => $value) {
+            $result[(string) $key] = $value;
+        }
+
+        return $result;
+    }
+
+    private function rowValue(string $key): string
+    {
+        return $this->rows[$key] ?? '';
+    }
+
+    private function writeRow(string $key, mixed $value): void
+    {
+        // A truncating column (non-strict SQL) keeps only the first characters.
+        $value                  = is_scalar($value) ? (string) $value : '';
+        $this->rows[$key]       = $this->truncateAt === null ? $value : substr($value, 0, $this->truncateAt);
+        $this->lastWrittenValue = $this->rows[$key];
+    }
+
+    /**
+     * The migrator under test, on the current doubles. The adapter double
+     * holds the secrets the vault double stored.
+     */
+    private function migrator(): FieldValueMigrator
+    {
+        $adapter = self::createStub(VaultAdapterInterface::class);
+        $adapter->method('retrieveIncludingDisabled')->willReturnCallback(function (string $identifier): ?Secret {
+            if (isset($this->lookupFailures[$identifier])) {
+                throw $this->lookupFailures[$identifier];
+            }
+
+            return isset($this->secrets[$identifier]) ? new Secret(identifier: $identifier, metadata: $this->stringKeyed($this->secrets[$identifier])) : null;
+        });
+        $adapter->method('updateMetadata')->willReturnCallback(function (string $identifier, array $metadata): void {
+            $this->linkedMetadata[$identifier] = $metadata;
+            $this->secrets[$identifier]        = array_replace($this->secrets[$identifier] ?? [], $metadata);
+        });
+
+        $accessControl = self::createStub(AccessControlServiceInterface::class);
+        $accessControl->method('isGranted')->willReturnCallback(fn (): bool => $this->mayCreate);
+
+        return new FieldValueMigrator($this->vaultService, $this->connectionPool, $adapter, $accessControl);
+    }
+
+    /**
+     * The vault double records each stored secret with its metadata, so the
+     * adapter double sees it; with $storeFailure set, store() throws.
+     */
+    private function registerStores(VaultServiceInterface $vaultService): void
+    {
+        if (!$vaultService instanceof MockObject && !$vaultService instanceof Stub) {
+            return;
+        }
+
+        $vaultService->method('store')->willReturnCallback(function (string $identifier, string $value, array $options = []): void {
+            $failure = $this->storeFailure;
+            if ($failure instanceof Throwable) {
+                throw $failure;
+            }
+
+            $metadata                   = $this->metadataAfterStore ?? $options['metadata'] ?? [];
+            $this->secrets[$identifier] = is_array($metadata) ? $metadata : [];
+        });
     }
 
     /**
