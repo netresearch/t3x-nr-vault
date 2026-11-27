@@ -19,6 +19,7 @@ use Netresearch\NrVault\Domain\Repository\SecretRepositoryInterface;
 use Netresearch\NrVault\Exception\AwsSecretsManagerException;
 use Netresearch\NrVault\Exception\ConfigurationException;
 use Netresearch\NrVault\Storage\Aws\AwsSecretStoreInterface;
+use Netresearch\NrVault\Storage\Aws\AwsVersionedSecretStoreInterface;
 use Netresearch\NrVault\Storage\ExternalStoreJournal;
 use Netresearch\NrVault\Storage\InstallationMarker;
 use Netresearch\NrVault\Tests\Unit\TestCase;
@@ -70,7 +71,7 @@ final class AwsSecretsManagerAdapterTest extends TestCase
     /** @var list<string> */
     private array $warnings = [];
 
-    /** @var list<string|null> The previous version id each restoreIfCurrent() was given */
+    /** @var list<string> The previous version id each restoreToVersionIfCurrent() was given */
     private array $restoredToVersions = [];
 
     private string $masterKey = '';
@@ -257,6 +258,25 @@ final class AwsSecretsManagerAdapterTest extends TestCase
 
         self::assertSame($before, $this->aws['api_key']);
         self::assertSame([$replaced], $this->restoredToVersions, 'the rollback names the version the update replaced, read with the previous envelope (#567)');
+    }
+
+    #[Test]
+    public function aStoreWithoutVersionSupportTakesAFailedUpdateBackByReadThenWrite(): void
+    {
+        $adapter = $this->adapter(versionedStore: false);
+        $adapter->store($this->envelopeSecret('api_key'));
+
+        $before             = $this->aws['api_key'];
+        $this->failRowWrite = true;
+
+        try {
+            $adapter->store($this->envelopeSecret('api_key', 'newer')->withUid(1));
+            self::fail('The row failure must propagate.');
+        } catch (RuntimeException) {
+        }
+
+        self::assertSame($before, $this->aws['api_key']);
+        self::assertSame([], $this->restoredToVersions, 'the conditional path needs AwsVersionedSecretStoreInterface');
     }
 
     #[Test]
@@ -1097,7 +1117,7 @@ final class AwsSecretsManagerAdapterTest extends TestCase
         return 'v1';
     }
 
-    public function recordRestoreTo(?string $previousVersionId): void
+    public function recordRestoreTo(string $previousVersionId): void
     {
         $this->restoredToVersions[] = $previousVersionId;
     }
@@ -1144,7 +1164,7 @@ final class AwsSecretsManagerAdapterTest extends TestCase
         );
     }
 
-    private function adapter(string $endpoint = '', string $region = 'eu-central-1', bool $sdkInstalled = true): AwsSecretsManagerAdapter
+    private function adapter(string $endpoint = '', string $region = 'eu-central-1', bool $sdkInstalled = true, bool $versionedStore = true): AwsSecretsManagerAdapter
     {
         $repository = $this->createMock(SecretRepositoryInterface::class);
         $repository->method('findByIdentifier')->willReturnCallback(
@@ -1195,7 +1215,7 @@ final class AwsSecretsManagerAdapterTest extends TestCase
             endpoint: $endpoint,
         ));
 
-        $kv = new class ($this, $sdkInstalled) implements AwsSecretStoreInterface {
+        $kv = new class ($this, $sdkInstalled) implements AwsSecretStoreInterface, AwsVersionedSecretStoreInterface {
             public function __construct(private readonly AwsSecretsManagerAdapterTest $test, private readonly bool $sdkInstalled) {}
 
             public function isSdkInstalled(): bool
@@ -1225,10 +1245,15 @@ final class AwsSecretsManagerAdapterTest extends TestCase
                 return $this->test->awsWrite($identifier, $data);
             }
 
-            public function restoreIfCurrent(string $identifier, array $data, string $versionId, ?string $previousVersionId = null): bool
+            public function restoreToVersionIfCurrent(string $identifier, array $data, string $versionId, string $previousVersionId): bool
             {
                 $this->test->recordRestoreTo($previousVersionId);
 
+                return $this->restoreIfCurrent($identifier, $data, $versionId);
+            }
+
+            public function restoreIfCurrent(string $identifier, array $data, string $versionId): bool
+            {
                 if ($this->test->awsVersion($identifier) !== $versionId) {
                     return false;
                 }
@@ -1259,6 +1284,54 @@ final class AwsSecretsManagerAdapterTest extends TestCase
                 return 'eu-central-1:typo3/' . $identifier;
             }
         };
+
+        if (!$versionedStore) {
+            // A store implementing only AwsSecretStoreInterface, as one written
+            // before #567 does.
+            $kv = new class ($kv) implements AwsSecretStoreInterface {
+                public function __construct(private readonly AwsSecretStoreInterface $inner) {}
+
+                public function isSdkInstalled(): bool
+                {
+                    return $this->inner->isSdkInstalled();
+                }
+
+                public function read(string $identifier): ?array
+                {
+                    return $this->inner->read($identifier);
+                }
+
+                public function create(string $identifier, array $data): string
+                {
+                    return $this->inner->create($identifier, $data);
+                }
+
+                public function write(string $identifier, array $data): string
+                {
+                    return $this->inner->write($identifier, $data);
+                }
+
+                public function restoreIfCurrent(string $identifier, array $data, string $versionId): bool
+                {
+                    return $this->inner->restoreIfCurrent($identifier, $data, $versionId);
+                }
+
+                public function destroyIfCurrent(string $identifier, string $versionId): bool
+                {
+                    return $this->inner->destroyIfCurrent($identifier, $versionId);
+                }
+
+                public function destroy(string $identifier): void
+                {
+                    $this->inner->destroy($identifier);
+                }
+
+                public function reference(string $identifier): string
+                {
+                    return $this->inner->reference($identifier);
+                }
+            };
+        }
 
         $masterKey = $this->createMock(MasterKeyProviderInterface::class);
         $masterKey->method('getMasterKey')->willReturnCallback(fn (): string => $this->masterKey);

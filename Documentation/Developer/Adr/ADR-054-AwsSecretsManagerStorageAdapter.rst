@@ -186,36 +186,56 @@ Taking a write back does not compare payloads. ``CreateSecret`` and
 only while ``AWSCURRENT`` is still that version.
 
 *   **Taking back an update or an adoption is conditional on AWS**
-    (`#567 <https://github.com/netresearch/t3x-nr-vault/issues/567>`__). The
-    adapter reads the previous document and its ``VersionId`` from one
-    ``GetSecretValue`` response before it writes, and keeps both in the request
-    journal. The rollback is ``UpdateSecretVersionStage`` with
-    ``VersionStage=AWSCURRENT``, ``MoveToVersionId`` the journalled version and
-    ``RemoveFromVersionId`` the version the write created. AWS refuses the move
-    when ``AWSCURRENT`` is attached to any other version ("If the label is
-    attached and you either do not specify this parameter, or the version ID
-    does not match, then the operation fails", ``UpdateSecretVersionStage`` API
-    reference), so a writer that landed after the write keeps its value. No new
-    version is written: the previous version is current again, and AWS moves
-    ``AWSPREVIOUS`` to the version the rollback removed ``AWSCURRENT`` from.
-    AWS does not document the error code of that refusal, so the code does not
-    decide: after any failure the store reads ``AWSCURRENT``. On the version
-    the rollback moved back to, the move applied and only its answer was lost
-    (the SDK's one retry of an applied move is refused, because ``AWSCURRENT``
-    is no longer on the write's version), so the rollback counts as applied.
-    On any other version the rollback is skipped (false, a warning from the
-    adapter), exactly as for a concurrent writer. A read that has not caught up
-    with the write and still shows the replaced version would be taken for an
-    applied move; the reads are retried for that, as below.
-*   **The rollback falls back to read-then-write** in three cases, and then has
-    the gap described below: the policy lacks
-    ``secretsmanager:UpdateSecretVersionStage`` (``AccessDeniedException``; the
-    store logs a warning naming the permission on every rollback); the move
-    fails while ``AWSCURRENT`` is still the version the write created (for
-    example, the version to move back to is gone; logged with the error code);
-    the journal holds no version id. The fallback reads the ``AWSCURRENT`` id,
-    and if it is still the write's version, puts the previous document back as a
-    new version. A write landing between that read and the put is overwritten.
+    (`#567 <https://github.com/netresearch/t3x-nr-vault/issues/567>`__), when
+    the store implements :php:`AwsVersionedSecretStoreInterface`, as the shipped
+    :php:`AwsSecretsManagerStore` does. The adapter reads the previous document
+    and its ``VersionId`` from one ``GetSecretValue`` response before it writes,
+    and keeps both in the request journal. The rollback is
+    ``UpdateSecretVersionStage`` with ``VersionStage=AWSCURRENT``,
+    ``MoveToVersionId`` the journalled version and ``RemoveFromVersionId`` the
+    version the write created. AWS refuses the move when ``AWSCURRENT`` is
+    attached to any other version ("If the label is attached and you either do
+    not specify this parameter, or the version ID does not match, then the
+    operation fails", ``UpdateSecretVersionStage`` API reference), so a writer
+    that lands after our write keeps its value. No new version is written: the
+    previous version is current again, and AWS moves ``AWSPREVIOUS`` to the
+    version the rollback removed ``AWSCURRENT`` from.
+*   **After a failed move the store reads** ``AWSCURRENT`` **instead of
+    trusting the error code**, which AWS does not document:
+
+    -   Our version: the move is tried once more. Only if that retry is refused
+        for lack of the permission does the store fall back to read-then-write;
+        a retry that fails otherwise while our version is still current is
+        reported as a failed rollback, and nothing is written.
+    -   The version moved back to: the move applied and only its answer was
+        lost (the SDK's one retry of an applied move is refused). Because a
+        read that has not caught up with our write also shows that version, it
+        is confirmed by a second read after the delay. If the second read shows
+        our version, the move is tried once more as above. If it shows a third
+        version, the outcome is unconfirmed: the rollback counts as skipped and
+        a warning names the secret.
+    -   Any other version: a concurrent writer won, or the secret is gone. The
+        rollback is skipped (false, a warning from the adapter).
+*   **The rollback falls back to read-then-write** when the policy lacks
+    ``secretsmanager:UpdateSecretVersionStage`` (``AccessDeniedException``, or
+    a ``403`` without a readable code; the store logs a warning naming the
+    permission and the secret on every such rollback), and when the store does
+    not implement :php:`AwsVersionedSecretStoreInterface`. The fallback reads
+    the ``AWSCURRENT`` id and, if it is still the write's version, puts the
+    previous document back as a new version. A write landing between that read
+    and the put is overwritten.
+*   **A writer between the adapter's read and its write is still discarded.**
+    The adapter reads the previous document, then writes. A writer whose
+    version lands between the two is displaced by our write, and the rollback
+    moves back to the version read before it, not to the writer's version: the
+    writer's value is overwritten, as it was before this rollback existed.
+    Nothing tells the adapter reliably which version its write displaced. The
+    ``PutSecretValue`` response holds only the new ``VersionId`` and its
+    stages. A ``GetSecretValue`` of ``AWSPREVIOUS`` right after the put names
+    the displaced version, but a read that has not caught up names an older
+    one, and a writer after ours moves the label again; ``ListSecretVersionIds``
+    needs another permission and has the same lag. This window is a known
+    limit, next to the stale read above.
 *   **Taking back a create is not conditional.** It reads the ``AWSCURRENT`` id
     and deletes the secret only if it is still the version the create returned.
     AWS has no conditional delete, so a write that lands between the read and
@@ -232,8 +252,8 @@ models the labels as documented, not against AWS: moto 5.2.5, which the
 functional suite runs against, does not move the default version on a stage
 move, and its IAM user there has no ``UpdateSecretVersionStage`` permission, so
 the functional suite exercises the fallback. Moto answers that denial with an
-XML ``403`` from which the SDK reads no error code, so it takes the "still at
-the write's version" branch, whose warning names the permission too.
+XML ``403`` from which the SDK reads no error code; the store takes a ``403``
+without a code as the missing permission.
 A failed audit write is compensated by
 :php:`VaultService`: an adapter implementing
 :php:`CreateCompensatingAdapterInterface` destroys a secret the call created and
@@ -363,9 +383,11 @@ The functional suite runs against Moto only. Four things it cannot show:
    measured: the one AWS returns when ``RemoveFromVersionId`` does not match
    (Moto: ``InvalidParameterException``), and the one for a missing
    ``UpdateSecretVersionStage`` permission (``AccessDeniedException`` is
-   assumed; Moto answers an XML ``403`` without a readable code). Neither
-   decides the outcome, because the store reads ``AWSCURRENT`` after any
-   failed move; only the wording of the warning depends on the second.
+   assumed; Moto answers an XML ``403`` without a readable code, which is
+   treated the same). The first does not decide the outcome, because the store
+   reads ``AWSCURRENT`` after any failed move. The second does: if AWS denies
+   with another code, the store tries the move once more and then reports a
+   failed rollback instead of falling back to read-then-write.
 
 Alternatives considered
 =======================

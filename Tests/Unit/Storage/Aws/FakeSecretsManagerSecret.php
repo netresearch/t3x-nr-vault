@@ -54,6 +54,15 @@ final class FakeSecretsManagerSecret
 
     private ?string $applyThenFail = null;
 
+    /** @var array<string, list<string>> Action => error codes for its next requests, nothing applied */
+    private array $failures = [];
+
+    /** @var list<string> Version ids the next GetSecretValue answers report, as a lagging read */
+    private array $staleReads = [];
+
+    /** @var list<string> */
+    private array $bare403 = [];
+
     public function __construct(
         private readonly string $name,
         private readonly string $mismatchCode = 'InvalidParameterException',
@@ -72,6 +81,21 @@ final class FakeSecretsManagerSecret
 
         if (in_array($target, $this->denied, true)) {
             return $this->error('AccessDeniedException');
+        }
+
+        if (in_array($target, $this->bare403, true)) {
+            // What Moto 5.2.5 answers for a call the IAM policy denies.
+            return new FulfilledPromise(new Response(403, ['Content-Type' => 'text/xml'], '<ErrorResponse><Errors><Error><Code>AccessDenied</Code></Error></Errors></ErrorResponse>'));
+        }
+
+        if (($this->failures[$target] ?? []) !== []) {
+            return $this->error(array_shift($this->failures[$target]));
+        }
+
+        if ($target === 'GetSecretValue' && $this->staleReads !== []) {
+            $stale = array_shift($this->staleReads);
+
+            return $this->json(['Name' => $this->name, 'VersionId' => $stale, 'SecretString' => $this->versions[$stale] ?? '{}', 'VersionStages' => ['AWSCURRENT']]);
         }
 
         if ($this->concurrentValue !== null && in_array($target, ['PutSecretValue', 'UpdateSecretVersionStage'], true)) {
@@ -111,6 +135,33 @@ final class FakeSecretsManagerSecret
     public function deny(string $action): void
     {
         $this->denied[] = $action;
+    }
+
+    /**
+     * Answer this action with a 403 whose body the SDK reads no error code
+     * from, as Moto does for a denied call.
+     */
+    public function denyWithBare403(string $action): void
+    {
+        $this->bare403[] = $action;
+    }
+
+    /**
+     * The next requests of this action fail with these codes, one each,
+     * without being carried out.
+     */
+    public function failNext(string $action, string ...$codes): void
+    {
+        $this->failures[$action] = array_values($codes);
+    }
+
+    /**
+     * The next GetSecretValue answers report these version ids, one each, as a
+     * read that has not caught up does; the state itself does not change.
+     */
+    public function staleReads(string ...$versionIds): void
+    {
+        $this->staleReads = array_values($versionIds);
     }
 
     /**

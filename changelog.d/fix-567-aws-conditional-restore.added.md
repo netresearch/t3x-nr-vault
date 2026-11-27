@@ -1,0 +1,1 @@
+- `AwsVersionedSecretStoreInterface` with `readWithVersion()` and `restoreToVersionIfCurrent()`, implemented by the shipped `AwsSecretsManagerStore`. The AWS adapter takes a write back with the conditional stage move only when its store implements this interface; a store that implements only `AwsSecretStoreInterface`, which is unchanged, keeps the read-then-write rollback (#567).

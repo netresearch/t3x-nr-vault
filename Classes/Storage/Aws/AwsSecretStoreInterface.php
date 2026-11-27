@@ -34,17 +34,6 @@ interface AwsSecretStoreInterface
     public function read(string $identifier): ?array;
 
     /**
-     * The stored fields and the version id of AWSCURRENT, from one response,
-     * or null when the secret does not exist. A rollback moves AWSCURRENT back
-     * to that version, see {@see restoreIfCurrent()}.
-     *
-     * @return array{data: array<string, mixed>, versionId: string}|null
-     *
-     * @throws AwsSecretsManagerException
-     */
-    public function readWithVersion(string $identifier): ?array;
-
-    /**
      * Create the secret, only when no secret of that name exists (CreateSecret
      * fails on an existing name, so there is no window). While a name that was
      * force-deleted is still being deleted, the create is retried with a short
@@ -71,29 +60,21 @@ interface AwsSecretStoreInterface
     public function write(string $identifier, array $data): string;
 
     /**
-     * Take back a write of this call, but only while the current version is
-     * still the given one.
-     *
-     * With the id of the version the write replaced, AWSCURRENT is moved back
-     * to it with UpdateSecretVersionStage, which fails when AWSCURRENT is on
-     * any other version: a concurrent writer keeps its value. Without that id,
-     * or when the move is refused (no permission) or fails while the secret is
-     * still at the given version, the fields are put back as a new version
-     * after a read of the current id; AWS has no conditional put, so a write
+     * Put the fields back as a new version, but only while the current version
+     * is still the given one, to take back a write of this call. The id is read
+     * immediately before the write; AWS has no conditional put, so a write
      * landing in that gap is not detected.
      *
-     * @param array<string, mixed> $data              The fields of the version the write replaced
-     * @param string|null          $previousVersionId The id of that version, read together with $data
+     * @param array<string, mixed> $data
      *
      * @return bool False when somebody wrote since, or the secret is gone
      */
-    public function restoreIfCurrent(string $identifier, array $data, string $versionId, ?string $previousVersionId = null): bool;
+    public function restoreIfCurrent(string $identifier, array $data, string $versionId): bool;
 
     /**
      * Delete the secret, but only while the current version is still the given
-     * one, to take back a create of this call. The id is read immediately
-     * before the delete; AWS has no conditional delete, so a write landing in
-     * that gap is deleted with the secret.
+     * one, to take back a create of this call. Same gap as
+     * {@see restoreIfCurrent()}.
      *
      * @return bool False when somebody wrote since, or the secret is gone
      */
