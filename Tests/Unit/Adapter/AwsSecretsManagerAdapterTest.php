@@ -266,7 +266,8 @@ final class AwsSecretsManagerAdapterTest extends TestCase
         try {
             $adapter->store($this->envelopeSecret('api_key', 'newer')->withUid(1));
             self::fail('The row failure must propagate.');
-        } catch (RuntimeException) {
+        } catch (RuntimeException $e) {
+            self::assertSame(4778462882, $e->getCode(), 'the registry failure is the one rethrown');
         }
 
         self::assertSame($before, $this->aws['api_key']);
@@ -279,7 +280,7 @@ final class AwsSecretsManagerAdapterTest extends TestCase
     public static function skippedOutcomeProvider(): array
     {
         return [
-            'not applied'  => [AwsRestoreOutcome::NotApplied, 'was not applied: UpdateSecretVersionStage failed twice'],
+            'not applied'  => [AwsRestoreOutcome::NotApplied, 'was not acknowledged: UpdateSecretVersionStage failed twice'],
             'unconfirmed'  => [AwsRestoreOutcome::Unconfirmed, 'is unconfirmed'],
             'other writer' => [AwsRestoreOutcome::OtherWriter, 'somebody wrote since'],
         ];
@@ -298,7 +299,8 @@ final class AwsSecretsManagerAdapterTest extends TestCase
         try {
             $adapter->store($this->envelopeSecret('api_key', 'newer')->withUid(1));
             self::fail('The row failure must propagate.');
-        } catch (RuntimeException) {
+        } catch (RuntimeException $e) {
+            self::assertSame(4778462882, $e->getCode(), 'the registry failure is the one rethrown');
         }
 
         self::assertCount(1, $this->warnings, 'one warning per skipped rollback');
@@ -338,7 +340,8 @@ final class AwsSecretsManagerAdapterTest extends TestCase
         try {
             $adapter->store($this->envelopeSecret('api_key', 'newer')->withUid(1));
             self::fail('The row failure must propagate.');
-        } catch (RuntimeException) {
+        } catch (RuntimeException $e) {
+            self::assertSame(4778462882, $e->getCode(), 'the registry failure is the one rethrown');
         }
 
         self::assertSame($before, $this->aws['api_key']);
@@ -688,7 +691,8 @@ final class AwsSecretsManagerAdapterTest extends TestCase
         try {
             $adapter->store($this->envelopeSecret('api_key', 'adopted-again'));
             self::fail('The row failure must propagate.');
-        } catch (RuntimeException) {
+        } catch (RuntimeException $e) {
+            self::assertSame(4778462882, $e->getCode(), 'the registry failure is the one rethrown');
         }
 
         self::assertSame($orphan, $this->aws['api_key'], 'the adopted secret is put back, not destroyed');

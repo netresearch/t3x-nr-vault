@@ -214,7 +214,10 @@ only while ``AWSCURRENT`` is still that version.
 
     -   Our version: the move is called once more; it is conditional, so that
         is safe. If that call succeeds, the rollback is applied; if it fails,
-        the rollback is not applied and our write stays.
+        no move was acknowledged and nothing is written. Because reads can
+        lag, that does not prove our write is still current (a first move that
+        applied and lost its answer also ends here), so the warning asks to
+        check the secret.
     -   The version moved back to: unconfirmed. An applied move whose answer
         was lost shows it, and so does a read that lags behind our own write;
         no number of reads tells them apart, so this is never counted as

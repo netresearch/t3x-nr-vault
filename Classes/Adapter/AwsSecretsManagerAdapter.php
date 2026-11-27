@@ -341,7 +341,7 @@ final readonly class AwsSecretsManagerAdapter implements CreateCompensatingAdapt
     private function skippedRollbackMessage(?AwsRestoreOutcome $outcome): string
     {
         return match ($outcome) {
-            AwsRestoreOutcome::NotApplied  => 'nr-vault: the rollback of an AWS Secrets Manager write was not applied: UpdateSecretVersionStage failed twice while the secret was still at the version this call wrote. The write stays; check the secret.',
+            AwsRestoreOutcome::NotApplied  => 'nr-vault: the rollback of an AWS Secrets Manager write was not acknowledged: UpdateSecretVersionStage failed twice, after a read that showed the version this call wrote. Nothing was written; reads can lag, so check which version is current.',
             AwsRestoreOutcome::Unconfirmed => 'nr-vault: the outcome of the rollback of an AWS Secrets Manager write is unconfirmed: UpdateSecretVersionStage failed, and AWSCURRENT showed the version it moves back to, which a read that lags behind this write also shows. Nothing was written; check the secret.',
             default                        => 'nr-vault: the rollback of an AWS Secrets Manager write was skipped because the secret is not at the version this call wrote (somebody wrote since, or the read was stale). The secret was left as it is.',
         };

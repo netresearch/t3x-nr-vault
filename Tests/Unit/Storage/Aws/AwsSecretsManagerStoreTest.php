@@ -783,6 +783,24 @@ final class AwsSecretsManagerStoreTest extends TestCase
     }
 
     #[Test]
+    public function aRefusedMoveIsNotMistakenForALostAnswer(): void
+    {
+        $secret   = new FakeSecretsManagerSecret(self::SECRET_NAME);
+        $previous = $secret->seed(['v' => 'previous']);
+        $store    = $this->storeAgainst($secret);
+
+        $ours = $store->write('api_key', ['v' => 'ours']);
+        $secret->concurrentPutBeforeNextWrite(['v' => 'concurrent']);
+        $secret->applyThenFail('UpdateSecretVersionStage');
+
+        $before = count($secret->targets());
+
+        self::assertSame(AwsRestoreOutcome::OtherWriter, $store->restoreToVersionIfCurrent('api_key', ['v' => 'previous'], $ours, $previous));
+
+        self::assertSame(['UpdateSecretVersionStage', 'GetSecretValue', 'GetSecretValue', 'GetSecretValue'], array_slice($secret->targets(), $before), 'the refusal is answered as a refusal (no server error, so no SDK retry)');
+    }
+
+    #[Test]
     public function readsThatNeverShowEitherVersionMeanAnotherWriter(): void
     {
         $secret   = new FakeSecretsManagerSecret(self::SECRET_NAME);

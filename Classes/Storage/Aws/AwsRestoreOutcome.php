@@ -21,7 +21,9 @@ enum AwsRestoreOutcome: string
     case Applied = 'applied';
 
     /**
-     * The move failed twice while the secret was still at our version.
+     * The move failed, a read showed our version, and the second move failed
+     * too. No move was acknowledged; since reads can lag, AWSCURRENT is not
+     * proven to be unchanged.
      */
     case NotApplied = 'not-applied';
 

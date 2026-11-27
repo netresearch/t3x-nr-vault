@@ -14,6 +14,7 @@ use GuzzleHttp\Promise\PromiseInterface;
 use GuzzleHttp\Psr7\Response;
 use LogicException;
 use Psr\Http\Message\RequestInterface;
+use Psr\Http\Message\ResponseInterface;
 
 use function count;
 use function in_array;
@@ -110,7 +111,10 @@ final class FakeSecretsManagerSecret
             default                    => throw new LogicException('The fake does not model ' . $target . '.', 1794567002),
         };
 
-        if ($this->applyThenFail === $target) {
+        // Only a request that succeeded can lose its answer; a refusal stays a
+        // refusal and keeps the hook armed for the next request.
+        $response = $answer->wait();
+        if ($this->applyThenFail === $target && $response instanceof ResponseInterface && $response->getStatusCode() === 200) {
             $this->applyThenFail = null;
 
             return $this->json(['__type' => 'InternalServiceError', 'Message' => 'details that must not surface'], 500);
@@ -165,8 +169,9 @@ final class FakeSecretsManagerSecret
     }
 
     /**
-     * The next request of this action is carried out, but answered with a
-     * server error, as when the response is lost on the way back.
+     * The next request of this action that succeeds is carried out, but
+     * answered with a server error, as when the response is lost on the way
+     * back. A request the fake refuses is answered with its refusal.
      */
     public function applyThenFail(string $action): void
     {
