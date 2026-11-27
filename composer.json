@@ -44,7 +44,7 @@
     "require-dev": {
         "aws/aws-sdk-php": "^3.403",
         "mikey179/vfsstream": "^1.6.11",
-        "netresearch/typo3-ci-workflows": "^2.0.3",
+        "netresearch/typo3-ci-workflows": "^2.3.2",
         "roave/security-advisories": "dev-latest",
         "testcontainers/testcontainers": "^1.2",
         "typo3/cms-dashboard": "^13.4 || ^14.3",
@@ -112,17 +112,19 @@
             "@ci:test:php:arch",
             "@ci:test:php:doc-cli",
             "@ci:test:php:doc-cli:self-test",
-            "@ci:test:evidence",
-            "@ci:test:changelog"
+            "@ci:test:evidence"
         ],
-        "ci:test:changelog": "@php Build/Scripts/changelog-fragments.php check",
-        "changelog:collect": "@php Build/Scripts/changelog-fragments.php collect",
+        "ci:test:changelog": "changelog-fragments check @no_additional_args",
+        "changelog:collect": "changelog-fragments collect",
         "ci:test:evidence": "@php Build/Scripts/collect-evidence.php --self-test",
         "ci:test:php:arch": "@php Tests/scripts/check-test-base-class.php",
         "ci:test:php:doc-cli": "@php Tests/scripts/check-cli-docs.php",
         "ci:test:php:doc-cli:self-test": "@php Tests/scripts/check-cli-docs.php --self-test",
         "ci:cgl": "php-cs-fixer fix",
-        "ci:test:php:cgl": "php-cs-fixer fix --dry-run --diff",
+        "ci:test:php:cgl": [
+            "@ci:test:changelog",
+            "php-cs-fixer fix --dry-run --diff"
+        ],
         "ci:test:php:coverage": "@php -d pcov.enabled=0 -d xdebug.mode=coverage .Build/bin/phpunit -c Build/phpunit.xml --testsuite Unit --path-coverage --coverage-clover=.Build/coverage/clover.xml --coverage-html=.Build/coverage/html --coverage-text",
         "ci:test:php:coverage:functional": "@php -d pcov.enabled=0 -d xdebug.mode=coverage .Build/bin/phpunit -c Build/FunctionalTests.xml --path-coverage --coverage-clover=.Build/coverage/clover-functional.xml --coverage-html=.Build/coverage/html-functional",
         "ci:test:php:functional": "phpunit -c Build/FunctionalTests.xml",
