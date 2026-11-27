@@ -150,8 +150,7 @@ Transport and names
     says it does not exist (``CreateSecret``); if a concurrent create wins in
     between, the conflict is raised (code ``1794500012``) and nothing is written
     into that writer's secret. A compensation that cannot apply because the
-    secret changed since, or whose rollback failed, keeps the row and logs a
-    warning.
+    secret changed since keeps the row and logs a warning.
 
 Errors
 ------
@@ -189,22 +188,22 @@ Taking a write back does not compare payloads. ``CreateSecret`` and
 ``PutSecretValue`` return the ``VersionId`` they created, and a rollback applies
 only while ``AWSCURRENT`` is still that version.
 
-*   **Taking back an update or an adoption is conditional on AWS**
-    (`#567 <https://github.com/netresearch/t3x-nr-vault/issues/567>`__) after a
-    failed row write and in the journal compensations below, when the store
-    implements :php:`AwsVersionedSecretStoreInterface`, as the shipped
-    :php:`AwsSecretsManagerStore` does. The adapter reads the previous document
-    and its ``VersionId`` from one ``GetSecretValue`` response before it writes,
-    and keeps both in the request journal. The rollback is
-    ``UpdateSecretVersionStage`` with ``VersionStage=AWSCURRENT``,
-    ``MoveToVersionId`` the journalled version and ``RemoveFromVersionId`` the
-    version the write created. AWS refuses the move when ``AWSCURRENT`` is
-    attached to any other version ("If the label is attached and you either do
-    not specify this parameter, or the version ID does not match, then the
-    operation fails", ``UpdateSecretVersionStage`` API reference), so a writer
-    that lands after our write keeps its value. No new version is written: the
-    previous version is current again, and AWS moves ``AWSPREVIOUS`` to the
-    version the rollback removed ``AWSCURRENT`` from.
+*   **Only the rollback after a failed row write is conditional on AWS**
+    (`#567 <https://github.com/netresearch/t3x-nr-vault/issues/567>`__): an
+    update or an adoption whose registry row could not be written, when the
+    store implements :php:`AwsVersionedSecretStoreInterface` (the shipped
+    :php:`AwsSecretsManagerStore` does) and the policy grants
+    ``secretsmanager:UpdateSecretVersionStage``. Before it writes, the adapter
+    reads the previous document and its ``VersionId`` from one
+    ``GetSecretValue`` response. The rollback is ``UpdateSecretVersionStage``
+    with ``VersionStage=AWSCURRENT``, ``MoveToVersionId`` that version and
+    ``RemoveFromVersionId`` the version the write created. AWS refuses the move
+    when ``AWSCURRENT`` is attached to any other version ("If the label is
+    attached and you either do not specify this parameter, or the version ID
+    does not match, then the operation fails", ``UpdateSecretVersionStage`` API
+    reference), so a writer that lands after our write keeps its value. No new
+    version is written: the previous version is current again, and AWS moves
+    ``AWSPREVIOUS`` to the version the rollback removed ``AWSCURRENT`` from.
 *   **A move that fails writes nothing**, unless it was refused for lack of
     the permission (below). The SDK has already retried a throttled or failed
     request once. AWS does not document the error code of a mismatch, so the
@@ -217,39 +216,33 @@ only while ``AWSCURRENT`` is still that version.
         of an applied move is refused). The rollback counts as applied. A read
         that has not caught up with our write shows the same version, which is
         why one read is not enough; if the second read shows anything else, the
-        outcome is unconfirmed, the rollback counts as skipped and a warning
-        names the secret.
-    -   Our version: the move did not apply. The rollback counts as skipped and
-        a warning names the secret and the error code; the write stays.
+        outcome is unconfirmed, the rollback is skipped and a warning names the
+        secret.
+    -   Our version: the move did not apply. The rollback is skipped, a warning
+        names the secret and the error code, and our write stays.
     -   Any other version, or none: a concurrent writer won, or the secret is
-        gone. The rollback is skipped.
+        gone. The rollback is skipped, and the adapter logs it.
 
-    A skipped rollback is logged by the adapter, and a create compensation
-    keeps the row.
-*   **The rollback falls back to read-then-write** only when the move is
-    refused for lack of the permission and when the store does not implement
-    :php:`AwsVersionedSecretStoreInterface`, as it did before #567. A refusal
-    is ``AccessDeniedException`` (the warning names
+    The row failure is the error the caller sees either way.
+*   **On that path the rollback falls back to read-then-write** only when the
+    move is refused for lack of the permission, and when the store does not
+    implement :php:`AwsVersionedSecretStoreInterface`, as before #567. A
+    refusal is ``AccessDeniedException`` (the warning names
     ``secretsmanager:UpdateSecretVersionStage`` and the secret) or a ``403``
     without a readable error code (the warning names the status, not a
     permission). The fallback reads the ``AWSCURRENT`` id and, if it is still
     the write's version, puts the previous document back as a new version. A
     write landing between that read and the put is overwritten.
-*   **A compensation whose rollback throws is not quiet.** When the
-    compensation of a failed audit write takes its rollback from the request
-    journal (a create, or an update whose previous row held no value), a
-    rollback that throws is rethrown. :php:`VaultService` then logs the
-    mutation that persisted without an audit record at critical level and
-    chains the rollback failure onto the ``AuditWriteException``; the row stays
-    and points at what AWS holds. A rollback after a failed row write is still only logged, because
-    the row failure is the error the caller sees.
-*   **The compensation of an update whose audit write failed is not
-    conditional** when the secret already held a value. :php:`VaultService`
-    takes it back by storing the previous row again
-    (``adapter->store($existing)``), which writes the previous envelope as a
-    new AWS version without any version check: a writer that lands before that
-    write is overwritten. The conditional move covers the rollback after a
-    failed row write and the two journal compensations above.
+*   **The compensations of a failed audit write are unchanged by #567.**
+    Taking back a create whose audit write failed (``compensateCreate()``) and
+    the valueless store that compensates the FormEngine completion path still
+    read ``AWSCURRENT`` and then put the previous document back as a new
+    version, or delete the secret: a writer that lands between that read and
+    the write or delete is overwritten or deleted. The update compensation of
+    :php:`VaultService` stores the previous row again
+    (``adapter->store($existing)``), which writes the previous envelope as a new
+    version without any version check. A rollback that fails in these paths is
+    logged as a warning, as before.
 *   **A writer between the adapter's read and its write is still discarded.**
     The adapter reads the previous document, then writes. A writer whose
     version lands between the two is displaced by our write, and the rollback

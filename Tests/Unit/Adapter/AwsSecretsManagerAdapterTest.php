@@ -12,20 +12,13 @@ namespace Netresearch\NrVault\Tests\Unit\Adapter;
 use LogicException;
 use Netresearch\NrVault\Adapter\AwsSecretsManagerAdapter;
 use Netresearch\NrVault\Adapter\LocalEncryptionAdapter;
-use Netresearch\NrVault\Audit\AuditLogServiceInterface;
 use Netresearch\NrVault\Configuration\Dto\AwsSecretsConfig;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
-use Netresearch\NrVault\Crypto\EncryptedData;
-use Netresearch\NrVault\Crypto\EncryptionServiceInterface;
 use Netresearch\NrVault\Crypto\MasterKeyProviderInterface;
 use Netresearch\NrVault\Domain\Model\Secret;
 use Netresearch\NrVault\Domain\Repository\SecretRepositoryInterface;
-use Netresearch\NrVault\Exception\AuditWriteException;
 use Netresearch\NrVault\Exception\AwsSecretsManagerException;
 use Netresearch\NrVault\Exception\ConfigurationException;
-use Netresearch\NrVault\Http\VaultHttpClientFactoryInterface;
-use Netresearch\NrVault\Security\AccessControlServiceInterface;
-use Netresearch\NrVault\Service\VaultService;
 use Netresearch\NrVault\Storage\Aws\AwsSecretStoreInterface;
 use Netresearch\NrVault\Storage\Aws\AwsVersionedSecretStoreInterface;
 use Netresearch\NrVault\Storage\ExternalStoreJournal;
@@ -38,7 +31,6 @@ use PHPUnit\Framework\Attributes\Test;
 use Psr\Log\AbstractLogger;
 use RuntimeException;
 use Stringable;
-use Throwable;
 
 #[CoversClass(AwsSecretsManagerAdapter::class)]
 #[AllowMockObjectsWithoutExpectations]
@@ -83,9 +75,6 @@ final class AwsSecretsManagerAdapterTest extends TestCase
     /** @var list<string> The previous version id each restoreToVersionIfCurrent() was given */
     private array $restoredToVersions = [];
 
-    /** @var list<string> */
-    private array $critical = [];
-
     /** @var array<string, list<string>> Every version id written per secret, oldest first */
     private array $history = [];
 
@@ -111,7 +100,6 @@ final class AwsSecretsManagerAdapterTest extends TestCase
         $this->warnings                       = [];
         $this->restoredToVersions             = [];
         $this->history                        = [];
-        $this->critical                       = [];
         $this->awsWritesAllowed               = null;
         $this->masterKey                      = sodium_crypto_secretbox_keygen();
         $this->journal                        = new ExternalStoreJournal();
@@ -447,62 +435,6 @@ final class AwsSecretsManagerAdapterTest extends TestCase
             $this->awsCalls,
             'only the update reads the version; the delete and the valueless store read the plain document',
         );
-    }
-
-    #[Test]
-    public function aCreateCompensationWhoseRollbackThrowsReachesTheCriticalPathOfVaultService(): void
-    {
-        $adapter = $this->adapter();
-        $adapter->store($this->envelopeSecret('api_key'));
-        unset($this->rows['api_key']);
-
-        // The create adopts that unreferenced write; its compensation has to
-        // put it back, and that write is refused.
-        $this->awsWritesAllowed = 1;
-
-        $encryption = $this->createMock(EncryptionServiceInterface::class);
-        $encryption->method('encrypt')->willReturn(new EncryptedData('enc', 'dek', 'n1', 'n2', 'cs'));
-        $access = $this->createMock(AccessControlServiceInterface::class);
-        $access->method('canCreate')->willReturn(true);
-        $access->method('isGranted')->willReturn(true);
-        $audit = $this->createMock(AuditLogServiceInterface::class);
-        $audit->method('log')->willThrowException(new AuditWriteException('audit store unavailable', 1747825331));
-
-        $logger = new class ($this) extends AbstractLogger {
-            public function __construct(private readonly AwsSecretsManagerAdapterTest $test) {}
-
-            public function log($level, string|Stringable $message, array $context = []): void
-            {
-                if ($level === 'critical') {
-                    $this->test->recordCritical((string) $message);
-                }
-            }
-        };
-
-        $service = new VaultService(
-            $adapter,
-            $encryption,
-            $access,
-            $audit,
-            $this->createMock(ExtensionConfigurationInterface::class),
-            $this->createMock(VaultHttpClientFactoryInterface::class),
-            logger: $logger,
-        );
-
-        $thrown = null;
-
-        try {
-            $service->store('api_key', 'plaintext');
-        } catch (Throwable $e) {
-            $thrown = $e;
-        }
-
-        self::assertInstanceOf(AuditWriteException::class, $thrown, 'the audit failure propagates');
-        self::assertInstanceOf(RuntimeException::class, $thrown->getPrevious(), 'the failed rollback is chained onto the audit failure');
-        self::assertSame(4778462884, $thrown->getPrevious()->getCode());
-        self::assertCount(1, $this->critical, 'VaultService reports the mutation that persisted without an audit record');
-        self::assertStringContainsString('Manual reconciliation required', $this->critical[0]);
-        self::assertArrayHasKey('api_key', $this->rows, 'the row stays and points at what AWS holds');
     }
 
     #[Test]
@@ -844,8 +776,7 @@ final class AwsSecretsManagerAdapterTest extends TestCase
         $adapter = $this->adapter();
         $adapter->store($this->envelopeSecret('api_key'));
 
-        $orphan  = $this->aws['api_key'];
-        $adopted = $this->awsVersion('api_key');
+        $orphan = $this->aws['api_key'];
         unset($this->rows['api_key']);
 
         $adapter->store($this->envelopeSecret('api_key', 'adopted'));
@@ -853,7 +784,7 @@ final class AwsSecretsManagerAdapterTest extends TestCase
 
         self::assertEquals($orphan, $this->aws['api_key'], 'the adopted secret is back');
         self::assertArrayNotHasKey('api_key', $this->rows, 'the row is removed');
-        self::assertSame([$adopted], $this->restoredToVersions, 'the journal carries the version that was adopted');
+        self::assertSame([], $this->restoredToVersions, 'an audit-failure compensation is not conditional (#567 covers only the row-write rollback)');
     }
 
     #[Test]
@@ -914,13 +845,12 @@ final class AwsSecretsManagerAdapterTest extends TestCase
         // an unreferenced earlier write of this installation.
         $this->rows['api_key'] = new Secret(identifier: 'api_key', uid: 1);
 
-        $adopted = $this->awsVersion('api_key');
         $adapter->store($this->envelopeSecret('api_key', 'adopted')->withUid(1));
         // VaultService compensates a failed audit write with the prior row.
         $adapter->store(new Secret(identifier: 'api_key', uid: 1));
 
         self::assertEquals($orphan, $this->aws['api_key'], 'the adopted secret is back, not destroyed');
-        self::assertSame([$adopted], $this->restoredToVersions, 'the journal carries the version that was adopted');
+        self::assertSame([], $this->restoredToVersions, 'an audit-failure compensation is not conditional (#567 covers only the row-write rollback)');
     }
 
     #[Test]
@@ -1226,11 +1156,6 @@ final class AwsSecretsManagerAdapterTest extends TestCase
         $history = $this->history[$identifier] ?? [];
 
         return in_array($versionId, $history, true) && $versionId !== $this->awsVersion($identifier);
-    }
-
-    public function recordCritical(string $message): void
-    {
-        $this->critical[] = $message;
     }
 
     public function recordVersionedRead(string $identifier): void

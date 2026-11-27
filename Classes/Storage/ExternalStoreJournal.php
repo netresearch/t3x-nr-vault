@@ -19,20 +19,19 @@ namespace Netresearch\NrVault\Storage;
  */
 final class ExternalStoreJournal
 {
-    /** @var array<string, array{previous: array<string, mixed>|null, version: int|string|null, previousVersion: int|string|null}> */
+    /** @var array<string, array{previous: array<string, mixed>|null, version: int|string|null}> */
     private array $entries = [];
 
     /**
-     * @param array<string, mixed>|null $previous        The payload taken over, or null when the secret was created
-     * @param int|string|null           $previousVersion The version that payload was read from, when the store can move back to it
+     * @param array<string, mixed>|null $previous The payload taken over, or null when the secret was created
      */
-    public function remember(string $adapter, string $identifier, ?array $previous, int|string|null $version, int|string|null $previousVersion = null): void
+    public function remember(string $adapter, string $identifier, ?array $previous, int|string|null $version): void
     {
-        $this->entries[$adapter . '/' . $identifier] = ['previous' => $previous, 'version' => $version, 'previousVersion' => $previousVersion];
+        $this->entries[$adapter . '/' . $identifier] = ['previous' => $previous, 'version' => $version];
     }
 
     /**
-     * @return array{previous: array<string, mixed>|null, version: int|string|null, previousVersion: int|string|null}|null
+     * @return array{previous: array<string, mixed>|null, version: int|string|null}|null
      */
     public function take(string $adapter, string $identifier): ?array
     {

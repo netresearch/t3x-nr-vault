@@ -120,10 +120,14 @@ if ``aws.secretPrefix`` differs. The condition is not exercised by the tests,
 because the emulation does not evaluate policies like AWS does. The adapter calls no other action: it does not list, describe, tag or
 rotate secrets.
 
-``UpdateSecretVersionStage`` is used only to take back a write when the
+``UpdateSecretVersionStage`` is used only to take back an update when the
 registry row could not be written. It moves ``AWSCURRENT`` back to the version
 the write replaced, and AWS refuses that move once another writer has written,
-so the other writer's value survives. Without the permission the adapter still
+so the other writer's value survives; a move that fails for another reason
+writes nothing and logs a warning naming the secret. The compensations of a
+failed audit write and the rollback of a create do not use it: they behave as
+before, so a writer that lands in their read-then-write or read-then-delete
+gap is still overwritten or deleted. Without the permission the adapter still
 works: it logs a warning that names ``secretsmanager:UpdateSecretVersionStage``
 and takes the write back by reading the current version and putting the
 previous value back as a new version, which overwrites a write that lands
