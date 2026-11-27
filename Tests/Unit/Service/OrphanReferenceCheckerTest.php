@@ -41,6 +41,11 @@ final class OrphanReferenceCheckerTest extends TestCase
 {
     private const IDENTIFIER = '01937b6e-4b6c-7abc-8def-0123456789ab';
 
+    /** Placeholder the mocked query builder returns for the identifier. */
+    private const PARAMETER = ':identifier';
+
+    private const UNKNOWN_TABLE = 'names an unknown table';
+
     private ConnectionPool&MockObject $connectionPool;
 
     /** @var AbstractSchemaManager<AbstractPlatform>&MockObject */
@@ -85,7 +90,7 @@ final class OrphanReferenceCheckerTest extends TestCase
     {
         $this->mockTable(['api_key']);
         $this->mockHolderCount(0);
-        $this->expressionBuilder->expects(self::once())->method('eq')->with('api_key', ':identifier')->willReturn('api_key = :identifier');
+        $this->expressionBuilder->expects(self::once())->method('eq')->with('api_key', self::PARAMETER)->willReturn('api_key = :identifier');
         $this->expressionBuilder->expects(self::never())->method('like');
 
         (new OrphanReferenceChecker($this->connectionPool))->isOrphaned($this->reference(), self::IDENTIFIER);
@@ -96,7 +101,7 @@ final class OrphanReferenceCheckerTest extends TestCase
     {
         $this->mockTable(['settings']);
         $this->mockHolderCount(0);
-        $this->expressionBuilder->expects(self::once())->method('like')->with('settings', ':identifier')->willReturn('settings LIKE :identifier');
+        $this->expressionBuilder->expects(self::once())->method('like')->with('settings', self::PARAMETER)->willReturn('settings LIKE :identifier');
         $this->expressionBuilder->expects(self::never())->method('eq');
 
         (new OrphanReferenceChecker($this->connectionPool))->isOrphaned(new OrphanReference('tx_table', 'settings', 5, true), self::IDENTIFIER);
@@ -178,7 +183,7 @@ final class OrphanReferenceCheckerTest extends TestCase
         $checker = new OrphanReferenceChecker($this->connectionPool);
 
         self::assertFalse($checker->isOrphaned($this->reference(), self::IDENTIFIER));
-        self::assertSame('names an unknown table', $checker->getUnresolvedReferences()[0]['reason']);
+        self::assertSame(self::UNKNOWN_TABLE, $checker->getUnresolvedReferences()[0]['reason']);
     }
 
     #[Test]
@@ -215,7 +220,7 @@ final class OrphanReferenceCheckerTest extends TestCase
                 'table'      => 'tx_table',
                 'field'      => 'api_key',
                 'uid'        => 5,
-                'reason'     => 'names an unknown table',
+                'reason'     => self::UNKNOWN_TABLE,
             ],
         );
 
@@ -223,7 +228,7 @@ final class OrphanReferenceCheckerTest extends TestCase
         $checker->isOrphaned($this->reference(), self::IDENTIFIER);
 
         self::assertSame(
-            [['identifier' => self::IDENTIFIER, 'table' => 'tx_table', 'field' => 'api_key', 'uid' => 5, 'reason' => 'names an unknown table']],
+            [['identifier' => self::IDENTIFIER, 'table' => 'tx_table', 'field' => 'api_key', 'uid' => 5, 'reason' => self::UNKNOWN_TABLE]],
             $checker->getUnresolvedReferences(),
         );
     }
@@ -271,7 +276,7 @@ final class OrphanReferenceCheckerTest extends TestCase
         $queryBuilder->method('where')->willReturnSelf();
         $queryBuilder->method('expr')->willReturn($this->expressionBuilder);
         $queryBuilder->method('escapeLikeWildcards')->willReturnArgument(0);
-        $queryBuilder->method('createNamedParameter')->willReturn(':identifier');
+        $queryBuilder->method('createNamedParameter')->willReturn(self::PARAMETER);
         $queryBuilder->method('executeQuery')->willReturn($result);
 
         $this->connectionPool->method('getQueryBuilderForTable')->willReturn($queryBuilder);
