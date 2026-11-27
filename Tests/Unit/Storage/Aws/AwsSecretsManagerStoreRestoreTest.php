@@ -40,6 +40,8 @@ final class AwsSecretsManagerStoreRestoreTest extends TestCase
 {
     use AccessKeyFixtures;
 
+    private const SECRET_NAME = 'typo3/api_key';
+
     /** @var list<array{string, string, array<array-key, mixed>}> */
     private array $logged = [];
 
@@ -78,7 +80,7 @@ final class AwsSecretsManagerStoreRestoreTest extends TestCase
     #[DataProvider('mismatchCodeProvider')]
     public function aWriterLandingBetweenTheWriteAndTheRollbackKeepsItsValue(string $mismatchCode): void
     {
-        $secret   = new FakeSecretsManagerSecret('typo3/api_key', $mismatchCode);
+        $secret   = new FakeSecretsManagerSecret(self::SECRET_NAME, $mismatchCode);
         $previous = $secret->seed(['v' => 'previous']);
         $store    = $this->store($secret);
 
@@ -93,7 +95,7 @@ final class AwsSecretsManagerStoreRestoreTest extends TestCase
     #[Test]
     public function aRollbackMovesAwsCurrentBackToTheVersionTheWriteReplaced(): void
     {
-        $secret   = new FakeSecretsManagerSecret('typo3/api_key');
+        $secret   = new FakeSecretsManagerSecret(self::SECRET_NAME);
         $previous = $secret->seed(['v' => 'previous']);
         $store    = $this->store($secret);
 
@@ -113,7 +115,7 @@ final class AwsSecretsManagerStoreRestoreTest extends TestCase
     #[Test]
     public function withoutThePermissionTheRollbackFallsBackToReadThenWriteAndNamesThePermission(): void
     {
-        $secret   = new FakeSecretsManagerSecret('typo3/api_key');
+        $secret   = new FakeSecretsManagerSecret(self::SECRET_NAME);
         $previous = $secret->seed(['v' => 'previous']);
         $secret->deny('UpdateSecretVersionStage');
         $store = $this->store($secret);
@@ -134,7 +136,7 @@ final class AwsSecretsManagerStoreRestoreTest extends TestCase
     #[Test]
     public function withoutThePermissionAConcurrentWriterSeenByTheReadIsStillNotOverwritten(): void
     {
-        $secret   = new FakeSecretsManagerSecret('typo3/api_key');
+        $secret   = new FakeSecretsManagerSecret(self::SECRET_NAME);
         $previous = $secret->seed(['v' => 'previous']);
         $secret->deny('UpdateSecretVersionStage');
         $store = $this->store($secret);
@@ -149,7 +151,7 @@ final class AwsSecretsManagerStoreRestoreTest extends TestCase
     #[Test]
     public function aMoveThatFailsWhileTheSecretIsStillAtOurVersionFallsBackToReadThenWrite(): void
     {
-        $secret = new FakeSecretsManagerSecret('typo3/api_key');
+        $secret = new FakeSecretsManagerSecret(self::SECRET_NAME);
         $secret->seed(['v' => 'previous']);
 
         $store = $this->store($secret);
@@ -170,7 +172,7 @@ final class AwsSecretsManagerStoreRestoreTest extends TestCase
     #[Test]
     public function withoutThePreviousVersionIdTheRollbackReadsThenWrites(): void
     {
-        $secret = new FakeSecretsManagerSecret('typo3/api_key');
+        $secret = new FakeSecretsManagerSecret(self::SECRET_NAME);
         $secret->seed(['v' => 'previous']);
 
         $store = $this->store($secret);
@@ -186,7 +188,7 @@ final class AwsSecretsManagerStoreRestoreTest extends TestCase
     #[Test]
     public function readWithVersionReturnsTheDocumentAndTheVersionFromOneResponse(): void
     {
-        $secret  = new FakeSecretsManagerSecret('typo3/api_key');
+        $secret  = new FakeSecretsManagerSecret(self::SECRET_NAME);
         $version = $secret->seed(['v' => 'stored']);
 
         self::assertSame(['data' => ['v' => 'stored'], 'versionId' => $version], $this->store($secret)->readWithVersion('api_key'));
@@ -196,7 +198,7 @@ final class AwsSecretsManagerStoreRestoreTest extends TestCase
     #[Test]
     public function readWithVersionOfAMissingSecretIsNull(): void
     {
-        $secret = new FakeSecretsManagerSecret('typo3/api_key');
+        $secret = new FakeSecretsManagerSecret(self::SECRET_NAME);
 
         self::assertNull($this->store($secret)->readWithVersion('api_key'));
     }
@@ -245,7 +247,7 @@ final class AwsSecretsManagerStoreRestoreTest extends TestCase
         return new AwsSecretsManagerStore(
             $configuration,
             new AwsClientFactory($configuration, $client),
-            static function (int $microseconds): void {},
+            null,
             $logger,
         );
     }

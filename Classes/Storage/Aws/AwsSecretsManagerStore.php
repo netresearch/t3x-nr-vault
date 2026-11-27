@@ -170,34 +170,7 @@ final class AwsSecretsManagerStore implements AwsSecretStoreInterface
 
             return true;
         } catch (Throwable $e) {
-            $code = $this->failureCode($e);
-
-            if ($code === 'AccessDeniedException') {
-                $this->logger?->warning(
-                    'nr-vault: AWS Secrets Manager refused UpdateSecretVersionStage ({code}); grant secretsmanager:UpdateSecretVersionStage. The rollback fell back to read-then-write, which overwrites a write that lands in between.',
-                    ['code' => $code],
-                );
-
-                return $this->restoreByWrite($identifier, $data, $versionId);
-            }
-
-            // AWS does not document the error of a version mismatch, so the
-            // label decides, not the code: AWSCURRENT on another version means
-            // a concurrent writer won (or the secret is gone).
-            if (!$this->isCurrent($identifier, $versionId)) {
-                return false;
-            }
-
-            // Still ours, so the move failed for another reason (the version to
-            // move back to was removed, a throttled request): put the value
-            // back as a new version, as before the stage move existed.
-            $this->logger?->warning(
-                'nr-vault: AWS Secrets Manager UpdateSecretVersionStage failed ({code}) while the secret was still at the version this call wrote; the rollback fell back to read-then-write. If the policy lacks secretsmanager:UpdateSecretVersionStage, grant it.',
-                ['code' => $code],
-            );
-            $this->write($identifier, $data);
-
-            return true;
+            return $this->restoreAfterFailedMove($identifier, $data, $versionId, $e);
         }
     }
 
@@ -321,6 +294,45 @@ final class AwsSecretsManagerStore implements AwsSecretStoreInterface
             return false;
         }
 
+        $this->write($identifier, $data);
+
+        return true;
+    }
+
+    /**
+     * The stage move failed. Whether a concurrent writer won is read from
+     * AWSCURRENT, not from the error code; while the secret is still at our
+     * version, the value is put back as a new version.
+     *
+     * @param array<string, mixed> $data
+     */
+    private function restoreAfterFailedMove(string $identifier, #[SensitiveParameter] array $data, string $versionId, Throwable $e): bool
+    {
+        $code = $this->failureCode($e);
+
+        if ($code === 'AccessDeniedException') {
+            $this->logger?->warning(
+                'nr-vault: AWS Secrets Manager refused UpdateSecretVersionStage ({code}); grant secretsmanager:UpdateSecretVersionStage. The rollback fell back to read-then-write, which overwrites a write that lands in between.',
+                ['code' => $code],
+            );
+
+            return $this->restoreByWrite($identifier, $data, $versionId);
+        }
+
+        // AWS does not document the error of a version mismatch, so the
+        // label decides, not the code: AWSCURRENT on another version means
+        // a concurrent writer won (or the secret is gone).
+        if (!$this->isCurrent($identifier, $versionId)) {
+            return false;
+        }
+
+        // Still ours, so the move failed for another reason (the version to
+        // move back to was removed, a throttled request): put the value
+        // back as a new version, as before the stage move existed.
+        $this->logger?->warning(
+            'nr-vault: AWS Secrets Manager UpdateSecretVersionStage failed ({code}) while the secret was still at the version this call wrote; the rollback fell back to read-then-write. If the policy lacks secretsmanager:UpdateSecretVersionStage, grant it.',
+            ['code' => $code],
+        );
         $this->write($identifier, $data);
 
         return true;
