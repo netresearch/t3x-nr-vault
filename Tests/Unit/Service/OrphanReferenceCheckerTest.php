@@ -58,14 +58,14 @@ final class OrphanReferenceCheckerTest extends TestCase
 
     private ExpressionBuilder&MockObject $expressionBuilder;
 
-    /** Whether the query being built is the LIKE count (not a select). */
+    /** Whether the query being built is the holder count (not a select). */
     private bool $isCounting = false;
 
     /** What the primary-key read of the linked row returns. */
     private mixed $linkedRowValue = false;
 
-    /** What the LIKE count of a FlexForm column returns. */
-    private int $likeCount = 0;
+    /** What the authoritative holder count (eq or LIKE) returns. */
+    private int $holderCount = 0;
 
     /** @var list<string> What the load of a plain column's values returns. */
     private array $heldValues = [];
@@ -84,7 +84,7 @@ final class OrphanReferenceCheckerTest extends TestCase
         $this->expressionBuilder->method('like')->willReturn('like');
 
         $result = $this->createMock(Result::class);
-        $result->method('fetchOne')->willReturnCallback(fn (): mixed => $this->isCounting ? $this->likeCount : $this->linkedRowValue);
+        $result->method('fetchOne')->willReturnCallback(fn (): mixed => $this->isCounting ? $this->holderCount : $this->linkedRowValue);
         $result->method('fetchFirstColumn')->willReturnCallback(fn (): array => $this->heldValues);
 
         $this->queryBuilder = $this->createMock(QueryBuilder::class);
@@ -142,6 +142,41 @@ final class OrphanReferenceCheckerTest extends TestCase
         self::assertFalse($this->checker()->isOrphaned($this->reference(), self::IDENTIFIER));
     }
 
+    /**
+     * The database's collation may match a value PHP does not (case, trailing
+     * spaces under MySQL's defaults). A PHP miss is never the final answer:
+     * the authoritative count decides, and here it finds the holder.
+     */
+    #[Test]
+    public function aHolderOnlyTheDatabaseMatchesKeepsTheSecret(): void
+    {
+        $this->mockTable(['uid', 'api_key']);
+        $this->linkedRowValue = strtoupper(self::IDENTIFIER);
+        $this->heldValues     = [strtoupper(self::IDENTIFIER) . ' '];
+        $this->holderCount    = 1;
+        $this->queryBuilder->expects(self::once())->method('count')->willReturnCallback(function (): QueryBuilder {
+            $this->isCounting = true;
+
+            return $this->queryBuilder;
+        });
+
+        self::assertFalse($this->checker()->isOrphaned($this->reference(), self::IDENTIFIER));
+    }
+
+    /**
+     * A fast-path hit answers "held" without the authoritative count.
+     */
+    #[Test]
+    public function aFastPathHitNeedsNoCount(): void
+    {
+        $this->mockTable(['uid', 'api_key']);
+        $this->linkedRowValue = '';
+        $this->heldValues     = [self::IDENTIFIER];
+        $this->queryBuilder->expects(self::never())->method('count');
+
+        self::assertFalse($this->checker()->isOrphaned($this->reference(), self::IDENTIFIER));
+    }
+
     #[Test]
     public function aSecretWhoseLinkedRowIsGoneIsCheckedAgainstTheOtherRows(): void
     {
@@ -193,7 +228,7 @@ final class OrphanReferenceCheckerTest extends TestCase
     {
         $this->mockTable(['uid', 'settings']);
         $this->linkedRowValue = '<T3FlexForms/>';
-        $this->likeCount      = 1;
+        $this->holderCount    = 1;
         $this->expressionBuilder->expects(self::once())->method('like')->with('settings', self::PARAMETER)->willReturn('like');
         $this->queryBuilder->expects(self::never())->method('distinct');
 
@@ -205,7 +240,7 @@ final class OrphanReferenceCheckerTest extends TestCase
     {
         $this->mockTable(['uid', 'settings']);
         $this->linkedRowValue = '<T3FlexForms/>';
-        $this->likeCount      = 0;
+        $this->holderCount    = 0;
 
         self::assertTrue($this->checker()->isOrphaned($this->flexReference(), self::IDENTIFIER));
     }

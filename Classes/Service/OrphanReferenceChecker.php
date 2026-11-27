@@ -37,11 +37,13 @@ use function trim;
  * live record that never held it.
  *
  * Queries per run, for N secrets in T tables: one table and one column
- * introspection per table, one primary-key read per secret (the linked row
- * nearly always holds its own secret), and only when that row does not: one
- * load of the column's values per (table, field) for a plain field, or one
- * LIKE count per secret for a FlexForm field, whose XML cannot be matched
- * from a loaded value set without parsing every document.
+ * introspection per table and one primary-key read per secret (the linked
+ * row nearly always holds its own secret). When that row does not, a plain
+ * field's values are loaded once per (table, field) for the run, which
+ * answers "held by another row" without a further query. Both are fast paths
+ * for "held" only: PHP compares more strictly than the database collation,
+ * so before a secret counts as an orphan one eq (plain) or LIKE (FlexForm)
+ * count per secret asks the database itself.
  *
  * Fails CLOSED. Only a lookup that succeeds and finds no holder may answer
  * true, because true is a DELETE trigger. A table, connection or column the
@@ -101,7 +103,15 @@ final class OrphanReferenceChecker implements OrphanReferenceCheckerInterface
                 return false;
             }
 
-            return !$this->linkedRowHolds($reference, $identifier) && !$this->anyRowHolds($reference, $identifier);
+            // PHP comparisons are stricter than the database collation (case,
+            // trailing spaces under MySQL's defaults): they may only confirm
+            // "held". "Not held" is the delete trigger, so it always comes
+            // from the database itself.
+            if ($this->linkedRowHolds($reference, $identifier) || $this->loadedValuesHold($reference, $identifier)) {
+                return false;
+            }
+
+            return !$this->databaseFindsHolder($reference, $identifier);
         } catch (Throwable $e) {
             $this->keep($reference, $identifier, 'could not be resolved: ' . $e->getMessage());
 
@@ -208,25 +218,38 @@ final class OrphanReferenceChecker implements OrphanReferenceCheckerInterface
     }
 
     /**
-     * Does any row of the linked table, deleted rows included, hold the
-     * identifier in the linked field?
+     * Fast path for "held": the run's loaded values of a plain field contain
+     * the identifier exactly. A FlexForm column is not loaded (its XML would
+     * have to be parsed); a miss proves nothing.
      */
-    private function anyRowHolds(OrphanReference $reference, string $identifier): bool
+    private function loadedValuesHold(OrphanReference $reference, string $identifier): bool
     {
-        if (!$reference->flexForm) {
-            return isset($this->heldValuesOf($reference->table, $reference->field)[$identifier]);
-        }
+        return !$reference->flexForm
+            && isset($this->heldValuesOf($reference->table, $reference->field)[$identifier]);
+    }
 
+    /**
+     * The authoritative answer: does any row of the linked table, deleted rows
+     * included, hold the identifier in the linked field, compared the way the
+     * database compares (its collation decides, as it does for every lookup
+     * that resolves the secret)?
+     */
+    private function databaseFindsHolder(OrphanReference $reference, string $identifier): bool
+    {
         $queryBuilder = $this->connectionPool->getQueryBuilderForTable($reference->table);
         $queryBuilder->getRestrictions()->removeAll();
+
+        $condition = $reference->flexForm
+            ? $queryBuilder->expr()->like(
+                $reference->field,
+                $queryBuilder->createNamedParameter('%' . $queryBuilder->escapeLikeWildcards($identifier) . '%'),
+            )
+            : $queryBuilder->expr()->eq($reference->field, $queryBuilder->createNamedParameter($identifier));
 
         $count = $queryBuilder
             ->count('*')
             ->from($reference->table)
-            ->where($queryBuilder->expr()->like(
-                $reference->field,
-                $queryBuilder->createNamedParameter('%' . $queryBuilder->escapeLikeWildcards($identifier) . '%'),
-            ))
+            ->where($condition)
             ->executeQuery()
             ->fetchOne();
 

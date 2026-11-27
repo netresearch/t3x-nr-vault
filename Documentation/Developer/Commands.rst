@@ -1204,8 +1204,9 @@ following hold:
    ``--retention-days=0``;
 *  no row of the linked table, deleted rows included, holds the identifier in
    the linked field (for a FlexForm field: no FlexForm value of that column
-   contains it). Whether the linked record itself still exists does not
-   matter: a published workspace version moves the identifier to the live
+   contains it), compared the way the database compares (its collation
+   decides, as for every lookup that resolves the secret). Whether the linked
+   record itself still exists does not matter: a published workspace version moves the identifier to the live
    record, a translation can share it, and a discarded workspace version
    leaves a live record that never held it.
 

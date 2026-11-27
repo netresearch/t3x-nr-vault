@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Functional\Task;
 
+use Doctrine\DBAL\Platforms\AbstractMySQLPlatform;
 use Netresearch\NrVault\Command\VaultCleanupOrphansCommand;
 use Netresearch\NrVault\Command\VaultMigrateFieldCommand;
 use Netresearch\NrVault\Domain\Dto\SecretRecordLink;
@@ -20,6 +21,7 @@ use Netresearch\NrVault\Service\VaultServiceInterface;
 use Netresearch\NrVault\Task\OrphanCleanupTask;
 use Netresearch\NrVault\Tests\Functional\AbstractVaultFunctionalTestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use Psr\Log\NullLogger;
 use ReflectionProperty;
@@ -467,6 +469,49 @@ final class SecretRecordLinkCleanupTest extends AbstractVaultFunctionalTestCase
 
         $logger = (new ReflectionProperty(OrphanReferenceChecker::class, 'logger'))->getValue($checker);
         self::assertNotInstanceOf(NullLogger::class, $logger);
+    }
+
+    /**
+     * The database compares with its collation, PHP compares bytes. A row
+     * holding the identifier in another case or with a trailing space still
+     * resolves the secret where the collation matches it (MySQL and MariaDB
+     * defaults), so there the secret must be kept; where the database does
+     * not match it (SQLite, PostgreSQL), nothing resolves it and it goes. The
+     * checker must follow the database, never its own comparison (#565).
+     */
+    #[Test]
+    #[DataProvider('collationVariantProvider')]
+    public function theCleanupFollowsTheDatabaseCollation(string $variant): void
+    {
+        $uid        = $this->createRecord('collation-' . bin2hex(random_bytes(8)));
+        $identifier = $this->fetchField(self::TABLE, $uid, 'api_key');
+        $held       = $variant === 'upper' ? strtoupper($identifier) : $identifier . ' ';
+
+        $connection = $this->getConnectionPool()->getConnectionForTable(self::TABLE);
+        $connection->update(self::TABLE, ['api_key' => $held], ['uid' => $uid]);
+
+        $databaseMatches = $connection->count('*', self::TABLE, ['api_key' => $identifier]) > 0;
+
+        if ($variant === 'upper' && $connection->getDatabasePlatform() instanceof AbstractMySQLPlatform) {
+            self::assertTrue($databaseMatches, 'MySQL/MariaDB compare case-insensitively; the test would check nothing otherwise');
+        }
+
+        $this->runTask();
+
+        self::assertSame(
+            $databaseMatches,
+            $this->get(VaultServiceInterface::class)->exists($identifier),
+            $databaseMatches ? 'A secret the database still resolves must be kept' : 'A secret nothing resolves is an orphan',
+        );
+    }
+
+    /**
+     * @return iterable<string, array{string}>
+     */
+    public static function collationVariantProvider(): iterable
+    {
+        yield 'upper case' => ['upper'];
+        yield 'trailing space' => ['trailing space'];
     }
 
     private function createRecord(string $apiKey): int

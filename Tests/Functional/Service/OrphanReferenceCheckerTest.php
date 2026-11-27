@@ -22,11 +22,11 @@ use function count;
 
 /**
  * The checker's queries against a real schema, and what each further secret
- * costs (#565): one primary-key read, nothing per secret beyond that. Table
- * and column introspection and the load of a column's values happen once
- * per run, so the difference between a run over N secrets and a run over
- * one secret is exactly N - 1 queries, whatever the platform's
- * introspection costs.
+ * costs (#565): one primary-key read for a secret some row holds, plus the
+ * authoritative count for an orphan. Table and column introspection and the
+ * load of a column's values happen once per run, so the difference between
+ * a run over N secrets and a run over one secret is (N - 1) times that cost,
+ * whatever the platform's introspection costs.
  */
 #[CoversClass(OrphanReferenceChecker::class)]
 final class OrphanReferenceCheckerTest extends AbstractVaultFunctionalTestCase
@@ -91,7 +91,10 @@ final class OrphanReferenceCheckerTest extends AbstractVaultFunctionalTestCase
         $single = $this->queriesFor(array_slice($references, 0, 1), $expectOrphans);
         $all    = $this->queriesFor($references, $expectOrphans);
 
-        self::assertSame(self::SECRETS - 1, $all - $single, sprintf('%d secrets took %d queries, one secret %d', self::SECRETS, $all, $single));
+        // A secret some row holds costs its primary-key read; an orphan also
+        // costs the authoritative count before it may be deleted.
+        $perSecret = $expectOrphans ? 2 : 1;
+        self::assertSame((self::SECRETS - 1) * $perSecret, $all - $single, sprintf('%d secrets took %d queries, one secret %d', self::SECRETS, $all, $single));
     }
 
     /**
