@@ -27,7 +27,7 @@ use function is_numeric;
  * `t3ver_oid`. A record created inside a workspace keeps its uid on publish
  * and is linked as is.
  */
-final readonly class RecordLinkFactory
+final readonly class RecordLinkFactory implements RecordLinkFactoryInterface
 {
     public function __construct(
         private ConnectionPool $connectionPool,

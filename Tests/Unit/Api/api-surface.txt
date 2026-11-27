@@ -885,6 +885,11 @@ Netresearch\NrVault\Hook\RecordCreationOutcome (enum)
   method static classify(bool $valueSubmitted, bool $valueStored): self
   property readonly name: string
 
+Netresearch\NrVault\Hook\RecordLinkFactoryInterface (interface)
+  method forField(string $source, string $table, string $field, int $uid, array $extra = …): array
+  method forFlexField(string $source, string $table, string $flexField, int $uid, array $extra = …): array
+  method liveUid(string $table, int $uid): int
+
 Netresearch\NrVault\Http\AdditionalSecretHttpClientInterface (interface)
   method withAdditionalBodyField(string $secretIdentifier, string $bodyField): static
 
@@ -1128,6 +1133,13 @@ Netresearch\NrVault\Service\Doctor\ReadinessCheckInterface (interface, extension
 
 Netresearch\NrVault\Service\Doctor\VaultDoctorServiceInterface (interface)
   method run(?Netresearch\NrVault\Configuration\SecurityProfile $targetProfile = …, bool $activeProbes = …): Netresearch\NrVault\Service\Doctor\DoctorReport
+
+Netresearch\NrVault\Service\OrphanReferenceCheckerInterface (interface)
+  const MINIMUM_AGE_SECONDS = 900
+  method deletionCutoff(int $retentionDays, int $now): int
+  method getUnresolvedReferences(): array
+  method isOrphaned(Netresearch\NrVault\Domain\Dto\OrphanReference $reference, string $identifier): bool
+  method reset(): void
 
 Netresearch\NrVault\Service\SecretDetectionServiceInterface (interface)
   method getDetectedSecretsBySeverity(): array

@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Hook;
 
+use Closure;
 use Exception;
 use Netresearch\NrVault\Hook\Dto\PendingSecret;
 use Netresearch\NrVault\Service\VaultServiceInterface;
@@ -43,15 +44,18 @@ final readonly class PendingSecretPersister
      * error flash message built by $failureMessage from the caught throwable,
      * and returns that throwable so the caller can perform hook-specific logging.
      *
-     * @param array<string, mixed>       $storeOptions   Options passed to store() for new secrets (the record link goes under `metadata`)
-     * @param string                     $deleteReason   Audit reason for the delete branch
-     * @param string                     $rotateReason   Audit reason for the rotate branch
-     * @param callable(Throwable):string $failureMessage Builds the flash message body from the error
-     * @param (callable():void)|null     $onFailure      Optional rollback hook run before the flash message
+     * @param array<string, mixed>|Closure():array<string, mixed> $storeOptions   Options passed to store() for new
+     *                                                                            secrets (the record link goes under `metadata`);
+     *                                                                            a closure is called only on the store branch,
+     *                                                                            inside the failure handling
+     * @param string                                              $deleteReason   Audit reason for the delete branch
+     * @param string                                              $rotateReason   Audit reason for the rotate branch
+     * @param callable(Throwable):string                          $failureMessage Builds the flash message body from the error
+     * @param (callable():void)|null                              $onFailure      Optional rollback hook run before the flash message
      */
     public function persist(
         PendingSecret $pending,
-        array $storeOptions,
+        array|Closure $storeOptions,
         string $deleteReason,
         string $rotateReason,
         callable $failureMessage,
@@ -68,7 +72,11 @@ final readonly class PendingSecretPersister
                     $this->vaultService->delete($pending->identifier, $deleteReason);
                 }
             } elseif ($pending->isNew) {
-                $this->vaultService->store($pending->identifier, $pending->value, $storeOptions);
+                $this->vaultService->store(
+                    $pending->identifier,
+                    $pending->value,
+                    $storeOptions instanceof Closure ? $storeOptions() : $storeOptions,
+                );
             } else {
                 // Update existing - use rotate to maintain audit trail.
                 $this->vaultService->rotate($pending->identifier, $pending->value, $rotateReason);

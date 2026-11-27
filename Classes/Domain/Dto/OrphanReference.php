@@ -33,7 +33,7 @@ readonly class OrphanReference
     /**
      * Create from array.
      *
-     * @param array{table: string, field: string, uid: int} $data
+     * @param array{table: string, field: string, uid: int, flexForm?: bool} $data
      */
     public static function fromArray(array $data): self
     {
@@ -41,6 +41,7 @@ readonly class OrphanReference
             table: $data['table'],
             field: $data['field'],
             uid: $data['uid'],
+            flexForm: $data['flexForm'] ?? false,
         );
     }
 
@@ -55,14 +56,15 @@ readonly class OrphanReference
     /**
      * Convert to array for serialization.
      *
-     * @return array{table: string, field: string, uid: int}
+     * @return array{table: string, field: string, uid: int, flexForm: bool}
      */
     public function toArray(): array
     {
         return [
-            'table' => $this->table,
-            'field' => $this->field,
-            'uid'   => $this->uid,
+            'table'    => $this->table,
+            'field'    => $this->field,
+            'uid'      => $this->uid,
+            'flexForm' => $this->flexForm,
         ];
     }
 }

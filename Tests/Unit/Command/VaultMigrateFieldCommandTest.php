@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Unit\Command;
 
+use Doctrine\DBAL\Exception as DbalException;
 use Doctrine\DBAL\Result;
 use Doctrine\DBAL\Schema\AbstractSchemaManager;
 use Doctrine\DBAL\Schema\Column;
@@ -23,6 +24,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
+use RuntimeException;
 use Symfony\Component\Console\Application;
 use Symfony\Component\Console\Tester\CommandTester;
 use Throwable;
@@ -46,6 +48,15 @@ use function sprintf;
 final class VaultMigrateFieldCommandTest extends TestCase
 {
     private const MSG_SUCCESSFULLY_MIGRATED = 'Successfully migrated';
+
+    /** What the mocked UPDATE last wrote into the field. */
+    private mixed $lastWrittenValue = null;
+
+    /** When set, what the read-back after the UPDATE returns instead. */
+    private ?string $readBackOverride = null;
+
+    /** When set, the mocked UPDATE throws it. */
+    private ?Throwable $updateFailure = null;
 
     private VaultServiceInterface $vaultService;
 
@@ -397,9 +408,22 @@ final class VaultMigrateFieldCommandTest extends TestCase
         $updateQueryBuilder->method('createNamedParameter')->willReturn(':dcValue2');
         $updateQueryBuilder->method('executeStatement')->willReturn(1);
 
+        // The read-back after the UPDATE sees what it wrote.
+        $readBackResult = self::createStub(Result::class);
+        $readBackResult->method('fetchOne')->willReturnCallback(static function () use (&$written): mixed {
+            return $written[1] ?? null;
+        });
+        $readBackQueryBuilder = self::createStub(QueryBuilder::class);
+        $readBackQueryBuilder->method('select')->willReturnSelf();
+        $readBackQueryBuilder->method('from')->willReturnSelf();
+        $readBackQueryBuilder->method('where')->willReturnSelf();
+        $readBackQueryBuilder->method('expr')->willReturn($expressionBuilder);
+        $readBackQueryBuilder->method('createNamedParameter')->willReturn(':dcValue3');
+        $readBackQueryBuilder->method('executeQuery')->willReturn($readBackResult);
+
         $this->connectionPool
             ->method('getQueryBuilderForTable')
-            ->willReturnOnConsecutiveCalls($readQueryBuilder, $updateQueryBuilder);
+            ->willReturnOnConsecutiveCalls($readQueryBuilder, $updateQueryBuilder, $readBackQueryBuilder);
 
         $this->commandTester->setInputs(['yes']);
         $exitCode = $this->commandTester->execute([
@@ -655,6 +679,87 @@ final class VaultMigrateFieldCommandTest extends TestCase
     }
 
     /**
+     * Non-strict SQL truncates instead of failing: the read-back catches it,
+     * the record fails and the secret just stored is deleted again (#565).
+     */
+    #[Test]
+    public function aFieldThatDoesNotHoldTheIdentifierAfterTheUpdateFailsTheRecord(): void
+    {
+        $vaultService = $this->useStrictVaultServiceMock();
+        $this->mockTableAndFieldExist('api_key');
+        $this->mockQueryReturnsRecords([['uid' => 1, 'api_key' => 'secret-truncated']]);
+        $this->readBackOverride = 'truncated-identi';
+
+        $stored = null;
+        $vaultService->expects(self::once())->method('store')
+            ->willReturnCallback(static function (string $identifier) use (&$stored): void {
+                $stored = $identifier;
+            });
+        $vaultService->expects(self::once())->method('delete')
+            ->with(self::callback(static function (string $identifier) use (&$stored): bool {
+                return $identifier === $stored;
+            }));
+
+        $this->commandTester->setInputs(['yes']);
+        $exitCode = $this->commandTester->execute(['table' => 'tx_myext_settings', 'field' => 'api_key']);
+
+        self::assertSame(1, $exitCode);
+        self::assertStringContainsString('does not hold the identifier', $this->commandTester->getDisplay());
+    }
+
+    /**
+     * A failed UPDATE leaves a secret nothing references. With --uid-field
+     * other than uid it also has no record link, so orphan cleanup would
+     * never find it: the command deletes it at once (#565).
+     */
+    #[Test]
+    public function aFailedUpdateDeletesTheStoredSecret(): void
+    {
+        $vaultService = $this->useStrictVaultServiceMock();
+        $this->mockTableAndFieldExist('api_key');
+        $this->mockQueryReturnsRecords([['legacy_id' => 7, 'api_key' => 'secret-update-fails']]);
+        $this->updateFailure = new class ('database gone') extends RuntimeException implements DbalException {};
+
+        $stored = null;
+        $vaultService->expects(self::once())->method('store')
+            ->willReturnCallback(static function (string $identifier) use (&$stored): void {
+                $stored = $identifier;
+            });
+        $vaultService->expects(self::once())->method('delete')
+            ->with(self::callback(static function (string $identifier) use (&$stored): bool {
+                return $identifier === $stored;
+            }));
+
+        $this->commandTester->setInputs(['yes']);
+        $exitCode = $this->commandTester->execute(['table' => 'tx_myext_settings', 'field' => 'api_key', '--uid-field' => 'legacy_id']);
+
+        self::assertSame(1, $exitCode);
+        self::assertStringContainsString('the stored secret was deleted again', $this->commandTester->getDisplay());
+    }
+
+    /**
+     * A value that is the identifier of an existing secret is skipped: a new
+     * secret wrapping it would orphan the old one (#565).
+     */
+    #[Test]
+    public function aValueThatIsAnExistingVaultIdentifierIsSkipped(): void
+    {
+        $vaultService = $this->useStrictVaultServiceMock();
+        $this->mockTableAndFieldExist('api_key');
+        $existing = '01937b6e-4b6c-7abc-8def-0123456789ab';
+        $this->mockQueryReturnsRecords([['uid' => 3, 'api_key' => $existing]]);
+
+        $vaultService->expects(self::once())->method('exists')->with($existing)->willReturn(true);
+        $vaultService->expects(self::never())->method('store');
+
+        $this->commandTester->setInputs(['yes']);
+        $exitCode = $this->commandTester->execute(['table' => 'tx_myext_settings', 'field' => 'api_key', '--force' => true]);
+
+        self::assertSame(0, $exitCode);
+        self::assertStringContainsString('Skipped UID 3: the field already holds the vault identifier ' . $existing, $this->commandTester->getDisplay());
+    }
+
+    /**
      * Rebuilds the command tester using the current $vaultService / $connectionPool
      * doubles. Tests that need to upgrade $vaultService to a mock with expects()
      * call {@see useStrictVaultServiceMock()} first, which swaps the double and
@@ -703,8 +808,11 @@ final class VaultMigrateFieldCommandTest extends TestCase
      */
     private function mockQueryReturnsRecords(array $records): void
     {
+        // The read-back after the UPDATE returns what the UPDATE wrote, as a
+        // database would.
         $result = $this->createStub(Result::class);
         $result->method('fetchAllAssociative')->willReturn($records);
+        $result->method('fetchOne')->willReturnCallback(fn (): mixed => $this->readBackOverride ?? $this->lastWrittenValue);
 
         $expressionBuilder = $this->createStub(ExpressionBuilder::class);
         $expressionBuilder->method('neq')->willReturn('field != ""');
@@ -713,6 +821,19 @@ final class VaultMigrateFieldCommandTest extends TestCase
         $expressionBuilder->method('eq')->willReturn('deleted = 0');
 
         $queryBuilder = $this->createStub(QueryBuilder::class);
+        $queryBuilder->method('update')->willReturnSelf();
+        $queryBuilder->method('set')->willReturnCallback(function (string $field, mixed $value) use (&$queryBuilder): QueryBuilder {
+            $this->lastWrittenValue = $value;
+
+            return $queryBuilder;
+        });
+        $queryBuilder->method('executeStatement')->willReturnCallback(function (): int {
+            if ($this->updateFailure instanceof Throwable) {
+                throw $this->updateFailure;
+            }
+
+            return 1;
+        });
         $queryBuilder->method('select')->willReturnSelf();
         $queryBuilder->method('from')->willReturnSelf();
         $queryBuilder->method('where')->willReturnSelf();

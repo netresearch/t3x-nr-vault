@@ -9,13 +9,13 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Unit\Task;
 
-use Doctrine\DBAL\Result;
 use Doctrine\DBAL\Schema\AbstractSchemaManager;
-use Doctrine\DBAL\Schema\Column;
 use Netresearch\NrVault\Domain\Dto\SecretRecordLink;
 use Netresearch\NrVault\Domain\Model\Secret;
 use Netresearch\NrVault\Domain\Repository\SecretRepositoryInterface;
 use Netresearch\NrVault\Exception\VaultException;
+use Netresearch\NrVault\Service\OrphanReferenceChecker;
+use Netresearch\NrVault\Service\OrphanReferenceCheckerInterface;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Netresearch\NrVault\Task\OrphanCleanupTask;
 use Netresearch\NrVault\Tests\Unit\Fixtures\SecretFixtureBuilder;
@@ -29,9 +29,6 @@ use Psr\Log\LoggerInterface;
 use RuntimeException;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
-use TYPO3\CMS\Core\Database\Query\Expression\ExpressionBuilder;
-use TYPO3\CMS\Core\Database\Query\QueryBuilder;
-use TYPO3\CMS\Core\Database\Query\Restriction\QueryRestrictionContainerInterface;
 use TYPO3\CMS\Core\Log\LogManager;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Scheduler\Scheduler;
@@ -54,9 +51,21 @@ final class OrphanCleanupTaskTest extends TestCase
 
     private LoggerInterface&MockObject $logger;
 
+    private OrphanReferenceCheckerInterface&MockObject $checker;
+
+    private bool $useRealChecker = false;
+
     protected function setUp(): void
     {
         parent::setUp();
+
+        // The task's own logic; what the checker answers is tested in
+        // OrphanReferenceCheckerTest and the functional cleanup tests. The
+        // cutoff is the real one, minimum age included.
+        $this->checker = $this->createMock(OrphanReferenceCheckerInterface::class);
+        $this->checker->method('deletionCutoff')->willReturnCallback(
+            static fn (int $days, int $now): int => (new OrphanReferenceChecker(self::createStub(ConnectionPool::class)))->deletionCutoff($days, $now),
+        );
 
         $this->vaultService     = $this->createMock(VaultServiceInterface::class);
         $this->connectionPool   = $this->createMock(ConnectionPool::class);
@@ -138,7 +147,7 @@ final class OrphanCleanupTaskTest extends TestCase
             ),
         ]);
 
-        $this->mockRecordExists(1, true);
+        $this->mockRecordExists(true);
         $this->vaultService->expects($this->never())->method('delete');
 
         $task   = $this->createTask();
@@ -158,7 +167,7 @@ final class OrphanCleanupTaskTest extends TestCase
             ),
         ]);
 
-        $this->mockRecordExists(1, false);
+        $this->mockRecordExists(false);
 
         $this->vaultService
             ->expects($this->once())
@@ -184,7 +193,7 @@ final class OrphanCleanupTaskTest extends TestCase
             ),
         ]);
 
-        $this->mockRecordExists(1, false);
+        $this->mockRecordExists(false);
         $this->vaultService->expects($this->never())->method('delete');
 
         $task = $this->createTask();
@@ -213,7 +222,7 @@ final class OrphanCleanupTaskTest extends TestCase
             ),
         ]);
 
-        $this->mockRecordExists(1, false);
+        $this->mockRecordExists(false);
 
         $this->vaultService
             ->expects($this->once())
@@ -241,7 +250,7 @@ final class OrphanCleanupTaskTest extends TestCase
             ),
         ]);
 
-        $this->mockRecordExists(1, false);
+        $this->mockRecordExists(false);
 
         $this->vaultService
             ->method('delete')
@@ -266,7 +275,7 @@ final class OrphanCleanupTaskTest extends TestCase
             ),
         ]);
 
-        $this->mockRecordExists(1, false);
+        $this->mockRecordExists(false);
 
         $this->vaultService
             ->expects($this->once())
@@ -368,7 +377,7 @@ final class OrphanCleanupTaskTest extends TestCase
             ),
         ]);
 
-        $this->mockRecordExists(1, false);
+        $this->mockRecordExists(false);
 
         $this->vaultService
             ->expects($this->once())
@@ -527,7 +536,7 @@ final class OrphanCleanupTaskTest extends TestCase
             ),
         ]);
 
-        $this->mockRecordExists(1, false);
+        $this->mockRecordExists(false);
 
         $this->vaultService
             ->expects($this->once())
@@ -562,7 +571,7 @@ final class OrphanCleanupTaskTest extends TestCase
             ),
         ]);
 
-        $this->mockRecordExists(1, false);
+        $this->mockRecordExists(false);
 
         $this->vaultService
             ->expects($this->once())
@@ -597,7 +606,7 @@ final class OrphanCleanupTaskTest extends TestCase
             ),
         ]);
 
-        $this->mockRecordExists(1, false);
+        $this->mockRecordExists(false);
 
         $this->vaultService
             ->expects($this->once())
@@ -629,7 +638,7 @@ final class OrphanCleanupTaskTest extends TestCase
             ),
         ]);
 
-        $this->mockRecordExists(1, false);
+        $this->mockRecordExists(false);
 
         $this->vaultService
             ->expects($this->once())
@@ -681,7 +690,7 @@ final class OrphanCleanupTaskTest extends TestCase
                 ['source' => $source, 'table' => 'tx_myext', 'field' => 'api_key', 'uid' => 1],
             ),
         ]);
-        $this->mockRecordExists(1, false);
+        $this->mockRecordExists(false);
 
         $this->vaultService->expects($this->once())->method('delete')->with('linked');
 
@@ -745,7 +754,7 @@ final class OrphanCleanupTaskTest extends TestCase
             ),
         ]);
 
-        $this->mockRecordExists(1, false);
+        $this->mockRecordExists(false);
 
         $this->vaultService
             ->expects($this->once())
@@ -774,7 +783,7 @@ final class OrphanCleanupTaskTest extends TestCase
             ),
         ]);
 
-        $this->mockRecordExists(1, false);
+        $this->mockRecordExists(false);
 
         // Capture the call to info('Deleted orphan secret', ...).
         $loggerCalls = [];
@@ -816,7 +825,7 @@ final class OrphanCleanupTaskTest extends TestCase
             ),
         ]);
 
-        $this->mockRecordExists(1, false);
+        $this->mockRecordExists(false);
 
         $this->vaultService
             ->method('delete')
@@ -860,7 +869,7 @@ final class OrphanCleanupTaskTest extends TestCase
                 ['source' => 'tca_field', 'table' => 'tx_myext', 'field' => 'api_key', 'uid' => 1],
             ),
         ]);
-        $this->mockRecordExists(1, false);
+        $this->mockRecordExists(false);
         $this->vaultService
             ->method('delete')
             ->willThrowException(new VaultException('exact exception text'));
@@ -884,28 +893,58 @@ final class OrphanCleanupTaskTest extends TestCase
     }
 
     /**
-     * Kill GreaterThan on the retentionDays > 0 guard — it is strict. When 0,
-     * uses PHP_INT_MAX cutoff (so ALL orphans pass the "older than retention"
-     * test).
+     * With 0 retention days every orphan older than the minimum age is
+     * eligible (the retentionDays > 0 guard is strict).
      */
     #[Test]
-    public function executeWithZeroRetentionTreatsAllOldOrphansAsEligible(): void
+    public function executeWithZeroRetentionDeletesAnOrphanPastTheMinimumAge(): void
     {
-        $now = time();
         $this->mockPage([
             $this->createSecret(
                 'tx_myext__api_key__1',
-                $now - 1,  // just 1 second old
+                time() - OrphanReferenceCheckerInterface::MINIMUM_AGE_SECONDS - 1,
                 ['source' => 'tca_field', 'table' => 'tx_myext', 'field' => 'api_key', 'uid' => 1],
             ),
         ]);
-        $this->mockRecordExists(1, false);
+        $this->mockRecordExists(false);
 
         $this->vaultService->expects($this->once())->method('delete');
 
         $task = $this->createTask();
         $task->setTaskParameters(['nr_vault_retention_days' => 0]);
         self::assertTrue($task->execute());
+    }
+
+    /**
+     * A secret younger than the minimum age is kept even with 0 retention
+     * days: its record may not be written yet (#565).
+     */
+    #[Test]
+    public function executeWithZeroRetentionKeepsASecretYoungerThanTheMinimumAge(): void
+    {
+        $this->mockPage([
+            $this->createSecret(
+                'tx_myext__api_key__1',
+                time() - 1,
+                ['source' => 'tca_field', 'table' => 'tx_myext', 'field' => 'api_key', 'uid' => 1],
+            ),
+        ]);
+        $this->mockRecordExists(false);
+
+        $this->vaultService->expects($this->never())->method('delete');
+
+        $task = $this->createTask();
+        $task->setTaskParameters(['nr_vault_retention_days' => 0]);
+        self::assertTrue($task->execute());
+    }
+
+    #[Test]
+    public function executeResetsTheCheckerBeforeTheRun(): void
+    {
+        $this->mockPage([]);
+        $this->checker->expects($this->once())->method('reset');
+
+        self::assertTrue($this->createTask()->execute());
     }
 
     /**
@@ -925,7 +964,7 @@ final class OrphanCleanupTaskTest extends TestCase
                 // No 'field' and no 'flexField' keys.
             ),
         ]);
-        $this->mockRecordExists(1, false);
+        $this->useRealChecker = true;
 
         $this->vaultService->expects($this->never())->method('delete');
 
@@ -948,7 +987,7 @@ final class OrphanCleanupTaskTest extends TestCase
                 ['source' => 'tca_field', 'table' => 'tx_myext', 'field' => 'k', 'uid' => '42'],
             ),
         ]);
-        $this->mockRecordExists(42, false);
+        $this->mockRecordExists(false);
 
         $this->vaultService
             ->expects($this->once())
@@ -1033,7 +1072,7 @@ final class OrphanCleanupTaskTest extends TestCase
                 ['source' => 'tca_field', 'table' => 'tx_myext', 'field' => 'k', 'uid' => 1],
             ),
         ]);
-        $this->mockRecordExists(1, false);
+        $this->mockRecordExists(false);
 
         $this->vaultService->expects($this->once())->method('delete');
 
@@ -1158,11 +1197,14 @@ final class OrphanCleanupTaskTest extends TestCase
 
     private function createTask(?LogManager $logManager = null): OrphanCleanupTask
     {
+        // Without an injected checker the task builds the real one on its
+        // pool and logger; the fail-closed tests below use that path.
         return new OrphanCleanupTask(
             $this->connectionPool,
             $this->vaultService,
             $logManager,
             $this->secretRepository,
+            $this->useRealChecker ? null : $this->checker,
         );
     }
 
@@ -1186,7 +1228,8 @@ final class OrphanCleanupTaskTest extends TestCase
      */
     private function mockUnknownTable(): void
     {
-        $schemaManager = $this->createMock(AbstractSchemaManager::class);
+        $this->useRealChecker = true;
+        $schemaManager        = $this->createMock(AbstractSchemaManager::class);
         $schemaManager->method('tablesExist')->willReturn(false);
 
         $connection = $this->createMock(Connection::class);
@@ -1209,7 +1252,8 @@ final class OrphanCleanupTaskTest extends TestCase
      */
     private function mockLookupFailure(): void
     {
-        $connection = $this->createMock(Connection::class);
+        $this->useRealChecker = true;
+        $connection           = $this->createMock(Connection::class);
         $connection->method('createSchemaManager')
             ->willThrowException(new RuntimeException('connection lost', 1754000001));
 
@@ -1218,39 +1262,9 @@ final class OrphanCleanupTaskTest extends TestCase
             ->willReturn($connection);
     }
 
-    private function mockRecordExists(int $uid, bool $exists): void
+    private function mockRecordExists(bool $exists): void
     {
-        $schemaManager = $this->createMock(AbstractSchemaManager::class);
-        $schemaManager->method('tablesExist')->willReturn(true);
-        $schemaManager->method('listTableColumns')->willReturn($this->linkedColumns());
-
-        $connection = $this->createMock(Connection::class);
-        $connection->method('createSchemaManager')->willReturn($schemaManager);
-
-        $this->connectionPool
-            ->method('getConnectionForTable')
-            ->willReturn($connection);
-
-        $result = $this->createMock(Result::class);
-        $result->method('fetchOne')->willReturn($exists ? 1 : 0);
-
-        $restrictions = $this->createMock(QueryRestrictionContainerInterface::class);
-
-        $expressionBuilder = $this->createMock(ExpressionBuilder::class);
-        $expressionBuilder->method('eq')->willReturn('uid = ' . $uid);
-
-        $queryBuilder = $this->createMock(QueryBuilder::class);
-        $queryBuilder->method('count')->willReturnSelf();
-        $queryBuilder->method('from')->willReturnSelf();
-        $queryBuilder->method('where')->willReturnSelf();
-        $queryBuilder->method('getRestrictions')->willReturn($restrictions);
-        $queryBuilder->method('expr')->willReturn($expressionBuilder);
-        $queryBuilder->method('createNamedParameter')->willReturn(':dcValue1');
-        $queryBuilder->method('executeQuery')->willReturn($result);
-
-        $this->connectionPool
-            ->method('getQueryBuilderForTable')
-            ->willReturn($queryBuilder);
+        $this->checker->method('isOrphaned')->willReturn(!$exists);
     }
 
     /**
@@ -1271,21 +1285,5 @@ final class OrphanCleanupTaskTest extends TestCase
             ->withCreatedAt($createdAt)
             ->withMetadata($metadata)
             ->buildSecret();
-    }
-
-    /**
-     * Columns the mocked schema reports, keyed like listTableColumns(): every
-     * field name the fixtures link to, so the checker's column check passes.
-     *
-     * @return array<string, Column>
-     */
-    private function linkedColumns(): array
-    {
-        $columns = [];
-        foreach (['api_key', 'k', 'key', 'secret', 'x', 'pi_flexform', 'settings.apikey'] as $name) {
-            $columns[$name] = self::createStub(Column::class);
-        }
-
-        return $columns;
     }
 }

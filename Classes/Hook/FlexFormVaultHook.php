@@ -87,7 +87,7 @@ final class FlexFormVaultHook
         private readonly FlashMessageService $flashMessageService,
         private readonly VaultFailureReporter $failureReporter,
         private readonly TranslationSharedSecretResolver $translationSharedSecretResolver,
-        private readonly ?RecordLinkFactory $recordLinkFactory = null,
+        private readonly ?RecordLinkFactoryInterface $recordLinkFactory = null,
     ) {}
 
     /**
@@ -1783,7 +1783,7 @@ final class FlexFormVaultHook
         );
     }
 
-    private function getRecordLinkFactory(): RecordLinkFactory
+    private function getRecordLinkFactory(): RecordLinkFactoryInterface
     {
         return $this->recordLinkFactory ?? new RecordLinkFactory($this->connectionPool, $this->tcaSchemaFactory);
     }

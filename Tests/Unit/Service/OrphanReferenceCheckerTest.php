@@ -15,6 +15,7 @@ use Doctrine\DBAL\Schema\AbstractSchemaManager;
 use Doctrine\DBAL\Schema\Column;
 use Netresearch\NrVault\Domain\Dto\OrphanReference;
 use Netresearch\NrVault\Service\OrphanReferenceChecker;
+use Netresearch\NrVault\Service\OrphanReferenceCheckerInterface;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -33,7 +34,7 @@ use TYPO3\CMS\Core\Database\Query\Restriction\QueryRestrictionContainerInterface
  * What the checker makes of the lookups. The queries themselves run against a
  * real schema in SecretRecordLinkCleanupTest and
  * WorkspacePublishOrphanCleanupTest (Tests/AGENTS.md: a stubbed pool proves
- * the logic, never the SQL).
+ * the logic, never the SQL); the query count is pinned there as well.
  */
 #[CoversClass(OrphanReferenceChecker::class)]
 #[AllowMockObjectsWithoutExpectations]
@@ -41,8 +42,10 @@ final class OrphanReferenceCheckerTest extends TestCase
 {
     private const IDENTIFIER = '01937b6e-4b6c-7abc-8def-0123456789ab';
 
-    /** Placeholder the mocked query builder returns for the identifier. */
-    private const PARAMETER = ':identifier';
+    private const OTHER_IDENTIFIER = '01937b6e-4b6c-7abc-8def-0123456789ac';
+
+    /** Placeholder the mocked query builder returns for every parameter. */
+    private const PARAMETER = ':parameter';
 
     private const UNKNOWN_TABLE = 'names an unknown table';
 
@@ -51,7 +54,21 @@ final class OrphanReferenceCheckerTest extends TestCase
     /** @var AbstractSchemaManager<AbstractPlatform>&MockObject */
     private AbstractSchemaManager&MockObject $schemaManager;
 
+    private QueryBuilder&MockObject $queryBuilder;
+
     private ExpressionBuilder&MockObject $expressionBuilder;
+
+    /** Whether the query being built is the LIKE count (not a select). */
+    private bool $isCounting = false;
+
+    /** What the primary-key read of the linked row returns. */
+    private mixed $linkedRowValue = false;
+
+    /** What the LIKE count of a FlexForm column returns. */
+    private int $likeCount = 0;
+
+    /** @var list<string> What the load of a plain column's values returns. */
+    private array $heldValues = [];
 
     protected function setUp(): void
     {
@@ -61,50 +78,136 @@ final class OrphanReferenceCheckerTest extends TestCase
         $connection          = $this->createMock(Connection::class);
         $connection->method('createSchemaManager')->willReturn($this->schemaManager);
 
+        $this->expressionBuilder = $this->createMock(ExpressionBuilder::class);
+        $this->expressionBuilder->method('eq')->willReturn('eq');
+        $this->expressionBuilder->method('neq')->willReturn('neq');
+        $this->expressionBuilder->method('like')->willReturn('like');
+
+        $result = $this->createMock(Result::class);
+        $result->method('fetchOne')->willReturnCallback(fn (): mixed => $this->isCounting ? $this->likeCount : $this->linkedRowValue);
+        $result->method('fetchFirstColumn')->willReturnCallback(fn (): array => $this->heldValues);
+
+        $this->queryBuilder = $this->createMock(QueryBuilder::class);
+        $this->queryBuilder->method('getRestrictions')->willReturn($this->createMock(QueryRestrictionContainerInterface::class));
+        $this->queryBuilder->method('select')->willReturnCallback(function (): QueryBuilder {
+            $this->isCounting = false;
+
+            return $this->queryBuilder;
+        });
+        $this->queryBuilder->method('count')->willReturnCallback(function (): QueryBuilder {
+            $this->isCounting = true;
+
+            return $this->queryBuilder;
+        });
+        $this->queryBuilder->method('distinct')->willReturnSelf();
+        $this->queryBuilder->method('from')->willReturnSelf();
+        $this->queryBuilder->method('where')->willReturnSelf();
+        $this->queryBuilder->method('expr')->willReturn($this->expressionBuilder);
+        $this->queryBuilder->method('escapeLikeWildcards')->willReturnArgument(0);
+        $this->queryBuilder->method('createNamedParameter')->willReturn(self::PARAMETER);
+        $this->queryBuilder->method('executeQuery')->willReturn($result);
+
         $this->connectionPool = $this->createMock(ConnectionPool::class);
         $this->connectionPool->method('getConnectionForTable')->willReturn($connection);
+        $this->connectionPool->method('getQueryBuilderForTable')->willReturn($this->queryBuilder);
+    }
 
-        $this->expressionBuilder = $this->createMock(ExpressionBuilder::class);
+    #[Test]
+    public function aSecretItsLinkedRowHoldsIsKeptWithoutScanningTheTable(): void
+    {
+        $this->mockTable(['uid', 'api_key']);
+        $this->linkedRowValue = self::IDENTIFIER;
+        $this->queryBuilder->expects(self::never())->method('distinct');
+
+        self::assertFalse($this->checker()->isOrphaned($this->reference(), self::IDENTIFIER));
     }
 
     #[Test]
     public function aSecretNoRowHoldsIsAnOrphan(): void
     {
-        $this->mockTable(['api_key']);
-        $this->mockHolderCount(0);
+        $this->mockTable(['uid', 'api_key']);
+        $this->linkedRowValue = '';
+        $this->heldValues     = [self::OTHER_IDENTIFIER];
 
-        self::assertTrue((new OrphanReferenceChecker($this->connectionPool))->isOrphaned($this->reference(), self::IDENTIFIER));
+        self::assertTrue($this->checker()->isOrphaned($this->reference(), self::IDENTIFIER));
     }
 
     #[Test]
-    public function aSecretSomeRowHoldsIsKept(): void
+    public function aSecretAnotherRowHoldsIsKept(): void
     {
-        $this->mockTable(['api_key']);
-        $this->mockHolderCount(1);
+        $this->mockTable(['uid', 'api_key']);
+        $this->linkedRowValue = '';
+        $this->heldValues     = [self::OTHER_IDENTIFIER, self::IDENTIFIER];
 
-        self::assertFalse((new OrphanReferenceChecker($this->connectionPool))->isOrphaned($this->reference(), self::IDENTIFIER));
+        self::assertFalse($this->checker()->isOrphaned($this->reference(), self::IDENTIFIER));
     }
 
     #[Test]
-    public function aPlainFieldIsComparedByValue(): void
+    public function aSecretWhoseLinkedRowIsGoneIsCheckedAgainstTheOtherRows(): void
+    {
+        $this->mockTable(['uid', 'api_key']);
+        $this->linkedRowValue = false;
+        $this->heldValues     = [self::IDENTIFIER];
+
+        self::assertFalse($this->checker()->isOrphaned($this->reference(), self::IDENTIFIER));
+    }
+
+    /**
+     * The values of a plain column are loaded once per run, not queried per
+     * secret.
+     */
+    #[Test]
+    public function theValuesOfAColumnAreLoadedOncePerRun(): void
+    {
+        $this->mockTable(['uid', 'api_key']);
+        $this->linkedRowValue = '';
+        $this->queryBuilder->expects(self::once())->method('distinct')->willReturnSelf();
+
+        $checker = $this->checker();
+        $checker->isOrphaned($this->reference(), self::IDENTIFIER);
+        $checker->isOrphaned($this->reference(), self::OTHER_IDENTIFIER);
+    }
+
+    #[Test]
+    public function aTableWithoutUidIsScannedDirectly(): void
     {
         $this->mockTable(['api_key']);
-        $this->mockHolderCount(0);
-        $this->expressionBuilder->expects(self::once())->method('eq')->with('api_key', self::PARAMETER)->willReturn('api_key = :identifier');
+        $this->linkedRowValue = self::IDENTIFIER; // would answer "held" if it were read
+        $this->heldValues     = [];
+
+        self::assertTrue($this->checker()->isOrphaned($this->reference(), self::IDENTIFIER));
+    }
+
+    #[Test]
+    public function aFlexFormSecretItsLinkedRowHoldsIsKept(): void
+    {
+        $this->mockTable(['uid', 'settings']);
+        $this->linkedRowValue = '<T3FlexForms><value index="vDEF">' . self::IDENTIFIER . '</value></T3FlexForms>';
         $this->expressionBuilder->expects(self::never())->method('like');
 
-        (new OrphanReferenceChecker($this->connectionPool))->isOrphaned($this->reference(), self::IDENTIFIER);
+        self::assertFalse($this->checker()->isOrphaned($this->flexReference(), self::IDENTIFIER));
     }
 
     #[Test]
-    public function aFlexFormFieldIsSearchedInsideTheXml(): void
+    public function aFlexFormSecretAnotherRowHoldsIsFoundInsideTheXml(): void
     {
-        $this->mockTable(['settings']);
-        $this->mockHolderCount(0);
-        $this->expressionBuilder->expects(self::once())->method('like')->with('settings', self::PARAMETER)->willReturn('settings LIKE :identifier');
-        $this->expressionBuilder->expects(self::never())->method('eq');
+        $this->mockTable(['uid', 'settings']);
+        $this->linkedRowValue = '<T3FlexForms/>';
+        $this->likeCount      = 1;
+        $this->expressionBuilder->expects(self::once())->method('like')->with('settings', self::PARAMETER)->willReturn('like');
+        $this->queryBuilder->expects(self::never())->method('distinct');
 
-        (new OrphanReferenceChecker($this->connectionPool))->isOrphaned(new OrphanReference('tx_table', 'settings', 5, true), self::IDENTIFIER);
+        self::assertFalse($this->checker()->isOrphaned($this->flexReference(), self::IDENTIFIER));
+    }
+
+    #[Test]
+    public function aFlexFormSecretNoXmlHoldsIsAnOrphan(): void
+    {
+        $this->mockTable(['uid', 'settings']);
+        $this->linkedRowValue = '<T3FlexForms/>';
+        $this->likeCount      = 0;
+
+        self::assertTrue($this->checker()->isOrphaned($this->flexReference(), self::IDENTIFIER));
     }
 
     /**
@@ -116,10 +219,10 @@ final class OrphanReferenceCheckerTest extends TestCase
     public function aReservedWordColumnIsRecognised(string $quotedKey): void
     {
         $this->schemaManager->method('tablesExist')->willReturn(true);
-        $this->schemaManager->method('listTableColumns')->willReturn([$quotedKey => self::createStub(Column::class)]);
-        $this->mockHolderCount(0);
+        $this->schemaManager->method('listTableColumns')->willReturn(['uid' => self::createStub(Column::class), $quotedKey => self::createStub(Column::class)]);
+        $this->linkedRowValue = '';
 
-        $checker = new OrphanReferenceChecker($this->connectionPool);
+        $checker = $this->checker();
 
         self::assertTrue($checker->isOrphaned(new OrphanReference('tx_table', 'key', 5), self::IDENTIFIER));
         self::assertSame([], $checker->getUnresolvedReferences());
@@ -138,22 +241,35 @@ final class OrphanReferenceCheckerTest extends TestCase
     #[Test]
     public function columnNamesAreComparedCaseInsensitively(): void
     {
-        $this->mockTable(['api_key']);
-        $this->mockHolderCount(0);
+        $this->mockTable(['uid', 'api_key']);
+        $this->linkedRowValue = '';
 
-        self::assertTrue((new OrphanReferenceChecker($this->connectionPool))->isOrphaned(new OrphanReference('tx_table', 'API_Key', 5), self::IDENTIFIER));
+        self::assertTrue($this->checker()->isOrphaned(new OrphanReference('tx_table', 'API_Key', 5), self::IDENTIFIER));
     }
 
     #[Test]
-    public function theColumnsOfATableAreReadOnce(): void
+    public function tableAndColumnsAreIntrospectedOncePerRun(): void
     {
-        $this->schemaManager->method('tablesExist')->willReturn(true);
+        $this->schemaManager->expects(self::once())->method('tablesExist')->willReturn(true);
         $this->schemaManager->expects(self::once())->method('listTableColumns')
-            ->willReturn(['api_key' => self::createStub(Column::class)]);
-        $this->mockHolderCount(0);
+            ->willReturn(['uid' => self::createStub(Column::class), 'api_key' => self::createStub(Column::class)]);
+        $this->linkedRowValue = self::IDENTIFIER;
 
-        $checker = new OrphanReferenceChecker($this->connectionPool);
+        $checker = $this->checker();
         $checker->isOrphaned($this->reference(), self::IDENTIFIER);
+        $checker->isOrphaned($this->reference(), self::IDENTIFIER);
+    }
+
+    #[Test]
+    public function resetForgetsTheCachesOfTheEarlierRun(): void
+    {
+        $this->schemaManager->expects(self::exactly(2))->method('tablesExist')->willReturn(false);
+
+        $checker = $this->checker();
+        $checker->isOrphaned($this->reference(), self::IDENTIFIER);
+        $checker->reset();
+
+        self::assertSame([], $checker->getUnresolvedReferences());
         $checker->isOrphaned($this->reference(), self::IDENTIFIER);
     }
 
@@ -161,7 +277,7 @@ final class OrphanReferenceCheckerTest extends TestCase
     public function aLinkWithoutFieldIsKept(): void
     {
         $this->connectionPool->expects(self::never())->method('getQueryBuilderForTable');
-        $checker = new OrphanReferenceChecker($this->connectionPool);
+        $checker = $this->checker();
 
         self::assertFalse($checker->isOrphaned(new OrphanReference('tx_table', '', 5), self::IDENTIFIER));
         self::assertSame('names no field', $checker->getUnresolvedReferences()[0]['reason']);
@@ -172,7 +288,7 @@ final class OrphanReferenceCheckerTest extends TestCase
     {
         $this->connectionPool->expects(self::never())->method('getQueryBuilderForTable');
 
-        self::assertFalse((new OrphanReferenceChecker($this->connectionPool))->isOrphaned($this->reference(), ''));
+        self::assertFalse($this->checker()->isOrphaned($this->reference(), ''));
     }
 
     #[Test]
@@ -180,7 +296,7 @@ final class OrphanReferenceCheckerTest extends TestCase
     {
         $this->schemaManager->method('tablesExist')->willReturn(false);
         $this->connectionPool->expects(self::never())->method('getQueryBuilderForTable');
-        $checker = new OrphanReferenceChecker($this->connectionPool);
+        $checker = $this->checker();
 
         self::assertFalse($checker->isOrphaned($this->reference(), self::IDENTIFIER));
         self::assertSame(self::UNKNOWN_TABLE, $checker->getUnresolvedReferences()[0]['reason']);
@@ -189,9 +305,9 @@ final class OrphanReferenceCheckerTest extends TestCase
     #[Test]
     public function anUnknownColumnIsKept(): void
     {
-        $this->mockTable(['title']);
+        $this->mockTable(['uid', 'title']);
         $this->connectionPool->expects(self::never())->method('getQueryBuilderForTable');
-        $checker = new OrphanReferenceChecker($this->connectionPool);
+        $checker = $this->checker();
 
         self::assertFalse($checker->isOrphaned($this->reference(), self::IDENTIFIER));
         self::assertSame('names an unknown field', $checker->getUnresolvedReferences()[0]['reason']);
@@ -201,7 +317,7 @@ final class OrphanReferenceCheckerTest extends TestCase
     public function aFailingLookupIsKept(): void
     {
         $this->schemaManager->method('tablesExist')->willThrowException(new RuntimeException('connection lost', 1795700001));
-        $checker = new OrphanReferenceChecker($this->connectionPool);
+        $checker = $this->checker();
 
         self::assertFalse($checker->isOrphaned($this->reference(), self::IDENTIFIER));
         self::assertSame('could not be resolved: connection lost', $checker->getUnresolvedReferences()[0]['reason']);
@@ -236,17 +352,47 @@ final class OrphanReferenceCheckerTest extends TestCase
     #[Test]
     public function aCheckedReferenceIsNotRecorded(): void
     {
-        $this->mockTable(['api_key']);
-        $this->mockHolderCount(1);
-        $checker = new OrphanReferenceChecker($this->connectionPool);
+        $this->mockTable(['uid', 'api_key']);
+        $this->linkedRowValue = self::IDENTIFIER;
+        $checker              = $this->checker();
         $checker->isOrphaned($this->reference(), self::IDENTIFIER);
 
         self::assertSame([], $checker->getUnresolvedReferences());
     }
 
+    /**
+     * @return iterable<string, array{int, int}>
+     */
+    public static function cutoffProvider(): iterable
+    {
+        $now = 1_800_000_000;
+
+        yield 'no retention: the minimum age alone' => [0, $now - OrphanReferenceCheckerInterface::MINIMUM_AGE_SECONDS];
+        yield 'negative retention reads as none' => [-3, $now - OrphanReferenceCheckerInterface::MINIMUM_AGE_SECONDS];
+        yield 'one day: the retention is the stricter cutoff' => [1, $now - 86400];
+        yield 'thirty days' => [30, $now - 30 * 86400];
+    }
+
+    #[Test]
+    #[DataProvider('cutoffProvider')]
+    public function theCutoffIsTheRetentionCappedByTheMinimumAge(int $retentionDays, int $expected): void
+    {
+        self::assertSame($expected, $this->checker()->deletionCutoff($retentionDays, 1_800_000_000));
+    }
+
+    private function checker(): OrphanReferenceChecker
+    {
+        return new OrphanReferenceChecker($this->connectionPool);
+    }
+
     private function reference(): OrphanReference
     {
         return new OrphanReference('tx_table', 'api_key', 5);
+    }
+
+    private function flexReference(): OrphanReference
+    {
+        return new OrphanReference('tx_table', 'settings', 5, true);
     }
 
     /**
@@ -262,23 +408,5 @@ final class OrphanReferenceCheckerTest extends TestCase
         }
 
         $this->schemaManager->method('listTableColumns')->willReturn($list);
-    }
-
-    private function mockHolderCount(int $count): void
-    {
-        $result = $this->createMock(Result::class);
-        $result->method('fetchOne')->willReturn($count);
-
-        $queryBuilder = $this->createMock(QueryBuilder::class);
-        $queryBuilder->method('getRestrictions')->willReturn($this->createMock(QueryRestrictionContainerInterface::class));
-        $queryBuilder->method('count')->willReturnSelf();
-        $queryBuilder->method('from')->willReturnSelf();
-        $queryBuilder->method('where')->willReturnSelf();
-        $queryBuilder->method('expr')->willReturn($this->expressionBuilder);
-        $queryBuilder->method('escapeLikeWildcards')->willReturnArgument(0);
-        $queryBuilder->method('createNamedParameter')->willReturn(self::PARAMETER);
-        $queryBuilder->method('executeQuery')->willReturn($result);
-
-        $this->connectionPool->method('getQueryBuilderForTable')->willReturn($queryBuilder);
     }
 }

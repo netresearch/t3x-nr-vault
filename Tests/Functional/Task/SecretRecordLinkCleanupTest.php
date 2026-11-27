@@ -15,11 +15,14 @@ use Netresearch\NrVault\Domain\Dto\SecretRecordLink;
 use Netresearch\NrVault\Hook\DataHandlerHook;
 use Netresearch\NrVault\Hook\FlexFormVaultHook;
 use Netresearch\NrVault\Service\OrphanReferenceChecker;
+use Netresearch\NrVault\Service\OrphanReferenceCheckerInterface;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Netresearch\NrVault\Task\OrphanCleanupTask;
 use Netresearch\NrVault\Tests\Functional\AbstractVaultFunctionalTestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
+use Psr\Log\NullLogger;
+use ReflectionProperty;
 use Symfony\Component\Console\Tester\CommandTester;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
@@ -111,10 +114,8 @@ final class SecretRecordLinkCleanupTest extends AbstractVaultFunctionalTestCase
 
         $this->hardDeleteRow(self::TABLE, $uid);
 
-        $tester = new CommandTester(new VaultCleanupOrphansCommand(
-            $this->get(VaultServiceInterface::class),
-            $this->get(ConnectionPool::class),
-        ));
+        $this->backdateSecrets();
+        $tester = new CommandTester($this->get(VaultCleanupOrphansCommand::class));
         $tester->setInputs(['yes']);
         $tester->execute([]);
 
@@ -170,10 +171,8 @@ final class SecretRecordLinkCleanupTest extends AbstractVaultFunctionalTestCase
         $this->insertRow(self::TABLE, ['pid' => 1, 'title' => 'Holder', 'api_key' => $identifier]);
         $this->hardDeleteRow(self::TABLE, $uid);
 
-        $tester = new CommandTester(new VaultCleanupOrphansCommand(
-            $this->get(VaultServiceInterface::class),
-            $this->get(ConnectionPool::class),
-        ));
+        $this->backdateSecrets();
+        $tester = new CommandTester($this->get(VaultCleanupOrphansCommand::class));
         $tester->setInputs(['yes']);
         $tester->execute([]);
 
@@ -242,7 +241,8 @@ final class SecretRecordLinkCleanupTest extends AbstractVaultFunctionalTestCase
             'metadata' => SecretRecordLink::forField(SecretRecordLink::SOURCE_TCA_FIELD, 'tx_no_such_table', 'api_key', 1),
         ]);
 
-        $tester = new CommandTester(new VaultCleanupOrphansCommand($vaultService, $this->get(ConnectionPool::class)));
+        $this->backdateSecrets();
+        $tester = new CommandTester($this->get(VaultCleanupOrphansCommand::class));
         $tester->setInputs(['yes']);
         $tester->execute([]);
 
@@ -333,10 +333,7 @@ final class SecretRecordLinkCleanupTest extends AbstractVaultFunctionalTestCase
         $this->insertRow(self::TABLE, ['pid' => 1, 'title' => 'Plaintext', 'api_key' => $plaintext]);
         $uid = (int) $this->getConnectionPool()->getConnectionForTable(self::TABLE)->lastInsertId();
 
-        $tester = new CommandTester(new VaultMigrateFieldCommand(
-            $this->get(VaultServiceInterface::class),
-            $this->get(ConnectionPool::class),
-        ));
+        $tester = new CommandTester($this->get(VaultMigrateFieldCommand::class));
         $tester->setInputs(['yes']);
 
         $exitCode = $tester->execute(['table' => self::TABLE, 'field' => 'api_key']);
@@ -352,6 +349,124 @@ final class SecretRecordLinkCleanupTest extends AbstractVaultFunctionalTestCase
 
         $this->runTask();
         self::assertSame($plaintext, $this->get(VaultServiceInterface::class)->retrieve($identifier), 'A migrated secret its record holds must survive the cleanup');
+    }
+
+    /**
+     * A writer stores the secret first and writes its identifier into the row
+     * right after. A cleanup running in between must keep the secret, even
+     * with 0 retention days; once it is older than the minimum age and still
+     * unreferenced, it goes (#565).
+     */
+    #[Test]
+    public function theTaskKeepsASecretWhoseRowIsNotWrittenYet(): void
+    {
+        $vaultService = $this->get(VaultServiceInterface::class);
+        $identifier   = $this->generateUuidV7();
+        $vaultService->store($identifier, 'row-not-written-yet', [
+            'metadata' => SecretRecordLink::forField(SecretRecordLink::SOURCE_RECORD_COPY, self::TABLE, 'api_key', 424242),
+        ]);
+
+        $this->runTask(backdate: false);
+        self::assertTrue($vaultService->exists($identifier), 'A secret younger than the minimum age must survive the cleanup');
+
+        $this->getConnectionPool()->getConnectionForTable('tx_nrvault_secret')->update(
+            'tx_nrvault_secret',
+            ['crdate' => time() - OrphanReferenceCheckerInterface::MINIMUM_AGE_SECONDS - 60],
+            ['identifier' => $identifier],
+        );
+        $this->runTask(backdate: false);
+        self::assertFalse($vaultService->exists($identifier), 'Past the minimum age an unreferenced secret is an orphan');
+    }
+
+    /**
+     * vault:migrate-field --force on a field that already holds the identifier
+     * of an existing secret must not wrap it in a new secret: the old one
+     * would be unreferenced and deleted by the next cleanup (#565).
+     */
+    #[Test]
+    public function theMigrateFieldCommandSkipsAnExistingVaultIdentifierEvenWithForce(): void
+    {
+        $plaintext  = 'already-migrated-' . bin2hex(random_bytes(8));
+        $uid        = $this->createRecord($plaintext);
+        $identifier = $this->fetchField(self::TABLE, $uid, 'api_key');
+        $before     = $this->secretCount();
+
+        $tester = new CommandTester($this->get(VaultMigrateFieldCommand::class));
+        $tester->setInputs(['yes']);
+
+        $exitCode = $tester->execute(['table' => self::TABLE, 'field' => 'api_key', '--force' => true]);
+
+        self::assertSame(0, $exitCode, $tester->getDisplay());
+        self::assertSame($identifier, $this->fetchField(self::TABLE, $uid, 'api_key'), 'The field must keep its identifier');
+        self::assertSame($plaintext, $this->get(VaultServiceInterface::class)->retrieve($identifier));
+        self::assertSame($before, $this->secretCount(), 'No secret may be created for an existing identifier');
+        self::assertStringContainsString('Skipped UID ' . $uid, $tester->getDisplay());
+    }
+
+    /**
+     * A column too narrow for an identifier would truncate it (non-strict
+     * SQL, and SQLite ignores the length) and leave the stored secret
+     * unreferenced. The command refuses before storing anything (#565).
+     */
+    #[Test]
+    public function theMigrateFieldCommandRefusesAColumnTooNarrowForAnIdentifier(): void
+    {
+        $this->insertRow(self::RESERVED_TABLE, ['pid' => 1, 'title' => 'Narrow', 'narrow' => 'short-secret']);
+        $uid    = (int) $this->getConnectionPool()->getConnectionForTable(self::RESERVED_TABLE)->lastInsertId();
+        $before = $this->secretCount();
+
+        $tester = new CommandTester($this->get(VaultMigrateFieldCommand::class));
+        $tester->setInputs(['yes']);
+
+        $exitCode = $tester->execute(['table' => self::RESERVED_TABLE, 'field' => 'narrow']);
+
+        self::assertSame(1, $exitCode);
+        self::assertStringContainsString('cannot hold a vault identifier', $tester->getDisplay());
+        self::assertSame('short-secret', $this->fetchField(self::RESERVED_TABLE, $uid, 'narrow'));
+        self::assertSame($before, $this->secretCount());
+    }
+
+    /**
+     * Hidden and time-restricted records hold plaintext secrets too; deleted
+     * records stay out. The field is named by a reserved word, which the
+     * command's own column check must also recognise (#565).
+     */
+    #[Test]
+    public function theMigrateFieldCommandMigratesHiddenAndScheduledRecordsButNotDeletedOnes(): void
+    {
+        $connection = $this->getConnectionPool()->getConnectionForTable(self::RESERVED_TABLE);
+        $connection->insert(self::RESERVED_TABLE, ['pid' => 1, 'title' => 'Hidden', 'key' => 'hidden-plain', 'hidden' => 1]);
+
+        $hiddenUid = (int) $connection->lastInsertId();
+        $connection->insert(self::RESERVED_TABLE, ['pid' => 1, 'title' => 'Scheduled', 'key' => 'scheduled-plain', 'starttime' => time() + 86400]);
+        $scheduledUid = (int) $connection->lastInsertId();
+        $connection->insert(self::RESERVED_TABLE, ['pid' => 1, 'title' => 'Deleted', 'key' => 'deleted-plain', 'deleted' => 1]);
+        $deletedUid = (int) $connection->lastInsertId();
+
+        $tester = new CommandTester($this->get(VaultMigrateFieldCommand::class));
+        $tester->setInputs(['yes']);
+
+        $exitCode = $tester->execute(['table' => self::RESERVED_TABLE, 'field' => 'key']);
+        self::assertSame(0, $exitCode, $tester->getDisplay());
+
+        $vaultService = $this->get(VaultServiceInterface::class);
+        self::assertSame('hidden-plain', $vaultService->retrieve($this->fetchField(self::RESERVED_TABLE, $hiddenUid, 'key')));
+        self::assertSame('scheduled-plain', $vaultService->retrieve($this->fetchField(self::RESERVED_TABLE, $scheduledUid, 'key')));
+        self::assertSame('deleted-plain', $this->fetchField(self::RESERVED_TABLE, $deletedUid, 'key'), 'A deleted record must not be migrated');
+    }
+
+    /**
+     * The command gets its checker from DI, so the checker logs through a
+     * real logger instead of the NullLogger default (#565).
+     */
+    #[Test]
+    public function theContainerInjectsACheckerWithARealLogger(): void
+    {
+        $checker = $this->get(OrphanReferenceCheckerInterface::class);
+        self::assertInstanceOf(OrphanReferenceChecker::class, $checker);
+
+        $logger = (new ReflectionProperty(OrphanReferenceChecker::class, 'logger'))->getValue($checker);
+        self::assertNotInstanceOf(NullLogger::class, $logger);
     }
 
     private function createRecord(string $apiKey): int
@@ -402,15 +517,27 @@ final class SecretRecordLinkCleanupTest extends AbstractVaultFunctionalTestCase
         return $uid;
     }
 
-    private function runTask(): void
+    private function backdateSecrets(): void
     {
-        // The secrets were created a moment ago; the cleanup only deletes
-        // what is older than the retention cutoff (0 days = now).
         $this->getConnectionPool()->getConnectionForTable('tx_nrvault_secret')->update(
             'tx_nrvault_secret',
             ['crdate' => time() - 86400],
             [],
         );
+    }
+
+    private function secretCount(): int
+    {
+        return $this->getConnectionPool()->getConnectionForTable('tx_nrvault_secret')->count('*', 'tx_nrvault_secret', []);
+    }
+
+    private function runTask(bool $backdate = true): void
+    {
+        // The secrets were created a moment ago; the cleanup only deletes
+        // what is older than the minimum age, even with 0 retention days.
+        if ($backdate) {
+            $this->backdateSecrets();
+        }
 
         $task = new OrphanCleanupTask(
             $this->get(ConnectionPool::class),

@@ -13,6 +13,7 @@ use Netresearch\NrVault\Domain\Dto\OrphanReference;
 use Netresearch\NrVault\Domain\Dto\SecretRecordLink;
 use Netresearch\NrVault\Domain\Repository\SecretRepositoryInterface;
 use Netresearch\NrVault\Service\OrphanReferenceChecker;
+use Netresearch\NrVault\Service\OrphanReferenceCheckerInterface;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
@@ -53,6 +54,7 @@ final class OrphanCleanupTask extends AbstractTask
         private readonly ?VaultServiceInterface $vaultService = null,
         private readonly ?LogManager $logManager = null,
         private readonly ?SecretRepositoryInterface $secretRepository = null,
+        private readonly ?OrphanReferenceCheckerInterface $orphanReferenceChecker = null,
     ) {
         parent::__construct();
     }
@@ -92,16 +94,19 @@ final class OrphanCleanupTask extends AbstractTask
         $connectionPool = $this->getConnectionPool();
         $repository     = $this->getSecretRepository();
         $logger         = $this->getLogger();
-        $checker        = new OrphanReferenceChecker($connectionPool, $logger);
+        // Scheduler tasks are unserialized, not built by DI: fall back to a
+        // checker on this task's connection pool and logger.
+        $checker = $this->orphanReferenceChecker ?? new OrphanReferenceChecker($connectionPool, $logger);
+        $checker->reset();
 
         $logger->info('Starting vault orphan cleanup', [
             'retentionDays' => $this->retentionDays,
             'tableFilter'   => $this->tableFilter ?: '(all)',
         ]);
 
-        $retentionCutoff = $this->retentionDays > 0
-            ? time() - ($this->retentionDays * 86400)
-            : PHP_INT_MAX;
+        // Never younger than the checker's minimum age, even with 0 days:
+        // a secret may be stored a moment before its row is written.
+        $retentionCutoff = $checker->deletionCutoff($this->retentionDays, time());
 
         // Walk the vault in UID-windowed pages so peak memory is bounded by
         // the page size, not the total vault size (PERFORMANCE-8). Identify

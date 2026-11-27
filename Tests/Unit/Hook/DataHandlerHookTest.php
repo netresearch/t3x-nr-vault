@@ -18,6 +18,7 @@ use Netresearch\NrVault\Hook\FlexFormVaultHook;
 use Netresearch\NrVault\Hook\PendingSecretExtractor;
 use Netresearch\NrVault\Hook\PendingSecretPersister;
 use Netresearch\NrVault\Hook\RecordLinkFactory;
+use Netresearch\NrVault\Hook\RecordLinkFactoryInterface;
 use Netresearch\NrVault\Hook\VaultFailureReporter;
 use Netresearch\NrVault\Service\VaultFieldPermissionService;
 use Netresearch\NrVault\Service\VaultServiceInterface;
@@ -71,6 +72,12 @@ final class DataHandlerHookTest extends TestCase
 
     protected TcaSchemaFactory&MockObject $tcaSchemaFactory;
 
+    private VaultFieldResolver $vaultFieldResolver;
+
+    private PendingSecretExtractor $pendingSecretExtractor;
+
+    private PendingSecretPersister $pendingSecretPersister;
+
     private DataHandlerHook $subject;
 
     private VaultServiceInterface&MockObject $vaultService;
@@ -96,39 +103,77 @@ final class DataHandlerHookTest extends TestCase
         // The hook's collaborators are pure extracted logic: wire them for real
         // so the vault-service, flash-message and rollback expectations exercise
         // the actual decision pipeline rather than mock theatre.
-        $vaultFieldResolver = new VaultFieldResolver(
+        $this->vaultFieldResolver = new VaultFieldResolver(
             $this->vaultService,
             $this->tcaSchemaFactory,
             $this->createMock(LoggerInterface::class),
         );
-        $pendingSecretExtractor = new PendingSecretExtractor();
-        $pendingSecretPersister = new PendingSecretPersister(
+        $this->pendingSecretExtractor = new PendingSecretExtractor();
+        $this->pendingSecretPersister = new PendingSecretPersister(
             $this->vaultService,
             $this->flashMessageService,
         );
 
         $this->failureLogger = $this->createMock(LoggerInterface::class);
 
-        $this->subject = new DataHandlerHook(
-            $this->connectionPool,
-            $this->vaultService,
-            $vaultFieldResolver,
-            new TranslationSharedSecretResolver($this->connectionPool, $vaultFieldResolver),
-            $pendingSecretExtractor,
-            $pendingSecretPersister,
-            new VaultFailureReporter($this->failureLogger),
-            new VaultFieldPermissionService(),
-            new FlexFormVaultHook(
-                $this->connectionPool,
-                $this->tcaSchemaFactory,
-                $this->vaultService,
-                $this->createMock(FlexFormTools::class),
-                $this->flashMessageService,
-                new VaultFailureReporter($this->failureLogger),
-                new TranslationSharedSecretResolver($this->connectionPool, $vaultFieldResolver),
-            ),
-            new RecordLinkFactory($this->connectionPool, $this->tcaSchemaFactory),
-        );
+        $this->subject = $this->buildSubject();
+    }
+
+    /**
+     * Rotating an existing secret writes no new record link, so it must not
+     * pay for the workspace lookup (#565).
+     */
+    #[Test]
+    public function aRotationDoesNotBuildARecordLink(): void
+    {
+        $this->mockTcaSchemaForTable('tx_test', [
+            'api_key' => ['type' => 'input', 'renderType' => 'vaultSecret'],
+        ]);
+        $linkFactory = $this->createMock(RecordLinkFactoryInterface::class);
+        $linkFactory->expects(self::never())->method('forField');
+        $subject = $this->buildSubject($linkFactory);
+
+        $fieldArray = [
+            'api_key' => [
+                'value'             => 'updated-secret',
+                '_vault_identifier' => self::EXISTING_UUID,
+                '_vault_checksum'   => 'existing-checksum',
+            ],
+        ];
+        $subject->processDatamap_preProcessFieldArray($fieldArray, 'tx_test', 42);
+        $this->vaultService->expects(self::once())->method('rotate');
+
+        $subject->processDatamap_afterDatabaseOperations('update', 'tx_test', 42, $fieldArray, $this->dataHandler);
+    }
+
+    /**
+     * The link is built inside the persister's failure handling: a failing
+     * workspace lookup is reported like a failed store, not thrown out of
+     * the DataHandler hook (#565).
+     */
+    #[Test]
+    public function aFailingRecordLinkIsHandledLikeAFailedStore(): void
+    {
+        $this->mockTcaSchemaForTable('tx_test', [
+            'api_key' => ['type' => 'input', 'renderType' => 'vaultSecret'],
+        ]);
+        $linkFactory = $this->createMock(RecordLinkFactoryInterface::class);
+        $linkFactory->method('forField')->willThrowException(new RuntimeException('lookup failed', 1795700101));
+        $subject = $this->buildSubject($linkFactory);
+
+        $fieldArray = [
+            'api_key' => [
+                'value'             => 'new-secret',
+                '_vault_identifier' => '',
+                '_vault_checksum'   => '',
+            ],
+        ];
+        $subject->processDatamap_preProcessFieldArray($fieldArray, 'tx_test', 'NEW123');
+        $this->dataHandler->substNEWwithIDs = ['NEW123' => 42];
+        $this->vaultService->expects(self::never())->method('store');
+        $this->failureLogger->expects(self::atLeastOnce())->method(self::anything());
+
+        $subject->processDatamap_afterDatabaseOperations('new', 'tx_test', 'NEW123', $fieldArray, $this->dataHandler);
     }
 
     #[Test]
@@ -2395,5 +2440,29 @@ final class DataHandlerHookTest extends TestCase
         yield 'error/update, exception/blank' => [Error::class, RuntimeException::class, null];
         yield 'exception/update, exception/cleanup' => [RuntimeException::class, null, RuntimeException::class];
         yield 'exception/update, error/cleanup' => [RuntimeException::class, null, Error::class];
+    }
+
+    private function buildSubject(?RecordLinkFactoryInterface $recordLinkFactory = null): DataHandlerHook
+    {
+        return new DataHandlerHook(
+            $this->connectionPool,
+            $this->vaultService,
+            $this->vaultFieldResolver,
+            new TranslationSharedSecretResolver($this->connectionPool, $this->vaultFieldResolver),
+            $this->pendingSecretExtractor,
+            $this->pendingSecretPersister,
+            new VaultFailureReporter($this->failureLogger),
+            new VaultFieldPermissionService(),
+            new FlexFormVaultHook(
+                $this->connectionPool,
+                $this->tcaSchemaFactory,
+                $this->vaultService,
+                $this->createMock(FlexFormTools::class),
+                $this->flashMessageService,
+                new VaultFailureReporter($this->failureLogger),
+                new TranslationSharedSecretResolver($this->connectionPool, $this->vaultFieldResolver),
+            ),
+            $recordLinkFactory ?? new RecordLinkFactory($this->connectionPool, $this->tcaSchemaFactory),
+        );
     }
 }

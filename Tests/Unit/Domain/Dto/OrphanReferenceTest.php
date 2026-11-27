@@ -84,31 +84,42 @@ final class OrphanReferenceTest extends TestCase
         $subject = new OrphanReference('tt_content', 'bodytext', 55);
 
         self::assertSame([
-            'table' => 'tt_content',
-            'field' => 'bodytext',
-            'uid'   => 55,
+            'table'    => 'tt_content',
+            'field'    => 'bodytext',
+            'uid'      => 55,
+            'flexForm' => false,
         ], $subject->toArray());
     }
 
     #[Test]
-    public function toArrayContainsExactlyThreeKeys(): void
+    public function toArrayContainsExactlyFourKeys(): void
     {
         $subject = new OrphanReference('t', 'f', 1);
 
-        self::assertCount(3, $subject->toArray());
+        self::assertCount(4, $subject->toArray());
     }
 
     #[Test]
     public function fromArrayRoundTripToArray(): void
     {
         $original = [
-            'table' => 'tt_content',
-            'field' => 'pi_flexform',
-            'uid'   => 99,
+            'table'    => 'tt_content',
+            'field'    => 'pi_flexform',
+            'uid'      => 99,
+            'flexForm' => true,
         ];
 
         $subject = OrphanReference::fromArray($original);
 
         self::assertSame($original, $subject->toArray());
+    }
+
+    /**
+     * An array without the flag (the shape before #565) reads as a plain field.
+     */
+    #[Test]
+    public function fromArrayWithoutTheFlagIsAPlainFieldLink(): void
+    {
+        self::assertFalse(OrphanReference::fromArray(['table' => 't', 'field' => 'f', 'uid' => 1])->flexForm);
     }
 }

@@ -113,7 +113,7 @@ final class DataHandlerHook
         private readonly VaultFailureReporter $failureReporter,
         private readonly VaultFieldPermissionService $fieldPermissionService,
         private readonly FlexFormVaultHook $flexFormVaultHook,
-        private readonly RecordLinkFactory $recordLinkFactory,
+        private readonly RecordLinkFactoryInterface $recordLinkFactory,
     ) {}
 
     /**
@@ -233,7 +233,9 @@ final class DataHandlerHook
 
             $error = $this->pendingSecretPersister->persist(
                 $pending,
-                [
+                // Built only for a new secret, and inside the persister's
+                // failure handling: the workspace lookup is a query.
+                fn (): array => [
                     'metadata' => $this->recordLinkFactory->forField(
                         SecretRecordLink::SOURCE_TCA_FIELD,
                         $table,

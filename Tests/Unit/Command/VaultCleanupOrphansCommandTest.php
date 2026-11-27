@@ -9,12 +9,12 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Unit\Command;
 
-use Doctrine\DBAL\Result;
 use Doctrine\DBAL\Schema\AbstractSchemaManager;
-use Doctrine\DBAL\Schema\Column;
 use Netresearch\NrVault\Command\VaultCleanupOrphansCommand;
 use Netresearch\NrVault\Domain\Dto\SecretMetadata;
 use Netresearch\NrVault\Exception\VaultException;
+use Netresearch\NrVault\Service\OrphanReferenceChecker;
+use Netresearch\NrVault\Service\OrphanReferenceCheckerInterface;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
@@ -26,9 +26,6 @@ use Symfony\Component\Console\Application;
 use Symfony\Component\Console\Tester\CommandTester;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
-use TYPO3\CMS\Core\Database\Query\Expression\ExpressionBuilder;
-use TYPO3\CMS\Core\Database\Query\QueryBuilder;
-use TYPO3\CMS\Core\Database\Query\Restriction\QueryRestrictionContainerInterface;
 
 use function sprintf;
 
@@ -36,9 +33,6 @@ use function sprintf;
 #[AllowMockObjectsWithoutExpectations]
 final class VaultCleanupOrphansCommandTest extends TestCase
 {
-    /** Placeholder the mocked query builder returns for every named parameter. */
-    private const NAMED_PARAMETER = ':dcValue1';
-
     private const MSG_NO_TCA_SECRETS = 'No TCA-sourced secrets found';
 
     private const MSG_NO_ORPHANS = 'No orphaned secrets found';
@@ -53,6 +47,8 @@ final class VaultCleanupOrphansCommandTest extends TestCase
 
     private ConnectionPool&MockObject $connectionPool;
 
+    private OrphanReferenceCheckerInterface&MockObject $checker;
+
     private CommandTester $commandTester;
 
     protected function setUp(): void
@@ -62,9 +58,17 @@ final class VaultCleanupOrphansCommandTest extends TestCase
         $this->vaultService   = $this->createMock(VaultServiceInterface::class);
         $this->connectionPool = $this->createMock(ConnectionPool::class);
 
+        // The command's own logic; what the checker answers is tested in
+        // OrphanReferenceCheckerTest and the functional cleanup tests. The
+        // cutoff is the real one, minimum age included.
+        $this->checker = $this->createMock(OrphanReferenceCheckerInterface::class);
+        $this->checker->method('deletionCutoff')->willReturnCallback(
+            fn (int $days, int $now): int => (new OrphanReferenceChecker($this->connectionPool))->deletionCutoff($days, $now),
+        );
+
         $command = new VaultCleanupOrphansCommand(
             $this->vaultService,
-            $this->connectionPool,
+            $this->checker,
         );
 
         $application = new Application();
@@ -78,7 +82,7 @@ final class VaultCleanupOrphansCommandTest extends TestCase
     {
         $command = new VaultCleanupOrphansCommand(
             $this->vaultService,
-            $this->connectionPool,
+            $this->checker,
         );
 
         self::assertSame('vault:cleanup-orphans', $command->getName());
@@ -120,7 +124,7 @@ final class VaultCleanupOrphansCommandTest extends TestCase
             ),
         ]);
 
-        $this->mockRecordExists(1, true);
+        $this->mockRecordExists(true);
 
         $exitCode = $this->commandTester->execute([]);
 
@@ -139,7 +143,7 @@ final class VaultCleanupOrphansCommandTest extends TestCase
             ),
         ]);
 
-        $this->mockRecordExists(1, false);
+        $this->mockRecordExists(false);
 
         $exitCode = $this->commandTester->execute([
             '--dry-run' => true,
@@ -314,7 +318,7 @@ final class VaultCleanupOrphansCommandTest extends TestCase
     {
         $command = new VaultCleanupOrphansCommand(
             $this->vaultService,
-            $this->connectionPool,
+            $this->checker,
         );
 
         self::assertSame('vault:cleanup-orphans', $command->getName());
@@ -325,7 +329,7 @@ final class VaultCleanupOrphansCommandTest extends TestCase
     {
         $command = new VaultCleanupOrphansCommand(
             $this->vaultService,
-            $this->connectionPool,
+            $this->checker,
         );
 
         self::assertSame('Clean up orphaned vault secrets from deleted TCA records', $command->getDescription());
@@ -336,7 +340,7 @@ final class VaultCleanupOrphansCommandTest extends TestCase
     {
         $command = new VaultCleanupOrphansCommand(
             $this->vaultService,
-            $this->connectionPool,
+            $this->checker,
         );
 
         $definition = $command->getDefinition();
@@ -349,7 +353,7 @@ final class VaultCleanupOrphansCommandTest extends TestCase
     {
         $command = new VaultCleanupOrphansCommand(
             $this->vaultService,
-            $this->connectionPool,
+            $this->checker,
         );
 
         $definition = $command->getDefinition();
@@ -363,7 +367,7 @@ final class VaultCleanupOrphansCommandTest extends TestCase
     {
         $command = new VaultCleanupOrphansCommand(
             $this->vaultService,
-            $this->connectionPool,
+            $this->checker,
         );
 
         $definition = $command->getDefinition();
@@ -461,7 +465,7 @@ final class VaultCleanupOrphansCommandTest extends TestCase
                 ['source' => 'tca_field', 'table' => 'tx_myext', 'field' => 'key', 'uid' => 1],
             ),
         ]);
-        $this->mockRecordExists(1, true);
+        $this->mockRecordExists(true);
 
         $exitCode = $this->commandTester->execute([]);
 
@@ -502,7 +506,7 @@ final class VaultCleanupOrphansCommandTest extends TestCase
     public static function retentionCutoffProvider(): iterable
     {
         // createdAt = now - (days*86400) seconds
-        yield 'no retention (days=0) — all orphans collected' => [0, 0, 1];
+        yield 'no retention (days=0) still keeps a secret younger than the minimum age' => [0, 0, 0];
         yield 'retention=1 keeps 0-day-old orphan' => [1, 0, 0];
         yield 'retention=1 removes 2-day-old orphan' => [1, 2, 1];
         yield 'retention=7 keeps 5-day-old orphan' => [7, 5, 0];
@@ -960,7 +964,7 @@ final class VaultCleanupOrphansCommandTest extends TestCase
                 ['source' => 'tca_field', 'table' => 'tx_myext', 'field' => 'key', 'uid' => 1],
             ),
         ]);
-        $this->mockRecordExists(1, true);
+        $this->mockRecordExists(true);
 
         $this->commandTester->execute([]);
 
@@ -1031,7 +1035,7 @@ final class VaultCleanupOrphansCommandTest extends TestCase
                 ['source' => 'tca_field', 'table' => 'tx_myext', 'field' => 'key', 'uid' => 1],
             ),
         ]);
-        $this->mockRecordExists(1, true);
+        $this->mockRecordExists(true);
 
         $this->commandTester->execute([]);
 
@@ -1156,11 +1160,13 @@ final class VaultCleanupOrphansCommandTest extends TestCase
 
         $this->vaultService->expects(self::never())->method('delete');
 
-        $this->commandTester->setInputs(['yes']);
-        $exitCode = $this->commandTester->execute([]);
+        $tester = new CommandTester(new VaultCleanupOrphansCommand($this->vaultService, new OrphanReferenceChecker($this->connectionPool)));
+        $tester->setInputs(['yes']);
+
+        $exitCode = $tester->execute([]);
 
         self::assertSame(0, $exitCode);
-        self::assertStringContainsString(self::MSG_NO_ORPHANS, $this->commandTester->getDisplay());
+        self::assertStringContainsString(self::MSG_NO_ORPHANS, $tester->getDisplay());
     }
 
     /**
@@ -1178,31 +1184,7 @@ final class VaultCleanupOrphansCommandTest extends TestCase
                 ['source' => 'tca_field', 'table' => 'tx_myext', 'field' => 'api_key', 'uid' => 1],
             ),
         ]);
-
-        $schemaManager = $this->createMock(AbstractSchemaManager::class);
-        $schemaManager->method('tablesExist')->willReturn(true);
-        $schemaManager->method('listTableColumns')->willReturn($this->linkedColumns());
-        $connection = $this->createMock(Connection::class);
-        $connection->method('createSchemaManager')->willReturn($schemaManager);
-        $this->connectionPool->method('getConnectionForTable')->willReturn($connection);
-
-        // One row holds the identifier in api_key.
-        $result = $this->createMock(Result::class);
-        $result->method('fetchOne')->willReturn(1);
-
-        $expressionBuilder = $this->createMock(ExpressionBuilder::class);
-        $expressionBuilder->expects(self::once())->method('eq')->with('api_key')->willReturn('api_key = ?');
-
-        $queryBuilder = $this->createMock(QueryBuilder::class);
-        $queryBuilder->method('count')->willReturnSelf();
-        $queryBuilder->method('from')->willReturnSelf();
-        $queryBuilder->method('where')->willReturnSelf();
-        $queryBuilder->method('getRestrictions')->willReturn($this->createMock(QueryRestrictionContainerInterface::class));
-        $queryBuilder->method('expr')->willReturn($expressionBuilder);
-        $queryBuilder->method('createNamedParameter')->willReturn(self::NAMED_PARAMETER);
-        $queryBuilder->method('executeQuery')->willReturn($result);
-        $this->connectionPool->method('getQueryBuilderForTable')->willReturn($queryBuilder);
-
+        $this->checker->expects(self::once())->method('isOrphaned')->willReturn(false);
         $this->vaultService->expects(self::never())->method('delete');
 
         $this->commandTester->setInputs(['yes']);
@@ -1211,74 +1193,48 @@ final class VaultCleanupOrphansCommandTest extends TestCase
         self::assertStringContainsString(self::MSG_NO_ORPHANS, $this->commandTester->getDisplay());
     }
 
-    private function mockRecordExists(int $uid, bool $exists): void
+    /**
+     * Each run starts from a clean checker: caches and unresolved references
+     * of an earlier run must not leak into this one.
+     */
+    #[Test]
+    public function eachRunResetsTheChecker(): void
     {
-        $schemaManager = $this->createMock(AbstractSchemaManager::class);
-        $schemaManager->method('tablesExist')->willReturn(true);
-        $schemaManager->method('listTableColumns')->willReturn($this->linkedColumns());
+        $this->vaultService->method('list')->willReturn([
+            $this->createSecretMetadata(self::IDENTIFIER, time() - 86400 * 30, ['source' => 'tca_field', 'table' => 'tx_myext', 'field' => 'api_key', 'uid' => 1]),
+        ]);
+        $this->checker->expects(self::exactly(2))->method('reset');
 
-        $connection = $this->createMock(Connection::class);
-        $connection->method('createSchemaManager')->willReturn($schemaManager);
+        $this->commandTester->execute(['--dry-run' => true]);
+        $this->commandTester->execute(['--dry-run' => true]);
+    }
 
-        $this->connectionPool
-            ->method('getConnectionForTable')
-            ->willReturn($connection);
+    /**
+     * A secret younger than the minimum age is kept even with 0 retention
+     * days: its record may not be written yet (#565).
+     */
+    #[Test]
+    public function noRetentionStillKeepsASecretYoungerThanTheMinimumAge(): void
+    {
+        $this->vaultService->method('list')->willReturn([
+            $this->createSecretMetadata(self::IDENTIFIER, time() - 60, ['source' => 'tca_field', 'table' => 'tx_myext', 'field' => 'api_key', 'uid' => 1]),
+        ]);
+        $this->mockRecordDoesNotExist();
+        $this->checker->expects(self::never())->method('isOrphaned');
 
-        $result = $this->createMock(Result::class);
-        $result->method('fetchOne')->willReturn($exists ? 1 : 0);
+        $this->commandTester->execute(['--dry-run' => true, '--retention-days' => 0]);
 
-        $restrictions = $this->createMock(QueryRestrictionContainerInterface::class);
+        self::assertStringContainsString(self::MSG_NO_ORPHANS, $this->commandTester->getDisplay());
+    }
 
-        $expressionBuilder = $this->createMock(ExpressionBuilder::class);
-        $expressionBuilder->method('eq')->willReturn('uid = ' . $uid);
-
-        $queryBuilder = $this->createMock(QueryBuilder::class);
-        $queryBuilder->method('count')->willReturnSelf();
-        $queryBuilder->method('from')->willReturnSelf();
-        $queryBuilder->method('where')->willReturnSelf();
-        $queryBuilder->method('getRestrictions')->willReturn($restrictions);
-        $queryBuilder->method('expr')->willReturn($expressionBuilder);
-        $queryBuilder->method('createNamedParameter')->willReturn(self::NAMED_PARAMETER);
-        $queryBuilder->method('executeQuery')->willReturn($result);
-
-        $this->connectionPool
-            ->method('getQueryBuilderForTable')
-            ->willReturn($queryBuilder);
+    private function mockRecordExists(bool $exists): void
+    {
+        $this->checker->method('isOrphaned')->willReturn(!$exists);
     }
 
     private function mockRecordDoesNotExist(): void
     {
-        $schemaManager = $this->createMock(AbstractSchemaManager::class);
-        $schemaManager->method('tablesExist')->willReturn(true);
-        $schemaManager->method('listTableColumns')->willReturn($this->linkedColumns());
-
-        $connection = $this->createMock(Connection::class);
-        $connection->method('createSchemaManager')->willReturn($schemaManager);
-
-        $this->connectionPool
-            ->method('getConnectionForTable')
-            ->willReturn($connection);
-
-        $result = $this->createMock(Result::class);
-        $result->method('fetchOne')->willReturn(0);
-
-        $restrictions = $this->createMock(QueryRestrictionContainerInterface::class);
-
-        $expressionBuilder = $this->createMock(ExpressionBuilder::class);
-        $expressionBuilder->method('eq')->willReturn('uid = 1');
-
-        $queryBuilder = $this->createMock(QueryBuilder::class);
-        $queryBuilder->method('count')->willReturnSelf();
-        $queryBuilder->method('from')->willReturnSelf();
-        $queryBuilder->method('where')->willReturnSelf();
-        $queryBuilder->method('getRestrictions')->willReturn($restrictions);
-        $queryBuilder->method('expr')->willReturn($expressionBuilder);
-        $queryBuilder->method('createNamedParameter')->willReturn(self::NAMED_PARAMETER);
-        $queryBuilder->method('executeQuery')->willReturn($result);
-
-        $this->connectionPool
-            ->method('getQueryBuilderForTable')
-            ->willReturn($queryBuilder);
+        $this->checker->method('isOrphaned')->willReturn(true);
     }
 
     /**
@@ -1300,21 +1256,5 @@ final class VaultCleanupOrphansCommandTest extends TestCase
             version: 1,
             metadata: $metadata,
         );
-    }
-
-    /**
-     * Columns the mocked schema reports, keyed like listTableColumns(): every
-     * field name the fixtures link to, so the checker's column check passes.
-     *
-     * @return array<string, Column>
-     */
-    private function linkedColumns(): array
-    {
-        $columns = [];
-        foreach (['api_key', 'k', 'key', 'secret', 'x', 'pi_flexform', 'settings.apikey'] as $name) {
-            $columns[$name] = self::createStub(Column::class);
-        }
-
-        return $columns;
     }
 }

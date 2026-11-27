@@ -1098,8 +1098,20 @@ Migrate existing plaintext database field values to vault storage.
 
 Each value is stored as a new vault secret, and the field is updated to hold
 that secret's identifier instead of the plaintext, which is what a
-``vaultSecret`` field resolves. A run skips fields that already hold an
-identifier unless ``--force`` is given.
+``vaultSecret`` field resolves. The command reads the field back after the
+update; when it does not hold the identifier (a truncating column, a
+``--uid-field`` that matches no row), the record counts as failed and the
+secret just stored is deleted again.
+
+Hidden and time-restricted records are migrated too; deleted records are not.
+Before anything is stored, the command refuses a field that is not a text
+column or is too short for an identifier (36 characters).
+
+A run skips values that already have the UUID v7 format of a migrated field
+unless ``--force`` is given. Even with ``--force`` it never wraps a value that
+is the identifier of an existing secret in a new one, because the existing
+secret would then be referenced by nothing; such records are listed as
+skipped.
 
 .. code-block:: bash
    :caption: Command syntax
@@ -1185,7 +1197,11 @@ sources ``tca_field``, ``record_copy``, ``flexform_field``,
 ``flexform_record_copy`` or ``migration``. It is deleted only when both of the
 following hold:
 
-*  it is older than ``--retention-days``;
+*  it is older than ``--retention-days``, and in any case older than 15
+   minutes. Writers such as record copies and the migrations store a secret
+   a moment before they write its identifier into the record; the minimum
+   age keeps a cleanup running in that moment from deleting it, even with
+   ``--retention-days=0``;
 *  no row of the linked table, deleted rows included, holds the identifier in
    the linked field (for a FlexForm field: no FlexForm value of that column
    contains it). Whether the linked record itself still exists does not

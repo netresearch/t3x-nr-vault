@@ -14,14 +14,21 @@ use Netresearch\NrVault\TCA\VaultFieldHelper;
  *
  * Doctrine DBAL keys `listTableColumns()` by the platform-QUOTED name of such
  * a column, so code comparing those keys with the plain field name treats the
- * column as unknown (#565).
+ * column as unknown (#565). It also has enable fields and a delete flag, so
+ * `vault:migrate-field` can be shown to migrate hidden and time-restricted
+ * rows but not deleted ones, and a column too narrow for an identifier.
  */
 return [
     'ctrl' => [
-        'title'     => 'Vault test record with a reserved-word field',
-        'label'     => 'title',
-        'crdate'    => 'crdate',
-        'tstamp'    => 'tstamp',
+        'title'         => 'Vault test record with a reserved-word field',
+        'label'         => 'title',
+        'crdate'        => 'crdate',
+        'tstamp'        => 'tstamp',
+        'delete'        => 'deleted',
+        'enablecolumns' => [
+            'disabled'  => 'hidden',
+            'starttime' => 'starttime',
+        ],
         'rootLevel' => -1,
     ],
     'columns' => [

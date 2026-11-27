@@ -60,6 +60,14 @@ services:
   Netresearch\NrVault\Crypto\EncryptionServiceInterface:
     alias: Netresearch\NrVault\Crypto\EncryptionService
 
+  # Orphan cleanup: one checker per vault:cleanup-orphans run (reset() at the
+  # start of a run). The scheduler task builds its own, it is not DI-built.
+  Netresearch\NrVault\Service\OrphanReferenceCheckerInterface:
+    alias: Netresearch\NrVault\Service\OrphanReferenceChecker
+
+  Netresearch\NrVault\Hook\RecordLinkFactoryInterface:
+    alias: Netresearch\NrVault\Hook\RecordLinkFactory
+
   # public: consuming extensions resolve the codec via
   # GeneralUtility::makeInstance(EnvelopeCodecInterface::class) where they
   # encrypt their own payloads outside a DI-constructed service (ADR-032).

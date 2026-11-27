@@ -13,10 +13,14 @@ use Netresearch\NrVault\Domain\Dto\OrphanReference;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 use Throwable;
+use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 
 use function array_keys;
 use function in_array;
+use function is_string;
+use function min;
+use function str_contains;
 use function strtolower;
 use function trim;
 
@@ -32,20 +36,37 @@ use function trim;
  * to the live uid, a translation shares it, and a discarded version leaves a
  * live record that never held it.
  *
+ * Queries per run, for N secrets in T tables: one table and one column
+ * introspection per table, one primary-key read per secret (the linked row
+ * nearly always holds its own secret), and only when that row does not: one
+ * load of the column's values per (table, field) for a plain field, or one
+ * LIKE count per secret for a FlexForm field, whose XML cannot be matched
+ * from a loaded value set without parsing every document.
+ *
  * Fails CLOSED. Only a lookup that succeeds and finds no holder may answer
  * true, because true is a DELETE trigger. A table, connection or column the
  * checker cannot resolve, or a query that errors, proves nothing and answers
  * false; such references are kept in {@see self::getUnresolvedReferences()}
  * and logged.
  */
-final class OrphanReferenceChecker
+final class OrphanReferenceChecker implements OrphanReferenceCheckerInterface
 {
+    /** @var array<string, bool> */
+    private array $tables = [];
+
     /**
-     * Lower-cased column names per table, read once per cleanup run.
+     * Lower-cased column names per table.
      *
      * @var array<string, list<string>>
      */
     private array $columns = [];
+
+    /**
+     * The non-empty values of a plain field, as a set, per "table.field".
+     *
+     * @var array<string, array<string, true>>
+     */
+    private array $heldValues = [];
 
     /** @var list<array{identifier: string, table: string, field: string, uid: int, reason: string}> */
     private array $unresolved = [];
@@ -54,6 +75,21 @@ final class OrphanReferenceChecker
         private readonly ConnectionPool $connectionPool,
         private readonly LoggerInterface $logger = new NullLogger(),
     ) {}
+
+    public function reset(): void
+    {
+        $this->tables     = [];
+        $this->columns    = [];
+        $this->heldValues = [];
+        $this->unresolved = [];
+    }
+
+    public function deletionCutoff(int $retentionDays, int $now): int
+    {
+        $retentionCutoff = $retentionDays > 0 ? $now - ($retentionDays * 86400) : PHP_INT_MAX;
+
+        return min($retentionCutoff, $now - self::MINIMUM_AGE_SECONDS);
+    }
 
     public function isOrphaned(OrphanReference $reference, string $identifier): bool
     {
@@ -65,7 +101,7 @@ final class OrphanReferenceChecker
                 return false;
             }
 
-            return !$this->identifierIsReferenced($reference, $identifier);
+            return !$this->linkedRowHolds($reference, $identifier) && !$this->anyRowHolds($reference, $identifier);
         } catch (Throwable $e) {
             $this->keep($reference, $identifier, 'could not be resolved: ' . $e->getMessage());
 
@@ -73,11 +109,6 @@ final class OrphanReferenceChecker
         }
     }
 
-    /**
-     * The references this checker kept because it could not check them.
-     *
-     * @return list<array{identifier: string, table: string, field: string, uid: int, reason: string}>
-     */
     public function getUnresolvedReferences(): array
     {
         return $this->unresolved;
@@ -109,7 +140,7 @@ final class OrphanReferenceChecker
 
         if ($reference->field === '' || $identifier === '') {
             $reason = 'names no field';
-        } elseif (!$this->connectionPool->getConnectionForTable($reference->table)->createSchemaManager()->tablesExist([$reference->table])) {
+        } elseif (!$this->tableExists($reference->table)) {
             $reason = 'names an unknown table';
         } elseif (!in_array(strtolower($reference->field), $this->columnsOf($reference->table), true)) {
             // Checked explicitly: SQLite reads an unknown double-quoted
@@ -119,6 +150,13 @@ final class OrphanReferenceChecker
         }
 
         return $reason;
+    }
+
+    private function tableExists(string $table): bool
+    {
+        return $this->tables[$table] ??= $this->connectionPool->getConnectionForTable($table)
+            ->createSchemaManager()
+            ->tablesExist([$table]);
     }
 
     /**
@@ -142,28 +180,87 @@ final class OrphanReferenceChecker
     }
 
     /**
-     * Does any row of the linked table, deleted rows included, still hold the
-     * identifier in the linked field?
+     * The cheap check first: does the linked row itself hold the identifier?
      */
-    private function identifierIsReferenced(OrphanReference $reference, string $identifier): bool
+    private function linkedRowHolds(OrphanReference $reference, string $identifier): bool
     {
+        if (!in_array('uid', $this->columnsOf($reference->table), true)) {
+            return false;
+        }
+
         $queryBuilder = $this->connectionPool->getQueryBuilderForTable($reference->table);
         $queryBuilder->getRestrictions()->removeAll();
 
-        $condition = $reference->flexForm
-            ? $queryBuilder->expr()->like(
-                $reference->field,
-                $queryBuilder->createNamedParameter('%' . $queryBuilder->escapeLikeWildcards($identifier) . '%'),
+        $value = $queryBuilder
+            ->select($reference->field)
+            ->from($reference->table)
+            ->where(
+                $queryBuilder->expr()->eq('uid', $queryBuilder->createNamedParameter($reference->uid, Connection::PARAM_INT)),
             )
-            : $queryBuilder->expr()->eq($reference->field, $queryBuilder->createNamedParameter($identifier));
+            ->executeQuery()
+            ->fetchOne();
+
+        if (!is_string($value)) {
+            return false;
+        }
+
+        return $reference->flexForm ? str_contains($value, $identifier) : $value === $identifier;
+    }
+
+    /**
+     * Does any row of the linked table, deleted rows included, hold the
+     * identifier in the linked field?
+     */
+    private function anyRowHolds(OrphanReference $reference, string $identifier): bool
+    {
+        if (!$reference->flexForm) {
+            return isset($this->heldValuesOf($reference->table, $reference->field)[$identifier]);
+        }
+
+        $queryBuilder = $this->connectionPool->getQueryBuilderForTable($reference->table);
+        $queryBuilder->getRestrictions()->removeAll();
 
         $count = $queryBuilder
             ->count('*')
             ->from($reference->table)
-            ->where($condition)
+            ->where($queryBuilder->expr()->like(
+                $reference->field,
+                $queryBuilder->createNamedParameter('%' . $queryBuilder->escapeLikeWildcards($identifier) . '%'),
+            ))
             ->executeQuery()
             ->fetchOne();
 
         return $count > 0;
+    }
+
+    /**
+     * @return array<string, true>
+     */
+    private function heldValuesOf(string $table, string $field): array
+    {
+        $key = $table . '.' . $field;
+        if (!isset($this->heldValues[$key])) {
+            $queryBuilder = $this->connectionPool->getQueryBuilderForTable($table);
+            $queryBuilder->getRestrictions()->removeAll();
+
+            $values = $queryBuilder
+                ->select($field)
+                ->distinct()
+                ->from($table)
+                ->where($queryBuilder->expr()->neq($field, $queryBuilder->createNamedParameter('')))
+                ->executeQuery()
+                ->fetchFirstColumn();
+
+            $set = [];
+            foreach ($values as $value) {
+                if (is_string($value)) {
+                    $set[$value] = true;
+                }
+            }
+
+            $this->heldValues[$key] = $set;
+        }
+
+        return $this->heldValues[$key];
     }
 }

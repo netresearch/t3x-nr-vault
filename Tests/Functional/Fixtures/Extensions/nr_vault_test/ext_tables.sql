@@ -34,5 +34,6 @@ CREATE TABLE tx_nrvaulttest_versioned (
 
 CREATE TABLE tx_nrvaulttest_reserved (
     title varchar(255) DEFAULT '' NOT NULL,
-    `key` varchar(255) DEFAULT '' NOT NULL
+    `key` varchar(255) DEFAULT '' NOT NULL,
+    narrow varchar(20) DEFAULT '' NOT NULL
 );

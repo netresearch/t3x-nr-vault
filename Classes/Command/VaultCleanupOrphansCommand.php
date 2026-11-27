@@ -12,7 +12,7 @@ namespace Netresearch\NrVault\Command;
 use Netresearch\NrVault\Domain\Dto\OrphanReference;
 use Netresearch\NrVault\Domain\Dto\SecretRecordLink;
 use Netresearch\NrVault\Exception\VaultException;
-use Netresearch\NrVault\Service\OrphanReferenceChecker;
+use Netresearch\NrVault\Service\OrphanReferenceCheckerInterface;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
@@ -20,7 +20,6 @@ use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
-use TYPO3\CMS\Core\Database\ConnectionPool;
 
 use function array_map;
 use function array_slice;
@@ -48,7 +47,7 @@ final class VaultCleanupOrphansCommand extends Command
 {
     public function __construct(
         private readonly VaultServiceInterface $vaultService,
-        private readonly ConnectionPool $connectionPool,
+        private readonly OrphanReferenceCheckerInterface $orphanReferenceChecker,
     ) {
         parent::__construct();
     }
@@ -166,9 +165,12 @@ final class VaultCleanupOrphansCommand extends Command
         $progressBar->start();
 
         $orphans            = [];
-        $retentionCutoff    = $retentionDays > 0 ? time() - ($retentionDays * 86400) : PHP_INT_MAX;
+        $checker            = $this->orphanReferenceChecker;
         $effectiveBatchSize = max(1, $batchSize);
-        $checker            = new OrphanReferenceChecker($this->connectionPool);
+        $checker->reset();
+        // Never younger than the checker's minimum age, even with 0 days:
+        // a secret may be stored a moment before its row is written.
+        $retentionCutoff = $checker->deletionCutoff($retentionDays, time());
 
         foreach (array_chunk($secrets, $effectiveBatchSize) as $batch) {
             foreach ($batch as $secret) {
@@ -198,7 +200,7 @@ final class VaultCleanupOrphansCommand extends Command
      *
      * @return array{identifier: string, table: string, field: string, uid: int, created_at: int}|null
      */
-    private function classifyOrphan(OrphanReferenceChecker $checker, array $secret, int $retentionCutoff): ?array
+    private function classifyOrphan(OrphanReferenceCheckerInterface $checker, array $secret, int $retentionCutoff): ?array
     {
         $identifier   = $secret['identifier'];
         $createdAtRaw = $secret['created_at'] ?? 0;
