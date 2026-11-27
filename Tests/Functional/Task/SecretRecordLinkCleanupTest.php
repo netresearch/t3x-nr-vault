@@ -10,6 +10,7 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Tests\Functional\Task;
 
 use Netresearch\NrVault\Command\VaultCleanupOrphansCommand;
+use Netresearch\NrVault\Command\VaultMigrateFieldCommand;
 use Netresearch\NrVault\Domain\Dto\SecretRecordLink;
 use Netresearch\NrVault\Hook\DataHandlerHook;
 use Netresearch\NrVault\Hook\FlexFormVaultHook;
@@ -40,6 +41,7 @@ use function json_encode;
  */
 #[CoversClass(OrphanCleanupTask::class)]
 #[CoversClass(VaultCleanupOrphansCommand::class)]
+#[CoversClass(VaultMigrateFieldCommand::class)]
 #[CoversClass(OrphanReferenceChecker::class)]
 #[CoversClass(DataHandlerHook::class)]
 #[CoversClass(FlexFormVaultHook::class)]
@@ -48,6 +50,8 @@ final class SecretRecordLinkCleanupTest extends AbstractVaultFunctionalTestCase
     private const TABLE = 'tx_nrvaulttest_record';
 
     private const FLEX_TABLE = 'tx_nrvaulttest_flex';
+
+    private const RESERVED_TABLE = 'tx_nrvaulttest_reserved';
 
     /** @var list<string> */
     protected array $testExtensionsToLoad = [
@@ -243,6 +247,111 @@ final class SecretRecordLinkCleanupTest extends AbstractVaultFunctionalTestCase
         $tester->execute([]);
 
         self::assertTrue($vaultService->exists($identifier), $tester->getDisplay());
+
+        // The kept secret is listed with its link after the progress bar, not
+        // as a context-less warning inside it.
+        $display = $tester->getDisplay();
+        self::assertMatchesRegularExpression(
+            '/100%.*Kept 1 secret\\(s\\) whose record link could not be checked.*' . preg_quote($identifier, '/') . '.*tx_no_such_table.*names an unknown table/s',
+            $display,
+        );
+    }
+
+    /**
+     * The record still exists but no longer holds the identifier (its field
+     * was overwritten without DataHandler): nothing references the secret, so
+     * it is an orphan whether or not the linked uid exists.
+     */
+    #[Test]
+    public function theTaskDeletesASecretItsRecordNoLongerHolds(): void
+    {
+        $uid        = $this->createRecord('replaced-' . bin2hex(random_bytes(8)));
+        $identifier = $this->fetchField(self::TABLE, $uid, 'api_key');
+
+        $this->getConnectionPool()->getConnectionForTable(self::TABLE)
+            ->update(self::TABLE, ['api_key' => ''], ['uid' => $uid]);
+        $this->runTask();
+
+        self::assertFalse($this->get(VaultServiceInterface::class)->exists($identifier));
+    }
+
+    /**
+     * DBAL keys listTableColumns() by the platform-quoted name of a reserved
+     * word (`key` on SQLite and MariaDB). The checker must still recognise the
+     * column, or the secret is never cleaned up.
+     */
+    #[Test]
+    public function theTaskDeletesASecretOfAReservedWordFieldWhoseRecordIsGone(): void
+    {
+        $uid        = $this->runDataHandler(self::RESERVED_TABLE, ['pid' => 1, 'title' => 'Reserved', 'key' => 'reserved-' . bin2hex(random_bytes(8))]);
+        $identifier = $this->fetchField(self::RESERVED_TABLE, $uid, 'key');
+
+        self::assertSame(
+            ['source' => 'tca_field', 'table' => self::RESERVED_TABLE, 'field' => 'key', 'uid' => $uid],
+            $this->storedMetadata($identifier),
+        );
+
+        $this->hardDeleteRow(self::RESERVED_TABLE, $uid);
+        $this->runTask();
+
+        self::assertFalse(
+            $this->get(VaultServiceInterface::class)->exists($identifier),
+            'A secret of a reserved-word column must be cleaned up once no row holds it',
+        );
+    }
+
+    /**
+     * A FlexForm-sourced link that names its column under `field` (not
+     * `flexField`) is still a FlexForm link: the identifier sits inside the
+     * column's XML, so the holder check must search the XML.
+     */
+    #[Test]
+    public function theTaskKeepsAFlexFormSecretLinkedUnderTheFieldKey(): void
+    {
+        $plaintext  = 'flex-field-key-' . bin2hex(random_bytes(8));
+        $uid        = $this->createFlexRecord($plaintext);
+        $identifier = $this->flexIdentifier($uid);
+
+        $this->getConnectionPool()->getConnectionForTable('tx_nrvault_secret')->update(
+            'tx_nrvault_secret',
+            ['metadata' => json_encode(['source' => 'flexform_field', 'table' => self::FLEX_TABLE, 'field' => 'settings', 'uid' => $uid], JSON_THROW_ON_ERROR)],
+            ['identifier' => $identifier],
+        );
+        $this->runTask();
+
+        self::assertSame($plaintext, $this->get(VaultServiceInterface::class)->retrieve($identifier));
+    }
+
+    /**
+     * vault:migrate-field replaces the plaintext with the identifier, as its
+     * documentation says. A secret no row references would be an orphan.
+     */
+    #[Test]
+    public function theMigrateFieldCommandReplacesThePlaintextWithTheIdentifier(): void
+    {
+        $plaintext = 'migrate-' . bin2hex(random_bytes(8));
+        $this->insertRow(self::TABLE, ['pid' => 1, 'title' => 'Plaintext', 'api_key' => $plaintext]);
+        $uid = (int) $this->getConnectionPool()->getConnectionForTable(self::TABLE)->lastInsertId();
+
+        $tester = new CommandTester(new VaultMigrateFieldCommand(
+            $this->get(VaultServiceInterface::class),
+            $this->get(ConnectionPool::class),
+        ));
+        $tester->setInputs(['yes']);
+
+        $exitCode = $tester->execute(['table' => self::TABLE, 'field' => 'api_key']);
+        self::assertSame(0, $exitCode, $tester->getDisplay());
+
+        $identifier = $this->fetchField(self::TABLE, $uid, 'api_key');
+        self::assertNotSame($plaintext, $identifier, 'The field must no longer hold the plaintext');
+        self::assertSame($plaintext, $this->get(VaultServiceInterface::class)->retrieve($identifier));
+        self::assertSame(
+            ['source' => 'migration', 'table' => self::TABLE, 'field' => 'api_key', 'uid' => $uid],
+            array_intersect_key($this->storedMetadata($identifier), ['source' => 0, 'table' => 0, 'field' => 0, 'uid' => 0]),
+        );
+
+        $this->runTask();
+        self::assertSame($plaintext, $this->get(VaultServiceInterface::class)->retrieve($identifier), 'A migrated secret its record holds must survive the cleanup');
     }
 
     private function createRecord(string $apiKey): int

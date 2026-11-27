@@ -44,6 +44,37 @@ final class SecretRecordLinkTest extends TestCase
         self::assertEquals(new OrphanReference('tt_content', 'pi_flexform', 3, true), SecretRecordLink::referenceFrom($metadata));
     }
 
+    /**
+     * The identifier of a FlexForm-sourced secret sits inside the column's
+     * XML, whichever key names the column.
+     */
+    #[Test]
+    #[DataProvider('flexFormSourceProvider')]
+    public function aFlexFormSourceIsAFlexFormLinkUnderTheFieldKey(string $source): void
+    {
+        $reference = SecretRecordLink::referenceFrom(['source' => $source, 'table' => 'tt_content', 'field' => 'pi_flexform', 'uid' => 3]);
+
+        self::assertEquals(new OrphanReference('tt_content', 'pi_flexform', 3, true), $reference);
+    }
+
+    /**
+     * @return iterable<string, array{string}>
+     */
+    public static function flexFormSourceProvider(): iterable
+    {
+        yield 'flexform_field' => ['flexform_field'];
+        yield 'flexform_record_copy' => ['flexform_record_copy'];
+    }
+
+    #[Test]
+    public function aPlainSourceUnderTheFieldKeyIsAValueLink(): void
+    {
+        self::assertEquals(
+            new OrphanReference('tx_table', 'api_key', 3, false),
+            SecretRecordLink::referenceFrom(['source' => 'tca_field', 'table' => 'tx_table', 'field' => 'api_key', 'uid' => 3]),
+        );
+    }
+
     #[Test]
     public function theLinkCannotOverrideTheCoreKeysThroughExtra(): void
     {

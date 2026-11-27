@@ -18,11 +18,11 @@ use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
-use Symfony\Component\Console\Logger\ConsoleLogger;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 
+use function array_map;
 use function array_slice;
 use function count;
 use function is_string;
@@ -168,7 +168,7 @@ final class VaultCleanupOrphansCommand extends Command
         $orphans            = [];
         $retentionCutoff    = $retentionDays > 0 ? time() - ($retentionDays * 86400) : PHP_INT_MAX;
         $effectiveBatchSize = max(1, $batchSize);
-        $checker            = new OrphanReferenceChecker($this->connectionPool, new ConsoleLogger($io));
+        $checker            = new OrphanReferenceChecker($this->connectionPool);
 
         foreach (array_chunk($secrets, $effectiveBatchSize) as $batch) {
             foreach ($batch as $secret) {
@@ -183,6 +183,8 @@ final class VaultCleanupOrphansCommand extends Command
 
         $progressBar->finish();
         $io->newLine(2);
+
+        $this->showUnresolvedReferences($io, $checker->getUnresolvedReferences());
 
         return $orphans;
     }
@@ -299,6 +301,29 @@ final class VaultCleanupOrphansCommand extends Command
         }
 
         return $tcaSecrets;
+    }
+
+    /**
+     * List the secrets kept because their record link could not be checked.
+     * Printed after the progress bar, which a warning written while it runs
+     * would break.
+     *
+     * @param list<array{identifier: string, table: string, field: string, uid: int, reason: string}> $unresolved
+     */
+    private function showUnresolvedReferences(SymfonyStyle $io, array $unresolved): void
+    {
+        if ($unresolved === []) {
+            return;
+        }
+
+        $io->warning(sprintf('Kept %d secret(s) whose record link could not be checked', count($unresolved)));
+        $io->table(
+            ['Identifier', 'Table', 'Field', 'UID', 'Reason'],
+            array_map(
+                static fn (array $entry): array => [$entry['identifier'], $entry['table'], $entry['field'], $entry['uid'], $entry['reason']],
+                $unresolved,
+            ),
+        );
     }
 
     /**

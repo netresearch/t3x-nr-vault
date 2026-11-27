@@ -11,6 +11,7 @@ namespace Netresearch\NrVault\Tests\Unit\Command;
 
 use Doctrine\DBAL\Result;
 use Doctrine\DBAL\Schema\AbstractSchemaManager;
+use Doctrine\DBAL\Schema\Column;
 use Netresearch\NrVault\Command\VaultCleanupOrphansCommand;
 use Netresearch\NrVault\Domain\Dto\SecretMetadata;
 use Netresearch\NrVault\Exception\VaultException;
@@ -35,22 +36,8 @@ use function sprintf;
 #[AllowMockObjectsWithoutExpectations]
 final class VaultCleanupOrphansCommandTest extends TestCase
 {
-    /**
-     * Columns the mocked schema reports, keyed like listTableColumns(): every
-     * field name the fixtures link to, so the checker's column check passes.
-     */
     /** Placeholder the mocked query builder returns for every named parameter. */
     private const NAMED_PARAMETER = ':dcValue1';
-
-    private const LINKED_COLUMNS = [
-        'api_key'         => null,
-        'k'               => null,
-        'key'             => null,
-        'secret'          => null,
-        'x'               => null,
-        'pi_flexform'     => null,
-        'settings.apikey' => null,
-    ];
 
     private const MSG_NO_TCA_SECRETS = 'No TCA-sourced secrets found';
 
@@ -1177,9 +1164,9 @@ final class VaultCleanupOrphansCommandTest extends TestCase
     }
 
     /**
-     * Another row still holds the identifier: the secret is in use even though
-     * the linked uid is gone (published workspace version, shared translation
-     * field, copy).
+     * Another row still holds the identifier: the secret is in use whatever
+     * happened to the linked uid (published workspace version, shared
+     * translation field, copy).
      */
     #[Test]
     public function keepsTheSecretWhenAnotherRowStillHoldsTheIdentifier(): void
@@ -1194,19 +1181,17 @@ final class VaultCleanupOrphansCommandTest extends TestCase
 
         $schemaManager = $this->createMock(AbstractSchemaManager::class);
         $schemaManager->method('tablesExist')->willReturn(true);
-        $schemaManager->method('listTableColumns')->willReturn(self::LINKED_COLUMNS);
+        $schemaManager->method('listTableColumns')->willReturn($this->linkedColumns());
         $connection = $this->createMock(Connection::class);
         $connection->method('createSchemaManager')->willReturn($schemaManager);
         $this->connectionPool->method('getConnectionForTable')->willReturn($connection);
 
-        // First count: the linked uid (gone). Second count: rows holding the
-        // identifier in api_key (one).
+        // One row holds the identifier in api_key.
         $result = $this->createMock(Result::class);
-        $result->method('fetchOne')->willReturnOnConsecutiveCalls(0, 1);
+        $result->method('fetchOne')->willReturn(1);
 
         $expressionBuilder = $this->createMock(ExpressionBuilder::class);
-        $expressionBuilder->expects(self::exactly(2))->method('eq')
-            ->willReturnCallback(static fn (string $field): string => $field . ' = ?');
+        $expressionBuilder->expects(self::once())->method('eq')->with('api_key')->willReturn('api_key = ?');
 
         $queryBuilder = $this->createMock(QueryBuilder::class);
         $queryBuilder->method('count')->willReturnSelf();
@@ -1230,7 +1215,7 @@ final class VaultCleanupOrphansCommandTest extends TestCase
     {
         $schemaManager = $this->createMock(AbstractSchemaManager::class);
         $schemaManager->method('tablesExist')->willReturn(true);
-        $schemaManager->method('listTableColumns')->willReturn(self::LINKED_COLUMNS);
+        $schemaManager->method('listTableColumns')->willReturn($this->linkedColumns());
 
         $connection = $this->createMock(Connection::class);
         $connection->method('createSchemaManager')->willReturn($schemaManager);
@@ -1265,7 +1250,7 @@ final class VaultCleanupOrphansCommandTest extends TestCase
     {
         $schemaManager = $this->createMock(AbstractSchemaManager::class);
         $schemaManager->method('tablesExist')->willReturn(true);
-        $schemaManager->method('listTableColumns')->willReturn(self::LINKED_COLUMNS);
+        $schemaManager->method('listTableColumns')->willReturn($this->linkedColumns());
 
         $connection = $this->createMock(Connection::class);
         $connection->method('createSchemaManager')->willReturn($schemaManager);
@@ -1315,5 +1300,21 @@ final class VaultCleanupOrphansCommandTest extends TestCase
             version: 1,
             metadata: $metadata,
         );
+    }
+
+    /**
+     * Columns the mocked schema reports, keyed like listTableColumns(): every
+     * field name the fixtures link to, so the checker's column check passes.
+     *
+     * @return array<string, Column>
+     */
+    private function linkedColumns(): array
+    {
+        $columns = [];
+        foreach (['api_key', 'k', 'key', 'secret', 'x', 'pi_flexform', 'settings.apikey'] as $name) {
+            $columns[$name] = self::createStub(Column::class);
+        }
+
+        return $columns;
     }
 }

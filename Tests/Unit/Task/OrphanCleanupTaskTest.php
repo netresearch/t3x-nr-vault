@@ -11,6 +11,7 @@ namespace Netresearch\NrVault\Tests\Unit\Task;
 
 use Doctrine\DBAL\Result;
 use Doctrine\DBAL\Schema\AbstractSchemaManager;
+use Doctrine\DBAL\Schema\Column;
 use Netresearch\NrVault\Domain\Dto\SecretRecordLink;
 use Netresearch\NrVault\Domain\Model\Secret;
 use Netresearch\NrVault\Domain\Repository\SecretRepositoryInterface;
@@ -41,20 +42,6 @@ use function array_key_exists;
 #[AllowMockObjectsWithoutExpectations]
 final class OrphanCleanupTaskTest extends TestCase
 {
-    /**
-     * Columns the mocked schema reports, keyed like listTableColumns(): every
-     * field name the fixtures link to, so the checker's column check passes.
-     */
-    private const LINKED_COLUMNS = [
-        'api_key'         => null,
-        'k'               => null,
-        'key'             => null,
-        'secret'          => null,
-        'x'               => null,
-        'pi_flexform'     => null,
-        'settings.apikey' => null,
-    ];
-
     private const CLEANUP_REASON = 'Scheduler orphan cleanup';
 
     protected bool $resetSingletonInstances = true;
@@ -1155,8 +1142,9 @@ final class OrphanCleanupTaskTest extends TestCase
             ->expects($this->once())
             ->method('warning')
             ->with(
-                self::stringContains('unknown table'),
-                self::callback(static fn (array $context): bool => ($context['table'] ?? null) === 'no_such_table'),
+                self::stringContains('keeping the secret'),
+                self::callback(static fn (array $context): bool => ($context['table'] ?? null) === 'no_such_table'
+                    && ($context['reason'] ?? null) === 'names an unknown table'),
             );
 
         $logManager = $this->createMock(LogManager::class);
@@ -1234,7 +1222,7 @@ final class OrphanCleanupTaskTest extends TestCase
     {
         $schemaManager = $this->createMock(AbstractSchemaManager::class);
         $schemaManager->method('tablesExist')->willReturn(true);
-        $schemaManager->method('listTableColumns')->willReturn(self::LINKED_COLUMNS);
+        $schemaManager->method('listTableColumns')->willReturn($this->linkedColumns());
 
         $connection = $this->createMock(Connection::class);
         $connection->method('createSchemaManager')->willReturn($schemaManager);
@@ -1283,5 +1271,21 @@ final class OrphanCleanupTaskTest extends TestCase
             ->withCreatedAt($createdAt)
             ->withMetadata($metadata)
             ->buildSecret();
+    }
+
+    /**
+     * Columns the mocked schema reports, keyed like listTableColumns(): every
+     * field name the fixtures link to, so the checker's column check passes.
+     *
+     * @return array<string, Column>
+     */
+    private function linkedColumns(): array
+    {
+        $columns = [];
+        foreach (['api_key', 'k', 'key', 'secret', 'x', 'pi_flexform', 'settings.apikey'] as $name) {
+            $columns[$name] = self::createStub(Column::class);
+        }
+
+        return $columns;
     }
 }

@@ -109,6 +109,86 @@ final class WorkspacePublishOrphanCleanupTest extends AbstractVaultFunctionalTes
         self::assertSame($plaintext, $vaultService->retrieve($identifier), 'Orphan cleanup must not delete the published secret');
     }
 
+    /**
+     * Discarding the version removes the only row that held the secret; the
+     * live record still exists but never referenced it. Discard does not run
+     * the vault delete hook (core's discard() has its own hook), so the orphan
+     * cleanup is what retires the secret.
+     */
+    #[Test]
+    public function theSecretOfADiscardedWorkspaceVersionIsCleanedUp(): void
+    {
+        [$liveUid, $versionUid, $identifier] = $this->secretOnAWorkspaceVersion();
+
+        $actionService = new ActionService();
+        $actionService->clearWorkspaceRecord(self::TABLE, $versionUid);
+        $GLOBALS['BE_USER']->setWorkspace(0);
+
+        self::assertFalse($this->rowExists($versionUid), 'Discarding must have removed the version row');
+        self::assertTrue($this->rowExists($liveUid), 'The live record must still exist');
+        self::assertTrue($this->get(VaultServiceInterface::class)->exists($identifier), 'Discard itself must not have deleted the secret');
+
+        $this->runCleanup();
+
+        self::assertFalse(
+            $this->get(VaultServiceInterface::class)->exists($identifier),
+            'The secret of a discarded version is held by no row and must be cleaned up',
+        );
+    }
+
+    /**
+     * While the version is neither published nor discarded, the version row is
+     * the only holder of the secret; the cleanup must keep it.
+     */
+    #[Test]
+    public function aSecretHeldOnlyByAWorkspaceVersionIsKept(): void
+    {
+        [, , $identifier] = $this->secretOnAWorkspaceVersion();
+        $GLOBALS['BE_USER']->setWorkspace(0);
+
+        $this->runCleanup();
+
+        self::assertTrue($this->get(VaultServiceInterface::class)->exists($identifier));
+    }
+
+    /**
+     * A live record without a secret, a workspace version of it, and a new
+     * secret entered on that version.
+     *
+     * @return array{int, int, string} live uid, version uid, identifier
+     */
+    private function secretOnAWorkspaceVersion(): array
+    {
+        $actionService = new ActionService();
+        $created       = $actionService->createNewRecord(self::TABLE, 1, ['title' => 'Live record']);
+        $createdUids   = $created[self::TABLE] ?? null;
+        self::assertIsArray($createdUids);
+        $liveUid = $createdUids[0] ?? null;
+        self::assertIsInt($liveUid);
+
+        $GLOBALS['BE_USER']->setWorkspace(self::WORKSPACE);
+        $actionService->modifyRecord(self::TABLE, $liveUid, ['title' => 'Workspace record']);
+        $versionUid = $this->versionUidOf($liveUid);
+        $actionService->modifyRecord(self::TABLE, $versionUid, ['api_key' => 'version-' . bin2hex(random_bytes(8))]);
+
+        $identifier = $this->fieldOf($versionUid);
+        self::assertTrue($this->get(VaultServiceInterface::class)->exists($identifier));
+
+        return [$liveUid, $versionUid, $identifier];
+    }
+
+    private function runCleanup(): void
+    {
+        $this->getConnectionPool()->getConnectionForTable('tx_nrvault_secret')->update(
+            'tx_nrvault_secret',
+            ['crdate' => time() - 86400],
+            [],
+        );
+        $task = new OrphanCleanupTask($this->get(ConnectionPool::class), $this->get(VaultServiceInterface::class));
+        $task->setTaskParameters(['nr_vault_retention_days' => 0]);
+        self::assertTrue($task->execute());
+    }
+
     private function versionUidOf(int $liveUid): int
     {
         $queryBuilder = $this->getConnectionPool()->getQueryBuilderForTable(self::TABLE);

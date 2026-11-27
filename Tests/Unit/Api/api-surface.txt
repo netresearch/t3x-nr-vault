@@ -614,6 +614,7 @@ Netresearch\NrVault\Domain\Dto\SecretMetadata (class)
   property readonly version: int
 
 Netresearch\NrVault\Domain\Dto\SecretRecordLink (class)
+  const FLEXFORM_SOURCES = array
   const ORPHAN_CLEANUP_SOURCES = array
   const SOURCE_FLEXFORM_FIELD = "flexform_field"
   const SOURCE_FLEXFORM_RECORD_COPY = "flexform_record_copy"

@@ -1,0 +1,1 @@
+- `vault:migrate-field --clear-source` no longer does anything and will be removed in a future major version; the field is always replaced with the vault identifier.

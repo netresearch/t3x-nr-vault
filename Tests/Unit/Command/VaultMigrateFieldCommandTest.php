@@ -335,9 +335,20 @@ final class VaultMigrateFieldCommandTest extends TestCase
         self::assertStringContainsString('Total records', $display);
     }
 
+    /**
+     * The field is replaced with the identifier the secret was stored under,
+     * with or without the deprecated --clear-source (#565).
+     */
     #[Test]
-    public function migratesWithClearSourceOption(): void
+    public function writesTheStoredIdentifierIntoTheFieldAndIgnoresClearSource(): void
     {
+        $vaultService = $this->useStrictVaultServiceMock();
+        $stored       = null;
+        $vaultService->expects(self::once())->method('store')
+            ->willReturnCallback(static function (string $identifier) use (&$stored): void {
+                $stored = $identifier;
+            });
+
         $schemaManager = $this->createStub(AbstractSchemaManager::class);
         $schemaManager->method('tablesExist')->willReturn(true);
         $schemaManager->method('listTableColumns')->willReturn([
@@ -371,9 +382,16 @@ final class VaultMigrateFieldCommandTest extends TestCase
         $readQueryBuilder->method('createNamedParameter')->willReturn(':dcValue1');
         $readQueryBuilder->method('executeQuery')->willReturn($result);
 
+        $written            = null;
         $updateQueryBuilder = $this->createStub(QueryBuilder::class);
         $updateQueryBuilder->method('update')->willReturnSelf();
-        $updateQueryBuilder->method('set')->willReturnSelf();
+        $updateQueryBuilder->method('set')->willReturnCallback(
+            static function (string $field, mixed $value) use (&$written, &$updateQueryBuilder): QueryBuilder {
+                $written = [$field, $value];
+
+                return $updateQueryBuilder;
+            },
+        );
         $updateQueryBuilder->method('where')->willReturnSelf();
         $updateQueryBuilder->method('expr')->willReturn($expressionBuilder);
         $updateQueryBuilder->method('createNamedParameter')->willReturn(':dcValue2');
@@ -391,7 +409,9 @@ final class VaultMigrateFieldCommandTest extends TestCase
         ]);
 
         self::assertSame(0, $exitCode);
-        self::assertStringContainsString('Source field has been cleared', $this->commandTester->getDisplay());
+        self::assertIsString($stored);
+        self::assertSame(['api_key', $stored], $written, 'The field must receive the identifier the secret was stored under');
+        self::assertStringContainsString('--clear-source has no effect', $this->commandTester->getDisplay());
     }
 
     #[Test]

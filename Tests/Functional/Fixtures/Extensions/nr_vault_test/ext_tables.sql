@@ -31,3 +31,8 @@ CREATE TABLE tx_nrvaulttest_versioned (
     title varchar(255) DEFAULT '' NOT NULL,
     api_key varchar(255) DEFAULT '' NOT NULL
 );
+
+CREATE TABLE tx_nrvaulttest_reserved (
+    title varchar(255) DEFAULT '' NOT NULL,
+    `key` varchar(255) DEFAULT '' NOT NULL
+);

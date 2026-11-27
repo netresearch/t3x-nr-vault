@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Command;
 
+use Doctrine\DBAL\Exception as DbalException;
 use Netresearch\NrVault\Domain\Dto\SecretRecordLink;
 use Netresearch\NrVault\Exception\VaultException;
 use Netresearch\NrVault\Service\VaultServiceInterface;
@@ -97,7 +98,7 @@ final class VaultMigrateFieldCommand extends Command
                 'clear-source',
                 null,
                 InputOption::VALUE_NONE,
-                'Clear the source field after migration (set to empty string)',
+                'Deprecated, no effect: the field is always replaced with the vault identifier',
             )
             ->addOption(
                 'uid-field',
@@ -130,7 +131,9 @@ final class VaultMigrateFieldCommand extends Command
         $batchSize   = $input->getOption('batch-size');
         $whereClause = $input->getOption('where');
         $force       = (bool) $input->getOption('force');
-        $clearSource = (bool) $input->getOption('clear-source');
+        if ((bool) $input->getOption('clear-source')) {
+            $io->note('--clear-source has no effect: the migration always replaces the field value with the vault identifier.');
+        }
 
         assert(is_int($batchSize) && $batchSize >= 1);
         assert($whereClause === null || is_string($whereClause));
@@ -193,7 +196,6 @@ final class VaultMigrateFieldCommand extends Command
             $table,
             $field,
             $uidField,
-            $clearSource,
             $progressBar,
         );
 
@@ -224,9 +226,7 @@ final class VaultMigrateFieldCommand extends Command
             'Update TCA configuration to use renderType => "vaultSecret" for this field',
             'Test that the field displays correctly in the TYPO3 backend',
             'Update any code that reads this field to use VaultFieldResolver::resolveFields()',
-            $clearSource
-                ? 'Source field has been cleared'
-                : 'Consider clearing or removing the source field after verifying migration',
+            'The field now holds the vault identifier instead of the plaintext value',
         ]);
 
         return Command::SUCCESS;
@@ -246,7 +246,6 @@ final class VaultMigrateFieldCommand extends Command
         string $table,
         string $field,
         string $uidField,
-        bool $clearSource,
         ProgressBar $progressBar,
     ): array {
         $migrated = 0;
@@ -272,10 +271,10 @@ final class VaultMigrateFieldCommand extends Command
                         'metadata' => $this->buildMetadata($table, $field, $uidField, $uidInt),
                     ]);
 
-                    // Optionally clear source field
-                    if ($clearSource) {
-                        $this->clearSourceField($table, $field, $uidField, $uidInt);
-                    }
+                    // Replace the plaintext with the identifier: the vault
+                    // field resolves the secret through it, and orphan
+                    // cleanup counts a secret no row holds as unused.
+                    $this->writeIdentifier($table, $field, $uidField, $uidInt, $identifier);
 
                     ++$migrated;
 
@@ -286,6 +285,12 @@ final class VaultMigrateFieldCommand extends Command
                 } catch (VaultException $e) {
                     ++$failed;
                     $errors[] = sprintf('UID %d: %s', $uid, $e->getMessage());
+                } catch (DbalException $e) {
+                    // The secret is stored but no row holds its identifier, so
+                    // the field keeps its plaintext and orphan cleanup removes
+                    // the unused secret after its retention period.
+                    ++$failed;
+                    $errors[] = sprintf('UID %d: the field could not be updated: %s', $uidInt, $e->getMessage());
                 }
 
                 $progressBar->advance();
@@ -434,12 +439,12 @@ final class VaultMigrateFieldCommand extends Command
         return SecretRecordLink::forField(SecretRecordLink::SOURCE_MIGRATION, $table, $field, $uid, ['migrated_at' => time()]);
     }
 
-    private function clearSourceField(string $table, string $field, string $uidField, int $uid): void
+    private function writeIdentifier(string $table, string $field, string $uidField, int $uid, string $identifier): void
     {
         $queryBuilder = $this->connectionPool->getQueryBuilderForTable($table);
         $queryBuilder
             ->update($table)
-            ->set($field, '')
+            ->set($field, $identifier)
             ->where(
                 $queryBuilder->expr()->eq($uidField, $queryBuilder->createNamedParameter($uid)),
             )

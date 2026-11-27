@@ -40,8 +40,17 @@ final class SecretRecordLink
     public const SOURCE_MIGRATION = 'migration';
 
     /**
-     * Sources whose secrets the orphan cleanup may delete once the linked
-     * record is gone. Both cleanups read this list.
+     * Sources whose link names a FlexForm column: the identifier sits inside
+     * the column's XML, whichever key (`flexField` or `field`) names it.
+     */
+    public const FLEXFORM_SOURCES = [
+        self::SOURCE_FLEXFORM_FIELD,
+        self::SOURCE_FLEXFORM_RECORD_COPY,
+    ];
+
+    /**
+     * Sources whose secrets the orphan cleanup may delete once no row holds
+     * their identifier any more. Both cleanups read this list.
      */
     public const ORPHAN_CLEANUP_SOURCES = [
         self::SOURCE_TCA_FIELD,
@@ -103,8 +112,9 @@ final class SecretRecordLink
             return null;
         }
 
-        $flexForm = !isset($metadata['field']) && isset($metadata['flexField']);
-        $field    = $metadata['field'] ?? $metadata['flexField'] ?? '';
+        $flexForm = in_array($metadata['source'] ?? '', self::FLEXFORM_SOURCES, true)
+            || (!isset($metadata['field']) && isset($metadata['flexField']));
+        $field = $metadata['field'] ?? $metadata['flexField'] ?? '';
 
         return new OrphanReference(
             table: $table,

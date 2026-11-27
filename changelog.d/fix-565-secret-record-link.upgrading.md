@@ -1,1 +1,2 @@
 - Only secrets created after this update carry the record link the orphan cleanup reads. Secrets created earlier through TCA or FlexForm fields, record copies or migrations stay invisible to `vault:cleanup-orphans` and the scheduler task; no upgrade step adds the link, because that would make existing secrets eligible for deletion. `vault:migrate-field` with `--uid-field` set to a column other than `uid` stores no record link.
+- `vault:migrate-field --clear-source` is deprecated and has no effect: the command now always replaces the field value with the vault identifier.

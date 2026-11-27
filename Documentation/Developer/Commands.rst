@@ -1096,6 +1096,11 @@ vault:migrate-field
 
 Migrate existing plaintext database field values to vault storage.
 
+Each value is stored as a new vault secret, and the field is updated to hold
+that secret's identifier instead of the plaintext, which is what a
+``vaultSecret`` field resolves. A run skips fields that already hold an
+identifier unless ``--force`` is given.
+
 .. code-block:: bash
    :caption: Command syntax
 
@@ -1130,14 +1135,15 @@ Options
    Migrate even if field already contains vault identifiers.
 
 --clear-source
-   Clear the source field after migration (set to empty string).
+   Deprecated, no effect. The migration always replaces the field value with
+   the vault identifier; clearing the field would leave the secret unreachable.
 
 --uid-field=NAME
    Name of the UID field (default: uid). Only with ``uid`` does a migrated
-   secret get the record link that orphan cleanup reads: the cleanup looks a
-   record up by its ``uid`` column, so a value from another column would name
-   the wrong record. With any other column the secret is stored without a link
-   and :ref:`vault:cleanup-orphans <command-cleanup-orphans>` never deletes it.
+   secret get the record link that orphan cleanup reads, because the link names
+   a record by its ``uid`` column and a value from another column would name the
+   wrong record. With any other column the secret is stored without a link and
+   :ref:`vault:cleanup-orphans <command-cleanup-orphans>` never deletes it.
 
 .. attention::
 
@@ -1157,8 +1163,8 @@ Example
    # Migrate with specific records
    vendor/bin/typo3 vault:migrate-field tx_myext_settings api_key --where="pid=1"
 
-   # Migrate and clear source field
-   vendor/bin/typo3 vault:migrate-field tx_myext_settings api_key --clear-source
+   # Migrate records keyed by another column (stored without a record link)
+   vendor/bin/typo3 vault:migrate-field tx_myext_settings api_key --uid-field=id
 
 .. _command-cleanup-orphans:
 
@@ -1167,26 +1173,28 @@ vault:cleanup-orphans
 
 Clean up orphaned vault secrets from deleted TCA records.
 
-When records with vault-backed fields disappear without DataHandler (a hard
-delete in SQL, a dropped extension table), their vault secrets may become
-orphaned. This command identifies and removes such orphaned secrets. The
+When records with vault-backed fields disappear or stop referencing their
+secret without DataHandler deleting it (a hard delete in SQL, a discarded
+workspace version), their vault secrets may become orphaned. This command
+identifies and removes such orphaned secrets. The
 :guilabel:`Vault Orphan Cleanup` scheduler task applies the same rules.
 
 A secret is a candidate only when its ``metadata`` holds a record link
 (``source``, ``table``, ``field`` or ``flexField``, ``uid``) with one of the
 sources ``tca_field``, ``record_copy``, ``flexform_field``,
-``flexform_record_copy`` or ``migration``. It is deleted only when all of the
+``flexform_record_copy`` or ``migration``. It is deleted only when both of the
 following hold:
 
 *  it is older than ``--retention-days``;
-*  the linked record no longer exists (deleted rows count as existing);
-*  no row of the linked table still holds the identifier in the linked field
-   (for a FlexForm field: no FlexForm value of that column contains it). This
-   keeps secrets of published workspace versions, translations that share a
-   field, and copies.
+*  no row of the linked table, deleted rows included, holds the identifier in
+   the linked field (for a FlexForm field: no FlexForm value of that column
+   contains it). Whether the linked record itself still exists does not
+   matter: a published workspace version moves the identifier to the live
+   record, a translation can share it, and a discarded workspace version
+   leaves a live record that never held it.
 
-A table, connection or column the command cannot resolve keeps the secret and
-logs a warning; it is never read as "record gone".
+A table, connection or column the command cannot resolve keeps the secret; the
+command lists such secrets after the check, and the scheduler task logs them.
 
 .. important::
 

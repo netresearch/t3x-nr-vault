@@ -13,36 +13,30 @@ use Netresearch\NrVault\Domain\Dto\OrphanReference;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 use Throwable;
-use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 
 use function array_keys;
-use function array_map;
 use function in_array;
 use function strtolower;
-use function strval;
+use function trim;
 
 /**
  * Decides whether a linked secret is an orphan: the one question both orphan
  * cleanups (`OrphanCleanupTask`, `vault:cleanup-orphans`) ask before they
  * delete.
  *
- * Fails CLOSED. Only lookups that succeed and find nothing may answer true,
- * because true is a DELETE trigger. A table, connection or column the checker
- * cannot resolve, or a query that errors, proves nothing about the record and
- * answers false.
+ * A secret is an orphan when no row of the linked table, deleted rows
+ * included, holds its identifier in the linked field (for a FlexForm link: no
+ * FlexForm value of that column contains it). Whether the linked uid still
+ * exists does not matter: a published workspace version moves the identifier
+ * to the live uid, a translation shares it, and a discarded version leaves a
+ * live record that never held it.
  *
- * A secret is an orphan only when BOTH hold:
- *
- *  - the linked record (`uid`) no longer exists, deleted rows included;
- *  - no row of the linked table still holds the identifier in the linked
- *    field (for a FlexForm link: no FlexForm value of that column contains
- *    it).
- *
- * The second condition covers records whose uid differs from the link while
- * they still reference the secret: a published workspace version (core
- * hard-deletes the version row and moves its values onto the live uid), a
- * translation sharing a non-translatable field, a copy.
+ * Fails CLOSED. Only a lookup that succeeds and finds no holder may answer
+ * true, because true is a DELETE trigger. A table, connection or column the
+ * checker cannot resolve, or a query that errors, proves nothing and answers
+ * false; such references are kept in {@see self::getUnresolvedReferences()}
+ * and logged.
  */
 final class OrphanReferenceChecker
 {
@@ -53,6 +47,9 @@ final class OrphanReferenceChecker
      */
     private array $columns = [];
 
+    /** @var list<array{identifier: string, table: string, field: string, uid: int, reason: string}> */
+    private array $unresolved = [];
+
     public function __construct(
         private readonly ConnectionPool $connectionPool,
         private readonly LoggerInterface $logger = new NullLogger(),
@@ -60,30 +57,47 @@ final class OrphanReferenceChecker
 
     public function isOrphaned(OrphanReference $reference, string $identifier): bool
     {
-        $context = [
-            'table'      => $reference->table,
-            'field'      => $reference->field,
-            'uid'        => $reference->uid,
-            'identifier' => $identifier,
-        ];
-
         try {
             $unresolvable = $this->unresolvableReason($reference, $identifier);
             if ($unresolvable !== null) {
-                $this->logger->warning('Orphan reference ' . $unresolvable . '; keeping the secret', $context);
+                $this->keep($reference, $identifier, $unresolvable);
 
                 return false;
             }
 
-            return !$this->recordExists($reference) && !$this->identifierIsReferenced($reference, $identifier);
+            return !$this->identifierIsReferenced($reference, $identifier);
         } catch (Throwable $e) {
-            $this->logger->warning(
-                'Orphan reference could not be resolved; keeping the secret',
-                $context + ['error' => $e->getMessage()],
-            );
+            $this->keep($reference, $identifier, 'could not be resolved: ' . $e->getMessage());
 
             return false;
         }
+    }
+
+    /**
+     * The references this checker kept because it could not check them.
+     *
+     * @return list<array{identifier: string, table: string, field: string, uid: int, reason: string}>
+     */
+    public function getUnresolvedReferences(): array
+    {
+        return $this->unresolved;
+    }
+
+    private function keep(OrphanReference $reference, string $identifier, string $reason): void
+    {
+        $entry = [
+            'identifier' => $identifier,
+            'table'      => $reference->table,
+            'field'      => $reference->field,
+            'uid'        => $reference->uid,
+            'reason'     => $reason,
+        ];
+
+        $this->unresolved[] = $entry;
+        $this->logger->warning(
+            'Orphan reference {table}.{field} (uid {uid}) of secret {identifier} {reason}; keeping the secret',
+            $entry,
+        );
     }
 
     /**
@@ -113,29 +127,18 @@ final class OrphanReferenceChecker
     private function columnsOf(string $table): array
     {
         if (!isset($this->columns[$table])) {
-            $columns = $this->connectionPool->getConnectionForTable($table)->createSchemaManager()->listTableColumns($table);
+            $names = [];
+            // DBAL keys the list by the lower-cased, platform-QUOTED name:
+            // a reserved word arrives as `key` (MySQL) or "key" (SQLite,
+            // PostgreSQL). Strip the quotes to compare with the plain name.
+            foreach (array_keys($this->connectionPool->getConnectionForTable($table)->createSchemaManager()->listTableColumns($table)) as $quoted) {
+                $names[] = strtolower(trim((string) $quoted, '`"[]'));
+            }
 
-            $this->columns[$table] = array_map(strtolower(...), array_map(strval(...), array_keys($columns)));
+            $this->columns[$table] = $names;
         }
 
         return $this->columns[$table];
-    }
-
-    private function recordExists(OrphanReference $reference): bool
-    {
-        $queryBuilder = $this->connectionPool->getQueryBuilderForTable($reference->table);
-        $queryBuilder->getRestrictions()->removeAll();
-
-        $count = $queryBuilder
-            ->count('*')
-            ->from($reference->table)
-            ->where(
-                $queryBuilder->expr()->eq('uid', $queryBuilder->createNamedParameter($reference->uid, Connection::PARAM_INT)),
-            )
-            ->executeQuery()
-            ->fetchOne();
-
-        return $count > 0;
     }
 
     /**
