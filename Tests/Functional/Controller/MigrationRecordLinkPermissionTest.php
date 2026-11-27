@@ -12,8 +12,13 @@ namespace Netresearch\NrVault\Tests\Functional\Controller;
 use Netresearch\NrVault\Audit\AuditAction;
 use Netresearch\NrVault\Controller\MigrationController;
 use Netresearch\NrVault\Domain\Dto\MigrationResult;
+use Netresearch\NrVault\Exception\AccessDeniedException;
+use Netresearch\NrVault\Exception\ValidationException;
 use Netresearch\NrVault\Service\FieldValueMigrator;
 use Netresearch\NrVault\Service\FieldValueMigratorInterface;
+use Netresearch\NrVault\Service\SecretRecordLinkWriterInterface;
+use Netresearch\NrVault\Service\VaultService;
+use Netresearch\NrVault\Service\VaultServiceInterface;
 use Netresearch\NrVault\Tests\Functional\AbstractVaultFunctionalTestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
@@ -30,12 +35,16 @@ use function json_decode;
  * as one Create (#565).
  */
 #[CoversClass(FieldValueMigrator::class)]
+#[CoversClass(VaultService::class)]
 #[CoversClass(MigrationController::class)]
 final class MigrationRecordLinkPermissionTest extends AbstractVaultFunctionalTestCase
 {
     private const TABLE = 'tx_nrvaulttest_customdelete';
 
     private const AUDIT_TABLE = 'tx_nrvault_audit_log';
+
+    /** Non-admin editor without secret.create. */
+    private const EDITOR_WITHOUT_CREATE = 2;
 
     /** Non-admin editor holding secret.create but not secret.rotate. */
     private const EDITOR_WITH_CREATE = 4;
@@ -73,6 +82,53 @@ final class MigrationRecordLinkPermissionTest extends AbstractVaultFunctionalTes
         ]);
         self::assertSame(1, $this->countAuditEntries($identifier, AuditAction::Create->value), 'One Create entry');
         self::assertSame(0, $this->countAuditEntries($identifier, AuditAction::Update->value), 'No Update entry for the link');
+        self::assertSame(1, $this->countAuditEntries($identifier, AuditAction::MetadataUpdate->value), 'The link is audited as one metadata update');
+    }
+
+    /**
+     * The link writer refuses a secret whose metadata is no longer what its
+     * creator stored, and audits nothing (#565).
+     */
+    #[Test]
+    public function theLinkIsRefusedForASecretChangedSinceItWasStored(): void
+    {
+        $this->setUpBackendUser(1);
+        $identifier = 'linkperm_changed';
+        $this->get(VaultServiceInterface::class)->store($identifier, 'value', ['metadata' => ['migrated_at' => 1, 'note' => 'edited']]);
+
+        try {
+            $this->get(SecretRecordLinkWriterInterface::class)->linkCreatedSecret($identifier, ['migrated_at' => 1], ['source' => 'migration']);
+            self::fail('A changed secret must not be linked');
+        } catch (ValidationException $e) {
+            self::assertStringContainsString('the secret changed after it was stored', $e->getMessage());
+        }
+
+        self::assertSame(['migrated_at' => 1, 'note' => 'edited'], $this->metadataOf($identifier));
+        self::assertSame(0, $this->countAuditEntries($identifier, AuditAction::MetadataUpdate->value));
+    }
+
+    /**
+     * Linking needs secret.create, the permission of the creation: an owner
+     * without it is refused and the refusal is audited (#565).
+     */
+    #[Test]
+    public function theLinkNeedsTheCreatePermission(): void
+    {
+        $this->setUpBackendUser(1);
+        $identifier = 'linkperm_owner';
+        $this->get(VaultServiceInterface::class)->store($identifier, 'value', ['metadata' => ['migrated_at' => 1], 'owner' => self::EDITOR_WITHOUT_CREATE]);
+
+        $this->setUpBackendUser(self::EDITOR_WITHOUT_CREATE);
+
+        try {
+            $this->get(SecretRecordLinkWriterInterface::class)->linkCreatedSecret($identifier, ['migrated_at' => 1], ['source' => 'migration']);
+            self::fail('An actor without secret.create must not link');
+        } catch (AccessDeniedException $e) {
+            self::assertStringContainsString('secret.create', $e->getMessage());
+        }
+
+        self::assertSame(['migrated_at' => 1], $this->metadataOf($identifier));
+        self::assertSame(1, $this->countAuditEntries($identifier, AuditAction::AccessDenied->value));
     }
 
     #[Test]

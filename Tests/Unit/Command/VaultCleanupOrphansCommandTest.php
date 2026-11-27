@@ -241,6 +241,33 @@ final class VaultCleanupOrphansCommandTest extends TestCase
         self::assertStringContainsString('Successfully deleted', $this->commandTester->getDisplay());
     }
 
+    /**
+     * The orphan list is built before the confirmation prompt. A secret a row
+     * holds again by the time the operator confirms is kept: each secret is
+     * checked once more right before its delete (#565).
+     */
+    #[Test]
+    public function aSecretReferencedAgainBeforeTheConfirmationIsKept(): void
+    {
+        $this->vaultService->method('list')->willReturn([
+            $this->createSecretMetadata(
+                self::IDENTIFIER,
+                time() - 86400 * 30,
+                ['source' => 'tca_field', 'table' => 'tx_myext', 'field' => 'api_key', 'uid' => 1],
+            ),
+        ]);
+
+        // Orphaned while the list is built, held again when it is deleted.
+        $this->checker->expects(self::exactly(2))->method('isOrphaned')->willReturnOnConsecutiveCalls(true, false);
+        $this->vaultService->expects(self::never())->method('delete');
+
+        $this->commandTester->setInputs(['yes']);
+        $exitCode = $this->commandTester->execute([]);
+
+        self::assertSame(0, $exitCode);
+        self::assertMatchesRegularExpression('/Kept \(referenced again\)\s*\|?\s*1/', $this->commandTester->getDisplay());
+    }
+
     #[Test]
     public function handlesDeleteFailures(): void
     {

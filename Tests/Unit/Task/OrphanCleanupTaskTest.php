@@ -96,12 +96,13 @@ final class OrphanCleanupTaskTest extends TestCase
     /**
      * The scheduler builds the task without DI (v13 unserializes it, v14
      * falls back to makeInstance()), so no LogManager is injected. The task
-     * still logs through the LogManager instead of a NullLogger (#565).
+     * logs through the logger AbstractTask receives as a LoggerAware object
+     * instead of a NullLogger (#565).
      */
     #[Test]
-    public function aTaskBuiltWithoutDiLogsThroughTheLogManager(): void
+    public function aTaskBuiltWithoutDiLogsThroughItsAwareLogger(): void
     {
-        $task = new OrphanCleanupTask();
+        $task = GeneralUtility::makeInstance(OrphanCleanupTask::class);
 
         self::assertSame($this->logger, (new ReflectionMethod(OrphanCleanupTask::class, 'getLogger'))->invoke($task));
     }

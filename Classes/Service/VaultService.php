@@ -51,13 +51,14 @@ use TYPO3\CMS\Core\SingletonInterface;
 use function array_replace;
 use function is_array;
 use function is_int;
+use function is_scalar;
 use function is_string;
 use function strlen;
 
 /**
  * Main vault service implementation.
  */
-final readonly class VaultService implements VaultServiceInterface, SingletonInterface
+final readonly class VaultService implements VaultServiceInterface, SecretRecordLinkWriterInterface, SingletonInterface
 {
     public function __construct(
         private VaultAdapterInterface $adapter,
@@ -180,6 +181,15 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
         $this->mutate(
             function () use ($identifier, $enabled, $reason): void {
                 $this->doSetEnabled($identifier, $enabled, $reason);
+            },
+        );
+    }
+
+    public function linkCreatedSecret(string $identifier, array $createdMetadata, array $link): void
+    {
+        $this->mutate(
+            function () use ($identifier, $createdMetadata, $link): void {
+                $this->doLinkCreatedSecret($identifier, $createdMetadata, $link);
             },
         );
     }
@@ -1277,6 +1287,77 @@ final readonly class VaultService implements VaultServiceInterface, SingletonInt
                     // write: a revert that restored the whole entity would
                     // undo everything else that landed in the window too.
                     $this->adapter->setHidden($uid, $secret->isHidden());
+                },
+                $auditException,
+            );
+        }
+    }
+
+    /**
+     * The record link is metadata of a creation, written like setEnabled()
+     * writes availability: one targeted write of the metadata column and one
+     * MetadataUpdate entry in the same mutation. Going through store() again
+     * would be an update of the value, gated by secret.rotate.
+     *
+     * @param array<string, mixed> $createdMetadata
+     * @param array<string, mixed> $link
+     */
+    private function doLinkCreatedSecret(string $identifier, array $createdMetadata, array $link): void
+    {
+        $secret = $this->adapter->retrieveIncludingDisabled($identifier);
+        if (!$secret instanceof Secret) {
+            throw SecretNotFoundException::forIdentifier($identifier);
+        }
+
+        if (!$this->accessControlService->canWrite($secret)) {
+            $this->auditLogService->log(
+                $identifier,
+                AuditAction::AccessDenied->value,
+                false,
+                'Record link access denied',
+            );
+
+            throw AccessDeniedException::forIdentifier($identifier, 'record link permission denied');
+        }
+
+        $this->assertOperationGranted(VaultPermission::SecretCreate, $identifier, 'Record link');
+
+        // Only the secret as its creator stored it: a secret whose metadata
+        // changed since is no longer the caller's creation to link.
+        if ($secret->getMetadata() !== $createdMetadata) {
+            throw ValidationException::invalidOption('createdMetadata', 'the secret changed after it was stored');
+        }
+
+        $this->adapter->updateMetadata($identifier, $link);
+
+        // The audit context holds scalars: the link's keys, one by one.
+        $context = ['column' => 'metadata'];
+        foreach ($link as $key => $value) {
+            if (is_scalar($value)) {
+                $context['link_' . $key] = $value;
+            }
+        }
+
+        // The coordinated stock path rolls back its transaction on failure.
+        // Legacy/custom constructions retain their compensating recovery.
+        try {
+            $this->auditLogService->log(
+                $identifier,
+                AuditAction::MetadataUpdate->value,
+                true,
+                null,
+                'Record link added',
+                null,
+                null,
+                new GenericContext($context),
+            );
+        } catch (AuditWriteException $auditException) {
+            $this->compensateAuditFailure(
+                $identifier,
+                function () use ($secret): void {
+                    // The secret as read above, whose metadata the check
+                    // confirmed to be the creator's: nothing else to undo.
+                    $this->adapter->store($secret, false);
                 },
                 $auditException,
             );

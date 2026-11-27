@@ -1109,7 +1109,8 @@ The value is never left without a copy:
    Orphan cleanup deletes only linked secrets, so a secret kept after a failed
    write stays until you remove it. The link is written as metadata of the
    creation: it needs ``secret.create``, like the creation, not
-   ``secret.rotate``.
+   ``secret.rotate``, and is audited as a metadata update in the same
+   transaction.
 *  The update names the value the row held when the command read it. A value
    an editor saved in between is not overwritten; the record fails and the
    new secret is deleted again.
@@ -1132,12 +1133,14 @@ column or is too short for an identifier (36 characters), and a
 ``--uid-field`` that does not exist or whose value several rows share.
 
 A run skips values that already have the UUID v7 format of a migrated field
-unless ``--force`` is given. Even with ``--force`` it never wraps a value that
-is the identifier of an existing secret in a new one, because the existing
-secret would then be referenced by nothing; such records are listed as
-skipped; a disabled secret counts as existing. When the vault cannot answer
-whether a value is such an identifier,
-that record counts as failed and the run continues.
+unless ``--force`` is given. Even with ``--force`` it never wraps a UUID v7
+value that is the identifier of an existing secret in a new one, because the
+existing secret would then be referenced by nothing; such records are listed
+as skipped, without their value, and a disabled secret counts as existing. A
+value that is not a UUID, such as a plaintext that happens to equal the
+friendly name of a secret, is migrated. When the vault cannot answer whether a
+value is such an identifier, that record counts as failed and the run
+continues.
 
 The backend migration module moves values with the same safeguards. Its
 identifier comes from a pattern, so it also refuses a row whose identifier
@@ -1243,6 +1246,8 @@ following hold:
 
 A table, connection or column the command cannot resolve keeps the secret; the
 command lists such secrets after the check, and the scheduler task logs them.
+After the confirmation the command checks each secret once more right before
+deleting it, and keeps one a row holds again by then.
 
 .. important::
 

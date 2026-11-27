@@ -20,8 +20,8 @@ use Netresearch\NrVault\Adapter\VaultAdapterInterface;
 use Netresearch\NrVault\Command\VaultMigrateFieldCommand;
 use Netresearch\NrVault\Domain\Model\Secret;
 use Netresearch\NrVault\Exception\VaultException;
-use Netresearch\NrVault\Security\AccessControlServiceInterface;
 use Netresearch\NrVault\Service\FieldValueMigrator;
+use Netresearch\NrVault\Service\SecretRecordLinkWriterInterface;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use Netresearch\NrVault\Utility\IdentifierValidator;
@@ -98,14 +98,14 @@ final class VaultMigrateFieldCommandTest extends TestCase
     /** @var array<string, Throwable> Lookups of these identifiers throw. */
     private array $lookupFailures = [];
 
-    /** @var array<string, array<mixed>> What updateMetadata() merged in, per identifier. */
+    /** @var array<string, array<mixed>> What the record link writer merged in, per identifier. */
     private array $linkedMetadata = [];
 
-    /** @var array<string, mixed>|null When set, what a stored secret's metadata reads as afterwards. */
-    private ?array $metadataAfterStore = null;
+    /** When set, the record link writer refuses with it. */
+    private ?Throwable $linkFailure = null;
 
-    /** Whether the actor holds secret.create. */
-    private bool $mayCreate = true;
+    /** @var array<string, array<mixed>> The created metadata each link request named, per identifier. */
+    private array $linkRequests = [];
 
     /** When set, the vault's store() throws it. */
     private ?Throwable $storeFailure = null;
@@ -862,19 +862,19 @@ final class VaultMigrateFieldCommandTest extends TestCase
     }
 
     /**
-     * The record link is written for an actor holding secret.create, the
-     * permission the creation needed; without it the link is refused and the
-     * secret, now referenced by the row, stays unlinked (#565).
+     * The link goes through the vault's audited link path with the metadata
+     * the creation stored. When that path refuses, the secret, now referenced
+     * by the row, stays unlinked and the record is reported (#565).
      */
     #[Test]
-    public function theRecordLinkNeedsTheCreatePermission(): void
+    public function aRefusedRecordLinkIsReported(): void
     {
         $vaultService = $this->useStrictVaultServiceMock();
         $this->mockTableAndFieldExist('api_key');
-        $this->mockQueryReturnsRecords([['uid' => 1, 'api_key' => 'secret-no-create']]);
-        $this->mayCreate = false;
+        $this->mockQueryReturnsRecords([['uid' => 1, 'api_key' => 'secret-link-refused']]);
+        $this->linkFailure = new VaultException('missing secret.create permission', 1795000001);
 
-        $this->recordStores($vaultService, 1);
+        $calls = $this->recordStores($vaultService, 1);
 
         $this->commandTester->setInputs(['yes']);
         $exitCode = $this->commandTester->execute(['table' => 'tx_myext_settings', 'field' => 'api_key']);
@@ -882,28 +882,47 @@ final class VaultMigrateFieldCommandTest extends TestCase
         self::assertSame(1, $exitCode);
         self::assertStringContainsString('the record link could not be stored (missing secret.create permission)', $this->normalizedDisplay());
         self::assertSame([], $this->linkedMetadata);
+        self::assertSame(['migrated_at'], array_keys($this->linkRequests[$this->storeCall($calls, 0)['identifier']] ?? []), 'The writer is asked with the metadata the creation stored');
     }
 
     /**
-     * The link is written only to the secret as this run created it: when
-     * its metadata changed in between, the link is refused (#565).
+     * A plaintext that happens to be the friendly name of an existing secret
+     * is migrated, not skipped: only a UUID counts as an identifier the field
+     * already holds (#565).
      */
     #[Test]
-    public function theRecordLinkIsRefusedForASecretChangedSinceItWasStored(): void
+    public function aPlaintextNamingAnExistingSecretIsMigrated(): void
     {
         $vaultService = $this->useStrictVaultServiceMock();
         $this->mockTableAndFieldExist('api_key');
-        $this->mockQueryReturnsRecords([['uid' => 1, 'api_key' => 'secret-changed']]);
-        $this->metadataAfterStore = ['source' => 'tca_field'];
+        $this->mockQueryReturnsRecords([['uid' => 2, 'api_key' => 'deploy_token_prod']]);
+        $this->secrets['deploy_token_prod'] = [];
 
-        $this->recordStores($vaultService, 1);
+        $calls = $this->recordStores($vaultService, 1);
 
         $this->commandTester->setInputs(['yes']);
-        $exitCode = $this->commandTester->execute(['table' => 'tx_myext_settings', 'field' => 'api_key']);
+        $exitCode = $this->commandTester->execute(['table' => 'tx_myext_settings', 'field' => 'api_key', '--force' => true]);
+
+        self::assertSame(0, $exitCode, $this->commandTester->getDisplay());
+        self::assertSame('deploy_token_prod', $this->storeCall($calls, 0)['value']);
+        self::assertStringNotContainsString('Skipped UID', $this->commandTester->getDisplay());
+    }
+
+    /**
+     * A non-numeric --uid-field value is reported as it is, not as 0 (#565).
+     */
+    #[Test]
+    public function aNonNumericKeyIsReportedAsItIs(): void
+    {
+        $this->mockTableAndFieldExist('api_key');
+        $this->mockQueryReturnsRecords([['legacy_id' => 'key-abc', 'api_key' => 'secret-text-key']]);
+        $this->storeFailure = new VaultException('Storage failed', 1795000002);
+
+        $this->commandTester->setInputs(['yes']);
+        $exitCode = $this->commandTester->execute(['table' => 'tx_myext_settings', 'field' => 'api_key', '--uid-field' => 'legacy_id']);
 
         self::assertSame(1, $exitCode);
-        self::assertStringContainsString('the secret changed after it was stored', $this->normalizedDisplay());
-        self::assertSame([], $this->linkedMetadata);
+        self::assertStringContainsString('UID key-abc: the value could not be stored: Storage failed', $this->normalizedDisplay());
     }
 
     /**
@@ -1150,7 +1169,9 @@ final class VaultMigrateFieldCommandTest extends TestCase
         $exitCode = $this->commandTester->execute(['table' => 'tx_myext_settings', 'field' => 'api_key', '--force' => true]);
 
         self::assertSame(0, $exitCode);
-        self::assertStringContainsString('Skipped UID 3: the field already holds the vault identifier ' . $existing, $this->commandTester->getDisplay());
+        $display = $this->normalizedDisplay();
+        self::assertStringContainsString('Skipped UID 3: the field already holds the identifier of an existing secret', $display);
+        self::assertStringNotContainsString($existing, $display, 'The skipped line must not print the field value');
     }
 
     /**
@@ -1381,15 +1402,20 @@ final class VaultMigrateFieldCommandTest extends TestCase
 
             return isset($this->secrets[$identifier]) ? new Secret(identifier: $identifier, metadata: $this->stringKeyed($this->secrets[$identifier])) : null;
         });
-        $adapter->method('updateMetadata')->willReturnCallback(function (string $identifier, array $metadata): void {
-            $this->linkedMetadata[$identifier] = $metadata;
-            $this->secrets[$identifier]        = array_replace($this->secrets[$identifier] ?? [], $metadata);
+
+        $linkWriter = self::createStub(SecretRecordLinkWriterInterface::class);
+        $linkWriter->method('linkCreatedSecret')->willReturnCallback(function (string $identifier, array $createdMetadata, array $link): void {
+            $this->linkRequests[$identifier] = $createdMetadata;
+            $failure                         = $this->linkFailure;
+            if ($failure instanceof Throwable) {
+                throw $failure;
+            }
+
+            $this->linkedMetadata[$identifier] = $link;
+            $this->secrets[$identifier]        = array_replace($this->secrets[$identifier] ?? [], $link);
         });
 
-        $accessControl = self::createStub(AccessControlServiceInterface::class);
-        $accessControl->method('isGranted')->willReturnCallback(fn (): bool => $this->mayCreate);
-
-        return new FieldValueMigrator($this->vaultService, $this->connectionPool, $adapter, $accessControl);
+        return new FieldValueMigrator($this->vaultService, $this->connectionPool, $adapter, $linkWriter);
     }
 
     /**
@@ -1408,7 +1434,7 @@ final class VaultMigrateFieldCommandTest extends TestCase
                 throw $failure;
             }
 
-            $metadata                   = $this->metadataAfterStore ?? $options['metadata'] ?? [];
+            $metadata                   = $options['metadata'] ?? [];
             $this->secrets[$identifier] = is_array($metadata) ? $metadata : [];
         });
     }

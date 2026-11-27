@@ -68,6 +68,9 @@ services:
   Netresearch\NrVault\Service\FieldValueMigratorInterface:
     alias: Netresearch\NrVault\Service\FieldValueMigrator
 
+  Netresearch\NrVault\Service\SecretRecordLinkWriterInterface:
+    alias: Netresearch\NrVault\Service\VaultService
+
   Netresearch\NrVault\Hook\RecordLinkFactoryInterface:
     alias: Netresearch\NrVault\Hook\RecordLinkFactory
 

@@ -156,7 +156,7 @@ final class VaultCleanupOrphansCommand extends Command
      *
      * @param array<int, array{identifier: string, metadata: array<string, mixed>, created_at: int}> $secrets
      *
-     * @return list<array{identifier: string, table: string, field: string, uid: int, created_at: int}>
+     * @return list<array{identifier: string, table: string, field: string, uid: int, created_at: int, reference: OrphanReference}>
      */
     private function findOrphans(SymfonyStyle $io, array $secrets, int $retentionDays, int $batchSize): array
     {
@@ -198,7 +198,7 @@ final class VaultCleanupOrphansCommand extends Command
      *
      * @param array{identifier: string, metadata: array<string, mixed>, created_at: int} $secret
      *
-     * @return array{identifier: string, table: string, field: string, uid: int, created_at: int}|null
+     * @return array{identifier: string, table: string, field: string, uid: int, created_at: int, reference: OrphanReference}|null
      */
     private function classifyOrphan(OrphanReferenceCheckerInterface $checker, array $secret, int $retentionCutoff): ?array
     {
@@ -221,6 +221,7 @@ final class VaultCleanupOrphansCommand extends Command
             'field'      => $reference->field,
             'uid'        => $reference->uid,
             'created_at' => $createdAt,
+            'reference'  => $reference,
         ];
     }
 
@@ -229,16 +230,25 @@ final class VaultCleanupOrphansCommand extends Command
      * FAILURE if any deletion threw; the rest still proceed (best-effort
      * cleanup — vault state is consistent either way).
      *
-     * @param list<array{identifier: string, table: string, field: string, uid: int, created_at: int}> $orphans
+     * @param list<array{identifier: string, table: string, field: string, uid: int, created_at: int, reference: OrphanReference}> $orphans
      */
     private function deleteOrphans(SymfonyStyle $io, array $orphans): int
     {
         $io->section('Deleting orphaned secrets...');
         $deleted = 0;
         $failed  = 0;
+        $kept    = 0;
         $errors  = [];
 
         foreach ($orphans as $orphan) {
+            // The list was built before the confirmation prompt, which can
+            // wait indefinitely: a row may hold the identifier again by now.
+            if (!$this->orphanReferenceChecker->isOrphaned($orphan['reference'], $orphan['identifier'])) {
+                ++$kept;
+
+                continue;
+            }
+
             try {
                 $this->vaultService->delete($orphan['identifier'], 'Orphan cleanup');
                 ++$deleted;
@@ -251,6 +261,7 @@ final class VaultCleanupOrphansCommand extends Command
         $io->section('Cleanup Summary');
         $io->definitionList(
             ['Orphans found' => count($orphans)],
+            ['Kept (referenced again)' => $kept],
             ['Successfully deleted' => $deleted],
             ['Failed' => $failed],
         );
@@ -329,7 +340,7 @@ final class VaultCleanupOrphansCommand extends Command
     }
 
     /**
-     * @param array<int, array{identifier: string, table: string, field: string, uid: int, created_at: int}> $orphans
+     * @param array<int, array{identifier: string, table: string, field: string, uid: int, created_at: int, reference: OrphanReference}> $orphans
      */
     private function showOrphanTable(SymfonyStyle $io, array $orphans): void
     {

@@ -1158,6 +1158,9 @@ Netresearch\NrVault\Service\SecretDetectionServiceInterface (interface)
   method scanExtensionConfiguration(): void
   method scanLocalConfiguration(): void
 
+Netresearch\NrVault\Service\SecretRecordLinkWriterInterface (interface)
+  method linkCreatedSecret(string $identifier, array $createdMetadata, array $link): void
+
 Netresearch\NrVault\Service\VaultFieldPermission (enum)
   case Copy = "copy"
   case Edit = "edit"

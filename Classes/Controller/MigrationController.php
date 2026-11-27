@@ -531,11 +531,16 @@ final readonly class MigrationController
 
             $rows = $queryBuilder->executeQuery()->fetchAllAssociative();
 
-            foreach ($rows as $row) {
-                $uidVal   = $row['uid'] ?? 0;
-                $uid      = is_numeric($uidVal) ? (int) $uidVal : 0;
-                $valueVal = $row[$column] ?? '';
-                $value    = is_string($valueVal) ? $valueVal : '';
+            foreach (array_keys($rows) as $index) {
+                $uidVal = $rows[$index]['uid'] ?? 0;
+                $uid    = is_numeric($uidVal) ? (int) $uidVal : 0;
+                $value  = $rows[$index][$column] ?? '';
+                // Drop the row's reference, so the wiped copy is the only
+                // one: sodium_memzero() zeroes a string only then.
+                $rows[$index][$column] = null;
+                if (!is_string($value)) {
+                    $value = '';
+                }
 
                 $error = $this->migrateRow($table, $column, $columnSchema, $uid, $value, $identifierPattern);
                 sodium_memzero($value);

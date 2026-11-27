@@ -16,9 +16,6 @@ use Doctrine\DBAL\Types\TextType;
 use Netresearch\NrVault\Adapter\VaultAdapterInterface;
 use Netresearch\NrVault\Domain\Dto\SecretRecordLink;
 use Netresearch\NrVault\Domain\Model\Secret;
-use Netresearch\NrVault\Security\AccessControlServiceInterface;
-use Netresearch\NrVault\Security\VaultPermission;
-use RuntimeException;
 use Throwable;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Database\Query\QueryBuilder;
@@ -63,7 +60,7 @@ final readonly class FieldValueMigrator implements FieldValueMigratorInterface
         private VaultServiceInterface $vaultService,
         private ConnectionPool $connectionPool,
         private VaultAdapterInterface $adapter,
-        private AccessControlServiceInterface $accessControlService,
+        private SecretRecordLinkWriterInterface $recordLinkWriter,
     ) {}
 
     /**
@@ -231,7 +228,9 @@ final readonly class FieldValueMigrator implements FieldValueMigratorInterface
         }
 
         try {
-            $this->attachRecordLink($identifier, ['migrated_at' => $migratedAt], SecretRecordLink::forField(
+            // Metadata of the creation, audited as a metadata update; a second
+            // store() would be an update gated by secret.rotate.
+            $this->recordLinkWriter->linkCreatedSecret($identifier, ['migrated_at' => $migratedAt], SecretRecordLink::forField(
                 SecretRecordLink::SOURCE_MIGRATION,
                 $table,
                 $field,
@@ -247,31 +246,6 @@ final readonly class FieldValueMigrator implements FieldValueMigratorInterface
         }
 
         return null;
-    }
-
-    /**
-     * Add the record link to the secret this run just created. The link is
-     * metadata of a creation, not a new value: going through store() again
-     * would be an update, gated by secret.rotate and audited a second time.
-     * The write is limited to the secret as created here (its metadata still
-     * exactly what the creation stored) and to an actor holding the
-     * secret.create permission the creation required.
-     *
-     * @param array<string, mixed> $createdMetadata
-     * @param array<string, mixed> $link
-     */
-    private function attachRecordLink(string $identifier, array $createdMetadata, array $link): void
-    {
-        if (!$this->accessControlService->isGranted(VaultPermission::SecretCreate)) {
-            throw new RuntimeException('missing ' . VaultPermission::SecretCreate->value . ' permission', 5690811857);
-        }
-
-        $secret = $this->adapter->retrieveIncludingDisabled($identifier);
-        if (!$secret instanceof Secret || $secret->getMetadata() !== $createdMetadata) {
-            throw new RuntimeException('the secret changed after it was stored', 6074293625);
-        }
-
-        $this->adapter->updateMetadata($identifier, $link);
     }
 
     /**

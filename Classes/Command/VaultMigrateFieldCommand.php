@@ -232,7 +232,9 @@ final class VaultMigrateFieldCommand extends Command
         );
 
         foreach ($skipped as $skip) {
-            $io->text(sprintf('<comment>Skipped</comment> UID %d: the field already holds the vault identifier %s', $skip['uid'], $skip['identifier']));
+            // The value itself is not printed: only a UUID counts as an
+            // identifier, but the line must never be able to echo a secret.
+            $io->text(sprintf('<comment>Skipped</comment> UID %s: the field already holds the identifier of an existing secret', $skip));
         }
 
         $this->reportErrors($io, $errors);
@@ -260,13 +262,17 @@ final class VaultMigrateFieldCommand extends Command
     /**
      * Processes the records in batches, storing each value in the vault.
      *
+     * Each value is taken out of $records before it is used, so the wiped
+     * copy is the only reference to the plaintext: sodium_memzero() zeroes a
+     * string only when nothing else refers to it.
+     *
      * @param array<int, array<string, mixed>> $records
      * @param int<1, max>                      $batchSize
      *
-     * @return array{migrated: int, failed: int, errors: list<string>, skipped: list<array{uid: int, identifier: string}>}
+     * @return array{migrated: int, failed: int, errors: list<string>, skipped: list<string>}
      */
     private function migrateRecords(
-        array $records,
+        array &$records,
         int $batchSize,
         string $table,
         string $field,
@@ -278,30 +284,30 @@ final class VaultMigrateFieldCommand extends Command
         $errors   = [];
         $skipped  = [];
 
-        foreach (array_chunk($records, $batchSize) as $batch) {
-            foreach ($batch as $record) {
-                $uid   = $record[$uidField];
-                $value = $record[$field];
+        foreach (array_chunk(array_keys($records), $batchSize) as $batch) {
+            foreach ($batch as $index) {
+                $uid   = $records[$index][$uidField] ?? null;
+                $value = $records[$index][$field] ?? null;
+                // Drop the row's reference to the plaintext.
+                $records[$index][$field] = null;
 
                 assert(is_int($uid) || is_string($uid));
                 assert(is_string($value) || is_int($value) || $value === null);
 
-                $uidInt   = (int) $uid;
+                // The key as the column holds it: a non-numeric --uid-field
+                // must not print as 0.
+                $key      = (string) $uid;
                 $valueStr = (string) $value;
+                unset($value);
 
-                [$outcome, $detail] = $this->migrateRecord($table, $field, $uidField, (string) $uid, $valueStr);
+                [$outcome, $detail] = $this->migrateRecord($table, $field, $uidField, $key, $valueStr);
                 if ($outcome === 'migrated') {
                     ++$migrated;
                 } elseif ($outcome === 'skipped') {
-                    $skipped[] = ['uid' => $uidInt, 'identifier' => $detail];
+                    $skipped[] = $key;
                 } else {
                     ++$failed;
-                    $errors[] = sprintf('UID %d: %s', $uidInt, $detail);
-                }
-
-                // Clear value from memory
-                if (is_string($value)) {
-                    sodium_memzero($value);
+                    $errors[] = sprintf('UID %s: %s', $key, $detail);
                 }
 
                 sodium_memzero($valueStr);
@@ -314,8 +320,7 @@ final class VaultMigrateFieldCommand extends Command
     }
 
     /**
-     * Migrate one record: 'migrated', 'skipped' with the existing identifier,
-     * or 'failed' with the reason.
+     * Migrate one record: 'migrated', 'skipped', or 'failed' with the reason.
      *
      * @return array{'migrated'|'skipped'|'failed', string}
      */
@@ -328,7 +333,7 @@ final class VaultMigrateFieldCommand extends Command
         // blind.
         try {
             if ($this->isExistingVaultIdentifier($value)) {
-                return ['skipped', $value];
+                return ['skipped', ''];
             }
         } catch (Throwable $e) {
             return ['failed', 'could not check whether the value is a vault identifier: ' . $e->getMessage()];
@@ -362,10 +367,16 @@ final class VaultMigrateFieldCommand extends Command
         return null;
     }
 
+    /**
+     * Only a UUID v7, what this command writes and what the query without
+     * --force leaves out, counts as an identifier. A friendly name is a
+     * valid identifier too, but a plaintext such as `deploy_token_prod`
+     * that happens to name a secret must still be migrated. A disabled
+     * secret owns its identifier too.
+     */
     private function isExistingVaultIdentifier(string $value): bool
     {
-        // A disabled secret owns its identifier too.
-        return IdentifierValidator::isValid($value) && $this->migrator->identifierInUse($value);
+        return IdentifierValidator::isGeneratedIdentifier($value) && $this->migrator->identifierInUse($value);
     }
 
     /**

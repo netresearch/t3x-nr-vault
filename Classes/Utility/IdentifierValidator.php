@@ -128,6 +128,15 @@ final class IdentifierValidator
     }
 
     /**
+     * Whether the value is an identifier as generateUuid() makes them (UUID
+     * v7). Friendly names are valid identifiers but are not recognised here.
+     */
+    public static function isGeneratedIdentifier(string $value): bool
+    {
+        return preg_match(self::UUID_PATTERN, $value) === 1;
+    }
+
+    /**
      * Check if a value looks like a vault identifier.
      *
      * Recognises three formats:
