@@ -59,8 +59,8 @@ Same as ADR-053
     exists without a value, goes to AWS. Nothing migrates existing secrets.
 *   **Order of writes.** AWS is written first, then the row. A failed first
     insert removes the AWS secret it just created, unless a row for the
-    identifier exists by now. A failed row update puts the previous envelope back
-    as a new version. On delete, AWS is emptied first, then the row, so a
+    identifier exists by now. A failed row update moves ``AWSCURRENT`` back to
+    the version it replaced (see below). On delete, AWS is emptied first, then the row, so a
     half-finished delete can be repeated.
 *   **Audit.** Unchanged. :php:`VaultService` audits every operation at its own
     boundary. When the audit write fails after an AWS change, the existing
@@ -182,15 +182,53 @@ write stamps the marker. A document that is not a JSON object does not make the
 row undeletable.
 
 Taking a write back does not compare payloads. ``CreateSecret`` and
-``PutSecretValue`` return the ``VersionId`` they created, and the rollback (put
-the previous document back, or delete the secret this call created) reads the
-``AWSCURRENT`` version id with ``GetSecretValue`` and applies only if it is still
-the one the write returned. AWS has no conditional put or delete, so the id is
-read immediately before the write or delete and a write that lands in that gap
-is not detected; the read is retried a few times so a read that has not caught
-up with the write is not mistaken for a concurrent writer, and a rollback that is
-skipped is logged as a warning. That gap is a known limit, tracked in
-`#567 <https://github.com/netresearch/t3x-nr-vault/issues/567>`__.
+``PutSecretValue`` return the ``VersionId`` they created, and a rollback applies
+only while ``AWSCURRENT`` is still that version.
+
+*   **Taking back an update or an adoption is conditional on AWS**
+    (`#567 <https://github.com/netresearch/t3x-nr-vault/issues/567>`__). The
+    adapter reads the previous document and its ``VersionId`` from one
+    ``GetSecretValue`` response before it writes, and keeps both in the request
+    journal. The rollback is ``UpdateSecretVersionStage`` with
+    ``VersionStage=AWSCURRENT``, ``MoveToVersionId`` the journalled version and
+    ``RemoveFromVersionId`` the version the write created. AWS refuses the move
+    when ``AWSCURRENT`` is attached to any other version ("If the label is
+    attached and you either do not specify this parameter, or the version ID
+    does not match, then the operation fails", ``UpdateSecretVersionStage`` API
+    reference), so a writer that landed after the write keeps its value. No new
+    version is written: the previous version is current again, and AWS moves
+    ``AWSPREVIOUS`` to the version the rollback removed ``AWSCURRENT`` from.
+    AWS does not document the error code of that refusal, so the code does not
+    decide: after any failure the store reads ``AWSCURRENT``. On another version
+    the rollback is skipped (false, a warning from the adapter), exactly as for
+    a concurrent writer.
+*   **The rollback falls back to read-then-write** in three cases, and then has
+    the gap described below: the policy lacks
+    ``secretsmanager:UpdateSecretVersionStage`` (``AccessDeniedException``; the
+    store logs a warning naming the permission on every rollback); the move
+    fails while ``AWSCURRENT`` is still the version the write created (for
+    example, the version to move back to is gone; logged with the error code);
+    the journal holds no version id. The fallback reads the ``AWSCURRENT`` id,
+    and if it is still the write's version, puts the previous document back as a
+    new version. A write landing between that read and the put is overwritten.
+*   **Taking back a create is not conditional.** It reads the ``AWSCURRENT`` id
+    and deletes the secret only if it is still the version the create returned.
+    AWS has no conditional delete, so a write that lands between the read and
+    ``DeleteSecret`` is deleted with the secret. This stays a known limit: a
+    delete with a recovery window as a barrier would rely on ``PutSecretValue``
+    refusing a secret that is pending deletion, which AWS lists only as a
+    possible cause of ``InvalidRequestException``.
+
+In both read-before-act paths the read is retried a few times, so a read that
+has not caught up with the write is not mistaken for a concurrent writer, and a
+rollback that is skipped is logged as a warning. The conditional restore is
+verified against the API reference and a unit-test fake of one secret that
+models the labels as documented, not against AWS: moto 5.2.5, which the
+functional suite runs against, does not move the default version on a stage
+move, and its IAM user there has no ``UpdateSecretVersionStage`` permission, so
+the functional suite exercises the fallback. Moto answers that denial with an
+XML ``403`` from which the SDK reads no error code, so it takes the "still at
+the write's version" branch, whose warning names the permission too.
 A failed audit write is compensated by
 :php:`VaultService`: an adapter implementing
 :php:`CreateCompensatingAdapterInterface` destroys a secret the call created and
@@ -301,9 +339,10 @@ The functional suite runs against Moto only. Three things it cannot show:
 -  **Resource-scoped IAM.** Moto evaluates a policy's ``Resource`` against ``*``
    for Secrets Manager calls instead of the secret's ARN: a policy scoped to the
    prefix denied every call (measured on 5.2.5). The test policy is therefore
-   action-scoped, which proves that the four actions the adapter calls are
-   enough and that no other is needed, and says nothing about the ARN pattern on
-   the operations page.
+   action-scoped. It holds the four actions every operation needs, which proves
+   that no other is needed; the fifth, ``UpdateSecretVersionStage``, is left out
+   on purpose, so the suite runs the rollback's fallback instead of Moto's stage
+   handling. It says nothing about the ARN pattern on the operations page.
 -  **Name reuse after a forced delete.** AWS deletes a force-deleted secret
    asynchronously. How long the name stays unavailable, and which error a
    ``CreateSecret`` gets meanwhile, were not measured; Moto deletes

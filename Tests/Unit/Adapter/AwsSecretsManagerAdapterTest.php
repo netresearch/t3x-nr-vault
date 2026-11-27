@@ -70,6 +70,9 @@ final class AwsSecretsManagerAdapterTest extends TestCase
     /** @var list<string> */
     private array $warnings = [];
 
+    /** @var list<string|null> The previous version id each restoreIfCurrent() was given */
+    private array $restoredToVersions = [];
+
     private string $masterKey = '';
 
     private ExternalStoreJournal $journal;
@@ -90,6 +93,7 @@ final class AwsSecretsManagerAdapterTest extends TestCase
         $this->createScript                   = [];
         $this->readScript                     = [];
         $this->warnings                       = [];
+        $this->restoredToVersions             = [];
         $this->awsWritesAllowed               = null;
         $this->masterKey                      = sodium_crypto_secretbox_keygen();
         $this->journal                        = new ExternalStoreJournal();
@@ -242,6 +246,7 @@ final class AwsSecretsManagerAdapterTest extends TestCase
         $adapter->store($this->envelopeSecret('api_key'));
 
         $before             = $this->aws['api_key'];
+        $replaced           = $this->awsVersion('api_key');
         $this->failRowWrite = true;
 
         try {
@@ -251,6 +256,7 @@ final class AwsSecretsManagerAdapterTest extends TestCase
         }
 
         self::assertSame($before, $this->aws['api_key']);
+        self::assertSame([$replaced], $this->restoredToVersions, 'the rollback names the version the update replaced, read with the previous envelope (#567)');
     }
 
     #[Test]
@@ -565,6 +571,7 @@ final class AwsSecretsManagerAdapterTest extends TestCase
 
         unset($this->rows['api_key']);
         $this->aws['api_key'] = $orphan;
+        $adopted              = $this->awsVersion('api_key');
         $this->failRowWrite   = true;
 
         try {
@@ -574,6 +581,7 @@ final class AwsSecretsManagerAdapterTest extends TestCase
         }
 
         self::assertSame($orphan, $this->aws['api_key'], 'the adopted secret is put back, not destroyed');
+        self::assertSame([$adopted], $this->restoredToVersions, 'the rollback names the version that was adopted');
     }
 
     #[Test]
@@ -718,7 +726,8 @@ final class AwsSecretsManagerAdapterTest extends TestCase
         $adapter = $this->adapter();
         $adapter->store($this->envelopeSecret('api_key'));
 
-        $orphan = $this->aws['api_key'];
+        $orphan  = $this->aws['api_key'];
+        $adopted = $this->awsVersion('api_key');
         unset($this->rows['api_key']);
 
         $adapter->store($this->envelopeSecret('api_key', 'adopted'));
@@ -726,6 +735,7 @@ final class AwsSecretsManagerAdapterTest extends TestCase
 
         self::assertEquals($orphan, $this->aws['api_key'], 'the adopted secret is back');
         self::assertArrayNotHasKey('api_key', $this->rows, 'the row is removed');
+        self::assertSame([$adopted], $this->restoredToVersions, 'the journal carries the version that was adopted');
     }
 
     #[Test]
@@ -786,11 +796,13 @@ final class AwsSecretsManagerAdapterTest extends TestCase
         // an unreferenced earlier write of this installation.
         $this->rows['api_key'] = new Secret(identifier: 'api_key', uid: 1);
 
+        $adopted = $this->awsVersion('api_key');
         $adapter->store($this->envelopeSecret('api_key', 'adopted')->withUid(1));
         // VaultService compensates a failed audit write with the prior row.
         $adapter->store(new Secret(identifier: 'api_key', uid: 1));
 
         self::assertEquals($orphan, $this->aws['api_key'], 'the adopted secret is back, not destroyed');
+        self::assertSame([$adopted], $this->restoredToVersions, 'the journal carries the version that was adopted');
     }
 
     #[Test]
@@ -1085,6 +1097,11 @@ final class AwsSecretsManagerAdapterTest extends TestCase
         return 'v1';
     }
 
+    public function recordRestoreTo(?string $previousVersionId): void
+    {
+        $this->restoredToVersions[] = $previousVersionId;
+    }
+
     public function recordWarning(string $message): void
     {
         $this->warnings[] = $message;
@@ -1191,6 +1208,13 @@ final class AwsSecretsManagerAdapterTest extends TestCase
                 return $this->test->awsRead($identifier);
             }
 
+            public function readWithVersion(string $identifier): ?array
+            {
+                $data = $this->test->awsRead($identifier);
+
+                return $data === null ? null : ['data' => $data, 'versionId' => $this->test->awsVersion($identifier)];
+            }
+
             public function create(string $identifier, array $data): string
             {
                 return $this->test->awsCreate($identifier, $data);
@@ -1201,8 +1225,10 @@ final class AwsSecretsManagerAdapterTest extends TestCase
                 return $this->test->awsWrite($identifier, $data);
             }
 
-            public function restoreIfCurrent(string $identifier, array $data, string $versionId): bool
+            public function restoreIfCurrent(string $identifier, array $data, string $versionId, ?string $previousVersionId = null): bool
             {
+                $this->test->recordRestoreTo($previousVersionId);
+
                 if ($this->test->awsVersion($identifier) !== $versionId) {
                     return false;
                 }

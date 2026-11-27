@@ -111,9 +111,9 @@ final readonly class AwsSecretsManagerAdapter implements CreateCompensatingAdapt
                 // took over is put back.
                 $entry = $this->journal->take(self::IDENTIFIER, $identifier);
                 if ($entry !== null) {
-                    $this->undoAwsWrite($identifier, $entry['previous'], is_string($entry['version']) ? $entry['version'] : null, true);
+                    $this->undoJournalled($identifier, $entry);
                 } else {
-                    $previous = $this->readOwned($identifier);
+                    $previous = $this->readOwned($identifier)['data'] ?? null;
                     $this->store->destroy($identifier);
                 }
             }
@@ -143,6 +143,8 @@ final readonly class AwsSecretsManagerAdapter implements CreateCompensatingAdapt
         // version id it created; taking a write back is applied only while the
         // secret is still at that version, so a concurrent writer is neither
         // overwritten nor deleted and no payload is compared.
+        // The previous document and its version id come from one read, so the
+        // rollback can move AWSCURRENT back to exactly that version (#567).
         $previous = null;
         if ($bound) {
             $this->assertOwnsLocation($existing);
@@ -155,14 +157,17 @@ final readonly class AwsSecretsManagerAdapter implements CreateCompensatingAdapt
             [$previous, $version] = $this->createOrAdopt($identifier, $payload);
         }
 
+        $previousData    = $previous['data'] ?? null;
+        $previousVersion = $previous['versionId'] ?? null;
+
         $row = $secret->withExternalStorage(self::IDENTIFIER, $this->store->reference($identifier));
-        $this->journal->remember(self::IDENTIFIER, $identifier, $previous, $version);
+        $this->journal->remember(self::IDENTIFIER, $identifier, $previousData, $version, $previousVersion);
 
         try {
             return $this->registry->store($row, $persistGroupRelations)->withEnvelope(...ExternalEnvelopeCodec::envelopeOf($secret));
         } catch (Throwable $e) {
             $this->journal->forget(self::IDENTIFIER, $identifier);
-            $this->undoAwsWrite($identifier, $previous, $version);
+            $this->undoAwsWrite($identifier, $previousData, $version, $previousVersion);
 
             throw $e;
         }
@@ -181,7 +186,7 @@ final readonly class AwsSecretsManagerAdapter implements CreateCompensatingAdapt
             return;
         }
 
-        $rolledBack = $this->undoAwsWrite($identifier, $entry['previous'], is_string($entry['version']) ? $entry['version'] : null, true);
+        $rolledBack = $this->undoJournalled($identifier, $entry);
         if (!$rolledBack) {
             // The secret is at a version somebody else wrote since. Its row stays,
             // so the value that writer reported as stored keeps its pointer.
@@ -229,7 +234,7 @@ final readonly class AwsSecretsManagerAdapter implements CreateCompensatingAdapt
             $this->assertOwnsLocation($row);
 
             try {
-                $previous = $this->readOwned($identifier);
+                $previous = $this->readOwned($identifier)['data'] ?? null;
             } catch (AwsSecretsManagerException $e) {
                 // The row owns this secret by its recorded location; a value that
                 // is not even a JSON object must not make the row undeletable.
@@ -284,15 +289,33 @@ final readonly class AwsSecretsManagerAdapter implements CreateCompensatingAdapt
     }
 
     /**
+     * Take back the AWS write recorded in the journal, while the row is being
+     * removed.
+     *
+     * @param array{previous: array<string, mixed>|null, version: int|string|null, previousVersion: int|string|null} $entry
+     */
+    private function undoJournalled(string $identifier, #[SensitiveParameter] array $entry): bool
+    {
+        return $this->undoAwsWrite(
+            $identifier,
+            $entry['previous'],
+            is_string($entry['version']) ? $entry['version'] : null,
+            is_string($entry['previousVersion']) ? $entry['previousVersion'] : null,
+            true,
+        );
+    }
+
+    /**
      * Take back an AWS write after the row could not be written. A first insert
      * removes the secret it created, unless a row for the identifier exists by
-     * now: a concurrent create that won the unique key owns it. An update puts
-     * the previous envelope back as a new version. Both apply only while the
-     * secret is still at the version this call wrote.
+     * now: a concurrent create that won the unique key owns it. An update moves
+     * AWSCURRENT back to the version it replaced (or, without that version's
+     * id, puts the previous envelope back as a new version). Both apply only
+     * while the secret is still at the version this call wrote.
      *
      * @param array<string, mixed>|null $previous
      */
-    private function undoAwsWrite(string $identifier, #[SensitiveParameter] ?array $previous, ?string $version, bool $rowIsBeingRemoved = false): bool
+    private function undoAwsWrite(string $identifier, #[SensitiveParameter] ?array $previous, ?string $version, ?string $previousVersion = null, bool $rowIsBeingRemoved = false): bool
     {
         try {
             if ($version === null) {
@@ -300,7 +323,7 @@ final readonly class AwsSecretsManagerAdapter implements CreateCompensatingAdapt
             }
 
             if ($previous !== null) {
-                $applied = $this->store->restoreIfCurrent($identifier, $previous, $version);
+                $applied = $this->store->restoreIfCurrent($identifier, $previous, $version, $previousVersion);
             } elseif ($rowIsBeingRemoved || !$this->registry->exists($identifier)) {
                 $applied = $this->store->destroyIfCurrent($identifier, $version);
             } else {
@@ -364,9 +387,11 @@ final readonly class AwsSecretsManagerAdapter implements CreateCompensatingAdapt
     /**
      * @param array<string, mixed> $payload
      *
-     * @return array{0: array<string, mixed>|null, 1: string} The adopted earlier write (null when the
-     *                                                        secret was created now) and the version id
-     *                                                        written
+     * @return array{0: array{data: array<string, mixed>, versionId: string}|null, 1: string} The adopted earlier
+     *                                                                                        write with its version
+     *                                                                                        id (null when the secret
+     *                                                                                        was created now) and the
+     *                                                                                        version id written
      *
      * @throws AwsSecretsManagerException When the name belongs to something else
      */
@@ -385,7 +410,7 @@ final readonly class AwsSecretsManagerAdapter implements CreateCompensatingAdapt
             }
 
             try {
-                $existing = $this->store->read($identifier);
+                $existing = $this->store->readWithVersion($identifier);
             } catch (AwsSecretsManagerException $e) {
                 // Present, but not a JSON object: not ours either.
                 throw $e->getCode() === 1794500008 ? AwsSecretsManagerException::nameTaken($identifier) : $e;
@@ -395,7 +420,8 @@ final readonly class AwsSecretsManagerAdapter implements CreateCompensatingAdapt
                 continue;
             }
 
-            if (($existing['identifier'] ?? null) !== $identifier || ($existing['format'] ?? null) !== self::FORMAT || ($existing['installation'] ?? null) !== $this->installation->value()) {
+            $document = $existing['data'];
+            if (($document['identifier'] ?? null) !== $identifier || ($document['format'] ?? null) !== self::FORMAT || ($document['installation'] ?? null) !== $this->installation->value()) {
                 throw AwsSecretsManagerException::nameTaken($identifier);
             }
 
@@ -428,18 +454,19 @@ final readonly class AwsSecretsManagerAdapter implements CreateCompensatingAdapt
      * envelope to compare it with, so it is accepted on identifier, format and
      * the row's recorded location, and the next write stamps the marker.
      *
-     * @return array<string, mixed>|null
+     * @return array{data: array<string, mixed>, versionId: string}|null The document and the version it was read from
      *
      * @throws AwsSecretsManagerException
      */
     private function readOwned(string $identifier): ?array
     {
-        $payload = $this->store->read($identifier);
+        $read    = $this->store->readWithVersion($identifier);
+        $payload = $read['data'] ?? null;
         if ($payload !== null && (($payload['identifier'] ?? null) !== $identifier || ($payload['format'] ?? null) !== self::FORMAT || (array_key_exists('installation', $payload) && $payload['installation'] !== $this->installation->value()))) {
             throw AwsSecretsManagerException::nameTaken($identifier);
         }
 
-        return $payload;
+        return $read;
     }
 
     /**

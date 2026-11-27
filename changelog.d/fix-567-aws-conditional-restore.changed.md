@@ -1,0 +1,1 @@
+- `AwsSecretStoreInterface` gains `readWithVersion()`, and `restoreIfCurrent()` takes the id of the version to move back to as an optional fourth parameter. Calls are unaffected; a class implementing the interface outside nr-vault must add both (#567).

@@ -1164,8 +1164,9 @@ Netresearch\NrVault\Storage\Aws\AwsSecretStoreInterface (interface)
   method destroyIfCurrent(string $identifier, string $versionId): bool
   method isSdkInstalled(): bool
   method read(string $identifier): ?array
+  method readWithVersion(string $identifier): ?array
   method reference(string $identifier): string
-  method restoreIfCurrent(string $identifier, array $data, string $versionId): bool
+  method restoreIfCurrent(string $identifier, array $data, string $versionId, ?string $previousVersionId = …): bool
   method write(string $identifier, array $data): string
 
 Netresearch\NrVault\Storage\HashiCorp\AtomicKvStoreInterface (interface)
