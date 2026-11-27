@@ -268,6 +268,48 @@ final class VaultCleanupOrphansCommandTest extends TestCase
         self::assertMatchesRegularExpression('/Kept \(referenced again\)\s*\|?\s*1/', $this->commandTester->getDisplay());
     }
 
+    /**
+     * A re-check that fails also answers "not orphaned": the secret is kept,
+     * but counted and reported as not checked, with the reason (#565).
+     */
+    #[Test]
+    public function aSecretWhoseRecheckFailsIsReportedAsNotChecked(): void
+    {
+        $this->vaultService->method('list')->willReturn([
+            $this->createSecretMetadata(
+                self::IDENTIFIER,
+                time() - 86400 * 30,
+                ['source' => 'tca_field', 'table' => 'tx_myext', 'field' => 'api_key', 'uid' => 1],
+            ),
+        ]);
+
+        $unresolved = [];
+        $calls      = 0;
+        $this->checker->method('isOrphaned')->willReturnCallback(static function () use (&$unresolved, &$calls): bool {
+            ++$calls;
+            if ($calls === 1) {
+                return true;
+            }
+
+            $unresolved[] = ['identifier' => self::IDENTIFIER, 'table' => 'tx_myext', 'field' => 'api_key', 'uid' => 1, 'reason' => 'could not be resolved: connection lost'];
+
+            return false;
+        });
+        $this->checker->method('getUnresolvedReferences')->willReturnCallback(static function () use (&$unresolved): array {
+            return $unresolved;
+        });
+        $this->vaultService->expects(self::never())->method('delete');
+
+        $this->commandTester->setInputs(['yes']);
+        $exitCode = $this->commandTester->execute([]);
+
+        self::assertSame(0, $exitCode);
+        $display = (string) preg_replace('/\s+/', ' ', $this->commandTester->getDisplay());
+        self::assertMatchesRegularExpression('/Kept \(referenced again\)\s*\|?\s*0/', $display);
+        self::assertMatchesRegularExpression('/Kept \(could not be checked\)\s*\|?\s*1/', $display);
+        self::assertStringContainsString('Kept ' . self::IDENTIFIER . ': could not be resolved: connection lost', $display);
+    }
+
     #[Test]
     public function handlesDeleteFailures(): void
     {

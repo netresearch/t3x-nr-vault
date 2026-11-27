@@ -14,6 +14,7 @@ use Doctrine\DBAL\Schema\Column;
 use Doctrine\DBAL\Types\StringType;
 use Doctrine\DBAL\Types\TextType;
 use Netresearch\NrVault\Adapter\VaultAdapterInterface;
+use Netresearch\NrVault\Domain\Dto\FieldMigrationOutcome;
 use Netresearch\NrVault\Domain\Dto\SecretRecordLink;
 use Netresearch\NrVault\Domain\Model\Secret;
 use Throwable;
@@ -159,8 +160,8 @@ final readonly class FieldValueMigrator implements FieldValueMigratorInterface
 
     /**
      * Store the value under the identifier and write the identifier into the
-     * row whose key column holds the key. Returns null on success, otherwise
-     * what happened to the row and the secret.
+     * row whose key column holds the key, and report what happened to the row
+     * and the secret.
      *
      * The record link names the `uid` column, which orphan cleanup looks the
      * record up by. A key from another column would point the cleanup at the
@@ -173,17 +174,33 @@ final readonly class FieldValueMigrator implements FieldValueMigratorInterface
         string $key,
         string $value,
         string $identifier,
-    ): ?string {
+    ): FieldMigrationOutcome {
+        $outcome = $this->migrateValue($table, $field, $keyField, $key, $value, $identifier);
+
+        return $outcome instanceof FieldMigrationOutcome ? $outcome : FieldMigrationOutcome::failed($outcome);
+    }
+
+    private function migrateValue(
+        string $table,
+        string $field,
+        string $keyField,
+        string $key,
+        string $value,
+        string $identifier,
+    ): FieldMigrationOutcome|string {
         $migratedAt = time();
+        $created    = ['migrated_at' => $migratedAt];
 
         try {
             // A secret under this identifier, enabled or not, belongs to
-            // someone else: storing would overwrite its value.
+            // someone else: storing would overwrite its value. createOnly
+            // closes the window between this check and the store, in which a
+            // concurrent run could create it.
             if ($this->identifierInUse($identifier)) {
                 return sprintf('a secret with the identifier %s already exists', $identifier);
             }
 
-            $this->vaultService->store($identifier, $value, ['metadata' => ['migrated_at' => $migratedAt]]);
+            $this->vaultService->store($identifier, $value, ['metadata' => $created, 'createOnly' => true]);
         } catch (Throwable $e) {
             return 'the value could not be stored: ' . $e->getMessage();
         }
@@ -191,13 +208,13 @@ final readonly class FieldValueMigrator implements FieldValueMigratorInterface
         try {
             $affected = $this->writeField($table, $field, $keyField, $key, $identifier, $value);
         } catch (DbalException $e) {
-            return $this->afterFailedUpdate($table, $field, $keyField, $key, $value, $identifier, $e->getMessage());
+            return $this->afterFailedUpdate($table, $field, $keyField, $key, $value, $identifier, $created, $e->getMessage());
         }
 
         // The UPDATE matched nothing: the row is gone or holds another value
         // than the one read, either way not the identifier.
         if ($affected === 0) {
-            return $this->discard($identifier, 'no row with this key holds the value read before the update (the row changed or is gone)');
+            return $this->discard($identifier, $created, 'no row with this key holds the value read before the update (the row changed or is gone)');
         }
 
         if ($affected !== 1) {
@@ -220,17 +237,17 @@ final readonly class FieldValueMigrator implements FieldValueMigratorInterface
         }
 
         if (!$this->holdsIdentifier($written, $identifier)) {
-            return $this->restore($table, $field, $keyField, $key, $value, $identifier, $written);
+            return $this->restore($table, $field, $keyField, $key, $value, $identifier, $created, $written);
         }
 
         if ($keyField !== 'uid' || !is_numeric($key)) {
-            return null;
+            return FieldMigrationOutcome::migrated();
         }
 
         try {
             // Metadata of the creation, audited as a metadata update; a second
             // store() would be an update gated by secret.rotate.
-            $this->recordLinkWriter->linkCreatedSecret($identifier, ['migrated_at' => $migratedAt], SecretRecordLink::forField(
+            $this->recordLinkWriter->linkCreatedSecret($identifier, $created, SecretRecordLink::forField(
                 SecretRecordLink::SOURCE_MIGRATION,
                 $table,
                 $field,
@@ -238,20 +255,24 @@ final readonly class FieldValueMigrator implements FieldValueMigratorInterface
                 ['migrated_at' => $migratedAt],
             ));
         } catch (Throwable $e) {
-            return sprintf(
-                'the field holds the identifier %s, but the record link could not be stored (%s); orphan cleanup will not consider this secret',
+            // The value is migrated: the row holds the identifier. Only the
+            // link is missing, which a re-run (it skips the row) cannot add.
+            return FieldMigrationOutcome::migratedUnlinked(sprintf(
+                'migrated, unlinked: the field holds the identifier %s, but the record link could not be stored (%s); orphan cleanup will not consider this secret',
                 $identifier,
                 $e->getMessage(),
-            );
+            ));
         }
 
-        return null;
+        return FieldMigrationOutcome::migrated();
     }
 
     /**
      * The UPDATE changed the row, but the row does not hold the identifier.
      * Write the original value back; only when the row verifiably holds it
      * again is the secret redundant.
+     *
+     * @param array<string, mixed> $created
      */
     private function restore(
         string $table,
@@ -260,6 +281,7 @@ final readonly class FieldValueMigrator implements FieldValueMigratorInterface
         string $key,
         string $value,
         string $identifier,
+        array $created,
         mixed $written,
     ): string {
         $reason = 'the field does not hold the identifier after the update';
@@ -294,13 +316,15 @@ final readonly class FieldValueMigrator implements FieldValueMigratorInterface
             );
         }
 
-        return $this->discard($identifier, $reason . '; the original value was written back');
+        return $this->discard($identifier, $created, $reason . '; the original value was written back');
     }
 
     /**
      * A failed statement normally changes no row, but a connection lost after
      * the server applied it gives the same error. Only a read-back that shows
      * the plaintext makes the secret redundant.
+     *
+     * @param array<string, mixed> $created
      */
     private function afterFailedUpdate(
         string $table,
@@ -309,6 +333,7 @@ final readonly class FieldValueMigrator implements FieldValueMigratorInterface
         string $key,
         string $value,
         string $identifier,
+        array $created,
         string $error,
     ): string {
         $reason = 'the field could not be updated: ' . $error;
@@ -320,7 +345,7 @@ final readonly class FieldValueMigrator implements FieldValueMigratorInterface
         }
 
         if ($unchanged) {
-            return $this->discard($identifier, $reason);
+            return $this->discard($identifier, $created, $reason);
         }
 
         return sprintf('%s; the row could not be confirmed to hold its original value, so the secret %s was kept', $reason, $identifier);
@@ -329,10 +354,19 @@ final readonly class FieldValueMigrator implements FieldValueMigratorInterface
     /**
      * The row holds the plaintext, so the secret just stored is referenced by
      * nothing. It has no record link, so orphan cleanup would never remove it.
+     * Only the secret as this run created it is deleted: one whose metadata
+     * is no longer what this run stored is somebody else's by now.
+     *
+     * @param array<string, mixed> $created
      */
-    private function discard(string $identifier, string $reason): string
+    private function discard(string $identifier, array $created, string $reason): string
     {
         try {
+            $secret = $this->adapter->retrieveIncludingDisabled($identifier);
+            if (!$secret instanceof Secret || $secret->getMetadata() !== $created) {
+                return sprintf('%s; the secret %s is no longer the one this run stored, so it was not deleted', $reason, $identifier);
+            }
+
             $this->vaultService->delete($identifier, 'vault migration: ' . $reason);
         } catch (Throwable $e) {
             return sprintf('%s; the stored secret %s could not be deleted: %s', $reason, $identifier, $e->getMessage());

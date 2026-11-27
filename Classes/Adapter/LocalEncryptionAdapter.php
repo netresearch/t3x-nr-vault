@@ -128,7 +128,9 @@ final readonly class LocalEncryptionAdapter implements VaultAdapterInterface
      */
     public function updateMetadata(string $identifier, array $metadata): void
     {
-        $secret = $this->secretRepository->findByIdentifier($identifier);
+        // A disabled secret has metadata too; the restricted lookup would
+        // skip it and the write would silently do nothing.
+        $secret = $this->secretRepository->findByIdentifierIncludingDisabled($identifier);
         $uid    = $secret?->getUid();
         if (!$secret instanceof Secret || $uid === null) {
             return;

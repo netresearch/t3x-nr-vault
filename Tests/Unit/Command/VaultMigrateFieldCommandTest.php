@@ -101,6 +101,9 @@ final class VaultMigrateFieldCommandTest extends TestCase
     /** @var array<string, array<mixed>> What the record link writer merged in, per identifier. */
     private array $linkedMetadata = [];
 
+    /** @var array<string, mixed>|null When set, what a stored secret's metadata reads as afterwards. */
+    private ?array $metadataAfterStore = null;
+
     /** When set, the record link writer refuses with it. */
     private ?Throwable $linkFailure = null;
 
@@ -715,7 +718,7 @@ final class VaultMigrateFieldCommandTest extends TestCase
             ->with(
                 self::isString(),
                 'secret-legacy-id',
-                self::callback(static fn (array $options): bool => array_keys($options) === ['metadata']
+                self::callback(static fn (array $options): bool => array_keys($options) === ['metadata', 'createOnly']
                     && is_array($options['metadata'])
                     && array_keys($options['metadata']) === ['migrated_at']),
             );
@@ -863,8 +866,9 @@ final class VaultMigrateFieldCommandTest extends TestCase
 
     /**
      * The link goes through the vault's audited link path with the metadata
-     * the creation stored. When that path refuses, the secret, now referenced
-     * by the row, stays unlinked and the record is reported (#565).
+     * the creation stored. When that path refuses, the row is migrated (it
+     * holds the identifier) and reported as migrated without its record link,
+     * since a re-run skips it (#565).
      */
     #[Test]
     public function aRefusedRecordLinkIsReported(): void
@@ -879,10 +883,36 @@ final class VaultMigrateFieldCommandTest extends TestCase
         $this->commandTester->setInputs(['yes']);
         $exitCode = $this->commandTester->execute(['table' => 'tx_myext_settings', 'field' => 'api_key']);
 
-        self::assertSame(1, $exitCode);
-        self::assertStringContainsString('the record link could not be stored (missing secret.create permission)', $this->normalizedDisplay());
+        self::assertSame(0, $exitCode);
+        $display = $this->normalizedDisplay();
+        self::assertStringContainsString('Migrated, unlinked UID 1: migrated, unlinked: the field holds the identifier', $display);
+        self::assertStringContainsString('the record link could not be stored (missing secret.create permission)', $display);
+        self::assertMatchesRegularExpression('/Successfully migrated\s*\|?\s*1/', $display);
         self::assertSame([], $this->linkedMetadata);
         self::assertSame(['migrated_at'], array_keys($this->linkRequests[$this->storeCall($calls, 0)['identifier']] ?? []), 'The writer is asked with the metadata the creation stored');
+    }
+
+    /**
+     * The secret is deleted again only while it is the one this run stored:
+     * a secret whose metadata changed in the meantime is left alone (#565).
+     */
+    #[Test]
+    public function aSecretThatIsNoLongerThisRunsIsNotDiscarded(): void
+    {
+        $vaultService = $this->useStrictVaultServiceMock();
+        $this->mockTableAndFieldExist('api_key');
+        $this->mockQueryReturnsRecords([['uid' => 1, 'api_key' => 'secret-taken-over']]);
+        $this->affectedRows       = 0;
+        $this->metadataAfterStore = ['migrated_at' => 1, 'source' => 'tca_field'];
+
+        $this->recordStores($vaultService, 1);
+        $vaultService->expects(self::never())->method('delete');
+
+        $this->commandTester->setInputs(['yes']);
+        $exitCode = $this->commandTester->execute(['table' => 'tx_myext_settings', 'field' => 'api_key']);
+
+        self::assertSame(1, $exitCode);
+        self::assertStringContainsString('is no longer the one this run stored, so it was not deleted', $this->normalizedDisplay());
     }
 
     /**
@@ -1434,7 +1464,7 @@ final class VaultMigrateFieldCommandTest extends TestCase
                 throw $failure;
             }
 
-            $metadata                   = $options['metadata'] ?? [];
+            $metadata                   = $this->metadataAfterStore ?? $options['metadata'] ?? [];
             $this->secrets[$identifier] = is_array($metadata) ? $metadata : [];
         });
     }
@@ -1459,7 +1489,10 @@ final class VaultMigrateFieldCommandTest extends TestCase
      */
     private function metadataOf(array $options, string $key): array
     {
-        self::assertSame([$key], array_keys($options));
+        // The migration only ever creates: createOnly refuses an identifier
+        // a concurrent run took in the meantime.
+        self::assertSame([$key, 'createOnly'], array_keys($options));
+        self::assertTrue($options['createOnly']);
         $metadata = $options[$key];
         self::assertTrue(is_array($metadata));
 

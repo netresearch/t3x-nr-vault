@@ -10,6 +10,7 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Service;
 
 use Doctrine\DBAL\Schema\Column;
+use Netresearch\NrVault\Domain\Dto\FieldMigrationOutcome;
 use TYPO3\CMS\Core\Database\Query\QueryBuilder;
 
 /**
@@ -54,8 +55,7 @@ interface FieldValueMigratorInterface
     /**
      * Store the value under the identifier and write the identifier into the
      * row whose key column holds the key and whose field still holds the
-     * value. Returns null on success, otherwise what happened to the row and
-     * the secret.
+     * value, and report what happened to the row and the secret.
      */
     public function migrate(
         string $table,
@@ -64,5 +64,5 @@ interface FieldValueMigratorInterface
         string $key,
         string $value,
         string $identifier,
-    ): ?string;
+    ): FieldMigrationOutcome;
 }

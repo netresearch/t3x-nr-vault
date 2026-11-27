@@ -1449,6 +1449,101 @@ final class VaultServiceTest extends TestCase
     }
 
     /**
+     * When the audit write of a record link fails outside a transaction, the
+     * link is taken back with a targeted metadata write: a whole-entity
+     * store() would send the value again on a remote adapter and roll back
+     * its counters (#565).
+     */
+    #[Test]
+    public function linkCreatedSecretRevertsTheLinkWithATargetedWrite(): void
+    {
+        $metadata = ['migrated_at' => 5];
+        $this->adapter->method('retrieve')->willReturnCallback(function () use (&$metadata): Secret {
+            return $this->createSecretEntity('link_audit_down', 7, metadata: $metadata);
+        });
+        $this->accessControlService->method('canWrite')->willReturn(true);
+        $this->adapter->expects(self::never())->method('store');
+
+        $writes = [];
+        $this->adapter->expects(self::exactly(2))->method('updateMetadata')
+            ->willReturnCallback(static function (string $identifier, array $merge) use (&$writes, &$metadata): void {
+                $writes[] = $merge;
+                $metadata = array_replace($metadata, $merge);
+            });
+        $this->auditLogService->method('log')->willThrowException(new AuditWriteException(self::AUDIT_WRITE_ERROR, 1795000101));
+
+        $this->expectException(AuditWriteException::class);
+
+        try {
+            $this->subject->linkCreatedSecret('link_audit_down', ['migrated_at' => 5], ['source' => 'migration', 'table' => 'tx_a', 'uid' => 3, 'migrated_at' => 5]);
+        } finally {
+            self::assertSame(
+                [
+                    ['source' => 'migration', 'table' => 'tx_a', 'uid' => 3, 'migrated_at' => 5],
+                    ['source' => null, 'table' => null, 'uid' => null, 'migrated_at' => 5],
+                ],
+                $writes,
+                'The revert must null the link keys and keep the created ones.',
+            );
+        }
+    }
+
+    /**
+     * A link the adapter did not store (its lookup skipped the secret) is a
+     * failure, not a success: the read-back decides, and nothing is audited
+     * as a metadata update (#565).
+     */
+    #[Test]
+    public function linkCreatedSecretFailsWhenTheLinkWasNotStored(): void
+    {
+        $this->adapter->method('retrieve')->willReturn($this->createSecretEntity('link_lost', 7, metadata: ['migrated_at' => 5]));
+        $this->accessControlService->method('canWrite')->willReturn(true);
+        $this->adapter->expects(self::once())->method('updateMetadata');
+        $this->auditLogService->expects(self::never())->method('log');
+
+        try {
+            $this->subject->linkCreatedSecret('link_lost', ['migrated_at' => 5], ['source' => 'migration']);
+            self::fail('A link that was not stored must fail');
+        } catch (ValidationException $e) {
+            self::assertStringContainsString('the record link was not stored', $e->getMessage());
+        }
+    }
+
+    /**
+     * Empty creation metadata would match any secret stored without
+     * metadata: the link is refused (#565).
+     */
+    #[Test]
+    public function linkCreatedSecretRefusesEmptyCreatedMetadata(): void
+    {
+        $this->adapter->method('retrieve')->willReturn($this->createSecretEntity('link_empty', 7));
+        $this->accessControlService->method('canWrite')->willReturn(true);
+        $this->adapter->expects(self::never())->method('updateMetadata');
+
+        $this->expectException(ValidationException::class);
+
+        $this->subject->linkCreatedSecret('link_empty', [], ['source' => 'migration']);
+    }
+
+    /**
+     * createOnly refuses an identifier that a secret already holds, instead
+     * of updating that secret (#565).
+     */
+    #[Test]
+    public function storeWithCreateOnlyRefusesAnExistingSecret(): void
+    {
+        $this->adapter->method('retrieve')->willReturn($this->createSecretEntity('create_only', 7));
+        $this->adapter->expects(self::never())->method('store');
+
+        try {
+            $this->subject->store('create_only', 'value', ['createOnly' => true]);
+            self::fail('A create-only store must not update an existing secret');
+        } catch (ValidationException $e) {
+            self::assertStringContainsString('a secret with this identifier already exists', $e->getMessage());
+        }
+    }
+
+    /**
      * SEC-3 atomicity: an availability change whose audit write fails must be
      * reverted to the state captured before it, so a silent revocation of
      * access never persists with nothing in the chain to explain it.

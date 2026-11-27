@@ -86,6 +86,50 @@ final class MigrationRecordLinkPermissionTest extends AbstractVaultFunctionalTes
     }
 
     /**
+     * A disabled secret is linked too: the metadata write finds it, and the
+     * read-back confirms the link landed before it is audited (#565).
+     */
+    #[Test]
+    public function aDisabledSecretIsLinked(): void
+    {
+        $this->setUpBackendUser(1);
+        $identifier   = 'linkperm_disabled';
+        $vaultService = $this->get(VaultServiceInterface::class);
+        $vaultService->store($identifier, 'value', ['metadata' => ['migrated_at' => 1]]);
+        $vaultService->setEnabled($identifier, false);
+
+        $this->get(SecretRecordLinkWriterInterface::class)->linkCreatedSecret($identifier, ['migrated_at' => 1], ['source' => 'migration', 'table' => self::TABLE, 'field' => 'secret', 'uid' => 9]);
+
+        self::assertSame(['migrated_at' => 1, 'source' => 'migration', 'table' => self::TABLE, 'field' => 'secret', 'uid' => 9], $this->metadataOf($identifier));
+        self::assertSame(1, $this->countAuditEntries($identifier, AuditAction::MetadataUpdate->value) - 1, 'One metadata update for the link, besides the one for disabling');
+    }
+
+    /**
+     * A create-only store refuses an identifier a secret already holds,
+     * disabled ones included, instead of updating that secret (#565).
+     */
+    #[Test]
+    public function aCreateOnlyStoreDoesNotUpdateAnExistingSecret(): void
+    {
+        $this->setUpBackendUser(1);
+        $identifier   = 'linkperm_create_only';
+        $vaultService = $this->get(VaultServiceInterface::class);
+        $vaultService->store($identifier, 'first-run-value', ['metadata' => ['migrated_at' => 1]]);
+        $vaultService->setEnabled($identifier, false);
+
+        try {
+            $vaultService->store($identifier, 'second-run-value', ['metadata' => ['migrated_at' => 2], 'createOnly' => true]);
+            self::fail('A create-only store must not update an existing secret');
+        } catch (ValidationException $e) {
+            self::assertStringContainsString('already exists', $e->getMessage());
+        }
+
+        $vaultService->setEnabled($identifier, true);
+        self::assertSame('first-run-value', $vaultService->retrieve($identifier));
+        self::assertSame(['migrated_at' => 1], $this->metadataOf($identifier));
+    }
+
+    /**
      * The link writer refuses a secret whose metadata is no longer what its
      * creator stored, and audits nothing (#565).
      */
@@ -142,8 +186,14 @@ final class MigrationRecordLinkPermissionTest extends AbstractVaultFunctionalTes
      */
     private function metadataOf(string $identifier): array
     {
-        $json = $this->getConnectionPool()->getConnectionForTable('tx_nrvault_secret')
-            ->select(['metadata'], 'tx_nrvault_secret', ['identifier' => $identifier])
+        // Disabled secrets included.
+        $queryBuilder = $this->getConnectionPool()->getQueryBuilderForTable('tx_nrvault_secret');
+        $queryBuilder->getRestrictions()->removeAll();
+        $json = $queryBuilder
+            ->select('metadata')
+            ->from('tx_nrvault_secret')
+            ->where($queryBuilder->expr()->eq('identifier', $queryBuilder->createNamedParameter($identifier)))
+            ->executeQuery()
             ->fetchOne();
         self::assertTrue(is_string($json), 'The secret must exist');
         $metadata = json_decode($json, true);

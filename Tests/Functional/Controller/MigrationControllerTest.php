@@ -322,7 +322,8 @@ final class MigrationControllerTest extends AbstractVaultFunctionalTestCase
         $error = $this->get(FieldValueMigratorInterface::class)
             ->migrate(self::FIXTURE_TABLE, self::FIXTURE_COLUMN, 'uid', (string) $uid, 'value-as-read-earlier', $identifier);
 
-        self::assertStringContainsString('the row changed or is gone', (string) $error);
+        self::assertFalse($error->migrated);
+        self::assertStringContainsString('the row changed or is gone', (string) $error->message);
         self::assertSame('saved-by-an-editor', $connection->select([self::FIXTURE_COLUMN], self::FIXTURE_TABLE, ['uid' => $uid])->fetchOne());
         self::assertFalse($this->get(VaultServiceInterface::class)->exists($identifier), 'The secret just stored is discarded');
     }

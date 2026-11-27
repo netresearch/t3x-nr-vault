@@ -354,7 +354,7 @@ final class BackendThemeMarkupTest extends FunctionalTestCase
         ]);
 
         self::assertSame('badge badge-warning', $this->badgeClassFor($html, 'Partial'));
-        self::assertSame(1, preg_match('/<p[^>]*id="(failure-reasons-0)"[^>]*>\s*Rows that failed:\s*<\/p>\s*<ul[^>]*aria-labelledby="\1"[^>]*>\s*<li>uid 7: the value is kept in the secret tx_demo__7<\/li>/', $html), $html);
+        self::assertSame(1, preg_match('/<p[^>]*id="(failure-reasons-0)"[^>]*>\s*Rows needing attention:\s*<\/p>\s*<ul[^>]*aria-labelledby="\1"[^>]*>\s*<li>uid 7: the value is kept in the secret tx_demo__7<\/li>/', $html), $html);
     }
 
     public function testTheAuditLogUsesCoreBadgesForCountsAndActions(): void

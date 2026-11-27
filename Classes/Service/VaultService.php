@@ -48,11 +48,14 @@ use SensitiveParameter;
 use Throwable;
 use TYPO3\CMS\Core\SingletonInterface;
 
+use function array_intersect_key;
+use function array_keys;
 use function array_replace;
 use function is_array;
 use function is_int;
 use function is_scalar;
 use function is_string;
+use function ksort;
 use function strlen;
 
 /**
@@ -943,6 +946,14 @@ final readonly class VaultService implements VaultServiceInterface, SecretRecord
             // fail on the constraint instead of updating the record.
             $existing = $this->adapter->retrieveIncludingDisabled($identifier);
 
+            // A caller that creates must not update someone else's secret:
+            // two concurrent migrations generating the same identifier
+            // would otherwise overwrite each other. A create racing this
+            // check fails on the unique key instead.
+            if (($options['createOnly'] ?? false) === true && $existing instanceof Secret) {
+                throw ValidationException::invalidOption('createOnly', 'a secret with this identifier already exists');
+            }
+
             $this->assertWritePermission($identifier, $existing);
 
             // A record that exists but carries no encrypted value is a
@@ -1323,12 +1334,25 @@ final readonly class VaultService implements VaultServiceInterface, SecretRecord
         $this->assertOperationGranted(VaultPermission::SecretCreate, $identifier, 'Record link');
 
         // Only the secret as its creator stored it: a secret whose metadata
-        // changed since is no longer the caller's creation to link.
-        if ($secret->getMetadata() !== $createdMetadata) {
+        // changed since is no longer the caller's creation to link. Empty
+        // metadata would match any secret stored without metadata.
+        if ($createdMetadata === [] || $secret->getMetadata() !== $createdMetadata) {
             throw ValidationException::invalidOption('createdMetadata', 'the secret changed after it was stored');
         }
 
         $this->adapter->updateMetadata($identifier, $link);
+
+        // Verified by reading the value back, not by the absence of an
+        // error: an adapter whose lookup skips the secret (disabled, say)
+        // writes nothing and does not say so.
+        $linked   = $this->adapter->retrieveIncludingDisabled($identifier);
+        $stored   = $linked instanceof Secret ? array_intersect_key($linked->getMetadata(), $link) : [];
+        $expected = $link;
+        ksort($stored);
+        ksort($expected);
+        if ($stored !== $expected) {
+            throw ValidationException::invalidOption('link', 'the record link was not stored');
+        }
 
         // The audit context holds scalars: the link's keys, one by one.
         $context = ['column' => 'metadata'];
@@ -1354,10 +1378,19 @@ final readonly class VaultService implements VaultServiceInterface, SecretRecord
         } catch (AuditWriteException $auditException) {
             $this->compensateAuditFailure(
                 $identifier,
-                function () use ($secret): void {
-                    // The secret as read above, whose metadata the check
-                    // confirmed to be the creator's: nothing else to undo.
-                    $this->adapter->store($secret, false);
+                function () use ($identifier, $createdMetadata, $link): void {
+                    // A targeted metadata write, never a whole-entity store:
+                    // remote adapters would send the value again as a new
+                    // version and roll back the counters. The merge cannot
+                    // remove keys, so each link key goes back to its created
+                    // value or to null, which no orphan cleanup reads as a
+                    // link.
+                    $revert = [];
+                    foreach (array_keys($link) as $key) {
+                        $revert[$key] = $createdMetadata[$key] ?? null;
+                    }
+
+                    $this->adapter->updateMetadata($identifier, $revert);
                 },
                 $auditException,
             );

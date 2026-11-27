@@ -1040,7 +1040,7 @@
         <source>Complete</source>
       </trans-unit>
       <trans-unit id="migration.verify.failureReasons">
-        <source>Rows that failed:</source>
+        <source>Rows needing attention:</source>
       </trans-unit>
       <trans-unit id="migration.verify.db_updated.title">
         <source>Database Updated</source>

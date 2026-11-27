@@ -45,6 +45,8 @@ interface VaultServiceInterface
      *                                         - mergeMetadata: array - Custom metadata merged into the stored map
      *                                         (keys it names are replaced, others kept). The merge reads the map
      *                                         inside the store's own mutation; not together with metadata
+     *                                         - createOnly: bool - Refuse when a secret, enabled or
+     *                                         disabled, already holds the identifier instead of updating it
      *                                         - description: string - Human-readable description
      *                                         - scopePid: int - Page ID for multi-site scoping
      *

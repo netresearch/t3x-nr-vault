@@ -13,6 +13,7 @@ use Doctrine\DBAL\Exception as DbalException;
 use Doctrine\DBAL\Schema\Column;
 use Doctrine\DBAL\Schema\Table;
 use Exception;
+use Netresearch\NrVault\Domain\Dto\FieldMigrationOutcome;
 use Netresearch\NrVault\Domain\Dto\MigrationResult;
 use Netresearch\NrVault\Security\VaultPermission;
 use Netresearch\NrVault\Service\FieldValueMigratorInterface;
@@ -542,15 +543,18 @@ final readonly class MigrationController
                     $value = '';
                 }
 
-                $error = $this->migrateRow($table, $column, $columnSchema, $uid, $value, $identifierPattern);
+                $outcome = $this->migrateRow($table, $column, $columnSchema, $uid, $value, $identifierPattern);
                 sodium_memzero($value);
-                if ($error === null) {
-                    ++$migrated;
-                } elseif ($error === '') {
+                if (!$outcome instanceof FieldMigrationOutcome) {
                     ++$skipped;
+                } elseif ($outcome->migrated) {
+                    ++$migrated;
+                    if ($outcome->message !== null) {
+                        $errors[] = sprintf('uid %d: %s', $uid, $outcome->message);
+                    }
                 } else {
                     ++$failed;
-                    $errors[] = sprintf('uid %d: %s', $uid, $error);
+                    $errors[] = sprintf('uid %d: %s', $uid, (string) $outcome->message);
                 }
             }
         } catch (DbalException $e) {
@@ -568,8 +572,7 @@ final readonly class MigrationController
     }
 
     /**
-     * Migrate one row. Returns null when migrated, '' when skipped, otherwise
-     * the reason the row failed.
+     * Migrate one row. Returns null when the row is skipped.
      */
     private function migrateRow(
         string $table,
@@ -578,10 +581,10 @@ final readonly class MigrationController
         int $uid,
         string $value,
         string $identifierPattern,
-    ): ?string {
+    ): ?FieldMigrationOutcome {
         // Skip if already looks like a vault identifier
         if (IdentifierValidator::looksLikeVaultIdentifier($value)) {
-            return '';
+            return null;
         }
 
         // Generate identifier from pattern
@@ -589,13 +592,16 @@ final readonly class MigrationController
 
         // An earlier run already migrated this row.
         if ($value === $identifier) {
-            return '';
+            return null;
         }
 
         // A column narrower than the identifier would truncate it, and the
         // row would lose its plaintext to a broken reference.
-        return $this->fieldValueMigrator->columnProblem($columnSchema, strlen($identifier))
-            ?? $this->fieldValueMigrator->migrate($table, $column, 'uid', (string) $uid, $value, $identifier);
+        $problem = $this->fieldValueMigrator->columnProblem($columnSchema, strlen($identifier));
+
+        return $problem === null
+            ? $this->fieldValueMigrator->migrate($table, $column, 'uid', (string) $uid, $value, $identifier)
+            : FieldMigrationOutcome::failed($problem);
     }
 
     /**

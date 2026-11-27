@@ -25,7 +25,8 @@ readonly class MigrationResult
         public int $skipped,
         public ?string $error = null,
         /**
-         * Why individual rows failed; `error` is a failure of the whole column.
+         * Rows needing attention: why rows failed, and rows migrated without
+         * their record link. `error` is a failure of the whole column.
          *
          * @var list<string>
          */

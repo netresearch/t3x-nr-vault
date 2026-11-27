@@ -235,16 +235,25 @@ final class VaultCleanupOrphansCommand extends Command
     private function deleteOrphans(SymfonyStyle $io, array $orphans): int
     {
         $io->section('Deleting orphaned secrets...');
-        $deleted = 0;
-        $failed  = 0;
-        $kept    = 0;
-        $errors  = [];
+        $deleted   = 0;
+        $failed    = 0;
+        $kept      = 0;
+        $unchecked = [];
+        $errors    = [];
 
         foreach ($orphans as $orphan) {
             // The list was built before the confirmation prompt, which can
             // wait indefinitely: a row may hold the identifier again by now.
+            // A check that fails also answers false; the checker records it
+            // as unresolved, which tells the two apart.
+            $unresolvedBefore = count($this->orphanReferenceChecker->getUnresolvedReferences());
             if (!$this->orphanReferenceChecker->isOrphaned($orphan['reference'], $orphan['identifier'])) {
-                ++$kept;
+                $unresolved = array_slice($this->orphanReferenceChecker->getUnresolvedReferences(), $unresolvedBefore);
+                if ($unresolved === []) {
+                    ++$kept;
+                } else {
+                    $unchecked[] = sprintf('%s: %s', $orphan['identifier'], $unresolved[0]['reason']);
+                }
 
                 continue;
             }
@@ -262,9 +271,14 @@ final class VaultCleanupOrphansCommand extends Command
         $io->definitionList(
             ['Orphans found' => count($orphans)],
             ['Kept (referenced again)' => $kept],
+            ['Kept (could not be checked)' => count($unchecked)],
             ['Successfully deleted' => $deleted],
             ['Failed' => $failed],
         );
+
+        foreach ($unchecked as $note) {
+            $io->text('<comment>Kept</comment> ' . $note);
+        }
 
         if ($errors !== []) {
             $io->section('Errors');

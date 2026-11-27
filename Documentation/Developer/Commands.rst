@@ -1109,13 +1109,18 @@ The value is never left without a copy:
    Orphan cleanup deletes only linked secrets, so a secret kept after a failed
    write stays until you remove it. The link is written as metadata of the
    creation: it needs ``secret.create``, like the creation, not
-   ``secret.rotate``, and is audited as a metadata update in the same
-   transaction.
+   ``secret.rotate``. It is written in its own transaction with its
+   metadata-update audit entry, after the value was stored, and counts only
+   when a read-back shows it. A record whose link could not be added is
+   listed as migrated, unlinked: a re-run skips it, so the link has to be
+   added by hand.
 *  The update names the value the row held when the command read it. A value
    an editor saved in between is not overwritten; the record fails and the
    new secret is deleted again.
 *  When the update matched no row, the field still holds the plaintext and the
-   secret just stored is deleted again.
+   secret just stored is deleted again, but only while it is still the secret
+   this run stored. The store is create-only: an identifier another run took
+   in the meantime fails the record instead of overwriting that secret.
 *  When the update changed the field but the read-back is a truncated
    identifier (a truncating column), the command writes the original value
    back, again only over the value it read, and reads it back. Only then does
@@ -1247,7 +1252,8 @@ following hold:
 A table, connection or column the command cannot resolve keeps the secret; the
 command lists such secrets after the check, and the scheduler task logs them.
 After the confirmation the command checks each secret once more right before
-deleting it, and keeps one a row holds again by then.
+deleting it, and keeps one a row holds again by then; a secret whose re-check
+fails is kept and listed with the reason.
 
 .. important::
 

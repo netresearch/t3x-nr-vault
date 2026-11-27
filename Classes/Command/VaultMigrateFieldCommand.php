@@ -210,7 +210,7 @@ final class VaultMigrateFieldCommand extends Command
         $progressBar = $io->createProgressBar($totalRecords);
         $progressBar->start();
 
-        ['migrated' => $migrated, 'failed' => $failed, 'errors' => $errors, 'skipped' => $skipped] = $this->migrateRecords(
+        ['migrated' => $migrated, 'failed' => $failed, 'errors' => $errors, 'skipped' => $skipped, 'unlinked' => $unlinked] = $this->migrateRecords(
             $records,
             $batchSize,
             $table,
@@ -235,6 +235,12 @@ final class VaultMigrateFieldCommand extends Command
             // The value itself is not printed: only a UUID counts as an
             // identifier, but the line must never be able to echo a secret.
             $io->text(sprintf('<comment>Skipped</comment> UID %s: the field already holds the identifier of an existing secret', $skip));
+        }
+
+        // Migrated rows the orphan cleanup will not consider: a re-run skips
+        // them, so the link has to be added by hand.
+        foreach ($unlinked as $note) {
+            $io->text('<comment>Migrated, unlinked</comment> ' . $note);
         }
 
         $this->reportErrors($io, $errors);
@@ -269,7 +275,7 @@ final class VaultMigrateFieldCommand extends Command
      * @param array<int, array<string, mixed>> $records
      * @param int<1, max>                      $batchSize
      *
-     * @return array{migrated: int, failed: int, errors: list<string>, skipped: list<string>}
+     * @return array{migrated: int, failed: int, errors: list<string>, skipped: list<string>, unlinked: list<string>}
      */
     private function migrateRecords(
         array &$records,
@@ -283,6 +289,7 @@ final class VaultMigrateFieldCommand extends Command
         $failed   = 0;
         $errors   = [];
         $skipped  = [];
+        $unlinked = [];
 
         foreach (array_chunk(array_keys($records), $batchSize) as $batch) {
             foreach ($batch as $index) {
@@ -303,6 +310,9 @@ final class VaultMigrateFieldCommand extends Command
                 [$outcome, $detail] = $this->migrateRecord($table, $field, $uidField, $key, $valueStr);
                 if ($outcome === 'migrated') {
                     ++$migrated;
+                } elseif ($outcome === 'unlinked') {
+                    ++$migrated;
+                    $unlinked[] = sprintf('UID %s: %s', $key, $detail);
                 } elseif ($outcome === 'skipped') {
                     $skipped[] = $key;
                 } else {
@@ -316,13 +326,14 @@ final class VaultMigrateFieldCommand extends Command
             }
         }
 
-        return ['migrated' => $migrated, 'failed' => $failed, 'errors' => $errors, 'skipped' => $skipped];
+        return ['migrated' => $migrated, 'failed' => $failed, 'errors' => $errors, 'skipped' => $skipped, 'unlinked' => $unlinked];
     }
 
     /**
-     * Migrate one record: 'migrated', 'skipped', or 'failed' with the reason.
+     * Migrate one record: 'migrated', 'skipped', 'unlinked' (migrated, but
+     * without the record link) with the reason, or 'failed' with the reason.
      *
-     * @return array{'migrated'|'skipped'|'failed', string}
+     * @return array{'migrated'|'skipped'|'unlinked'|'failed', string}
      */
     private function migrateRecord(string $table, string $field, string $uidField, string $uid, string $value): array
     {
@@ -339,9 +350,12 @@ final class VaultMigrateFieldCommand extends Command
             return ['failed', 'could not check whether the value is a vault identifier: ' . $e->getMessage()];
         }
 
-        $error = $this->migrator->migrate($table, $field, $uidField, $uid, $value, IdentifierValidator::generateUuid());
+        $outcome = $this->migrator->migrate($table, $field, $uidField, $uid, $value, IdentifierValidator::generateUuid());
+        if (!$outcome->migrated) {
+            return ['failed', (string) $outcome->message];
+        }
 
-        return $error === null ? ['migrated', ''] : ['failed', $error];
+        return $outcome->message === null ? ['migrated', ''] : ['unlinked', $outcome->message];
     }
 
     /**

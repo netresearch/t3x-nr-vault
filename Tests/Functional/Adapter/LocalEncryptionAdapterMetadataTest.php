@@ -114,9 +114,11 @@ final class LocalEncryptionAdapterMetadataTest extends FunctionalTestCase
         $real = $this->repository;
 
         $decorated = self::createStub(SecretRepositoryInterface::class);
-        $decorated->method('findByIdentifier')->willReturnCallback(
+        // The disabled-visible lookup: the one the adapter merges from, so a
+        // disabled secret's metadata can be changed too.
+        $decorated->method('findByIdentifierIncludingDisabled')->willReturnCallback(
             static function (string $identifier) use ($real): ?Secret {
-                $secret = $real->findByIdentifier($identifier);
+                $secret = $real->findByIdentifierIncludingDisabled($identifier);
                 $uid    = $secret?->getUid();
                 if ($uid !== null) {
                     $real->incrementReadCount($uid);

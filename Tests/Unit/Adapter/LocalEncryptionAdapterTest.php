@@ -252,7 +252,7 @@ final class LocalEncryptionAdapterTest extends TestCase
     public function updateMetadataDoesNothingWhenSecretNotFound(): void
     {
         $repository = $this->createMock(SecretRepositoryInterface::class);
-        $repository->method('findByIdentifier')->willReturn(null);
+        $repository->method('findByIdentifierIncludingDisabled')->willReturn(null);
         $repository->expects(self::never())->method('setMetadata');
         $repository->expects(self::never())->method('save');
 
@@ -270,7 +270,7 @@ final class LocalEncryptionAdapterTest extends TestCase
     public function updateMetadataDoesNothingWhenTheRecordHasNoUid(): void
     {
         $repository = $this->createMock(SecretRepositoryInterface::class);
-        $repository->method('findByIdentifier')->willReturn(new Secret(identifier: 'test'));
+        $repository->method('findByIdentifierIncludingDisabled')->willReturn(new Secret(identifier: 'test'));
         $repository->expects(self::never())->method('setMetadata');
         $repository->expects(self::never())->method('save');
 
@@ -282,7 +282,7 @@ final class LocalEncryptionAdapterTest extends TestCase
      * The merge is the adapter's; the write is one column. Asserting the
      * absence of `save()` is the load-bearing half — a full entity save would
      * produce the same metadata while restoring every other column to the
-     * state the `findByIdentifier()` above saw.
+     * state the `findByIdentifierIncludingDisabled()` above saw.
      */
     #[Test]
     public function updateMetadataMergesAndWritesOnlyTheMetadataColumn(): void
@@ -290,7 +290,7 @@ final class LocalEncryptionAdapterTest extends TestCase
         $secret = new Secret(identifier: 'test', uid: 42, metadata: ['existing' => 'value']);
 
         $repository = $this->createMock(SecretRepositoryInterface::class);
-        $repository->method('findByIdentifier')->willReturn($secret);
+        $repository->method('findByIdentifierIncludingDisabled')->willReturn($secret);
         $repository->expects(self::once())
             ->method('setMetadata')
             ->with(42, ['existing' => 'value', 'new' => 'data']);
@@ -301,6 +301,22 @@ final class LocalEncryptionAdapterTest extends TestCase
 
         // Original entity is immutable — its metadata must not change.
         self::assertSame(['existing' => 'value'], $secret->getMetadata());
+    }
+
+    /**
+     * A disabled secret has metadata too: the merge finds it through the
+     * disabled-visible lookup instead of silently writing nothing (#565).
+     */
+    #[Test]
+    public function updateMetadataReachesADisabledSecret(): void
+    {
+        $repository = $this->createMock(SecretRepositoryInterface::class);
+        $repository->method('findByIdentifier')->willReturn(null);
+        $repository->method('findByIdentifierIncludingDisabled')
+            ->willReturn(new Secret(identifier: 'disabled', uid: 43, metadata: ['a' => 1], hidden: true));
+        $repository->expects(self::once())->method('setMetadata')->with(43, ['a' => 1, 'b' => 2]);
+
+        (new LocalEncryptionAdapter($repository))->updateMetadata('disabled', ['b' => 2]);
     }
 
     #[Test]

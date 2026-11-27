@@ -524,6 +524,13 @@ Netresearch\NrVault\Crypto\ReEncryptedDek (class)
   property readonly encryptedDek: string
   property readonly nonce: string
 
+Netresearch\NrVault\Domain\Dto\FieldMigrationOutcome (class)
+  method static failed(string $reason): self
+  method static migrated(): self
+  method static migratedUnlinked(string $message): self
+  property readonly message: ?string
+  property readonly migrated: bool
+
 Netresearch\NrVault\Domain\Dto\MigrationResult (class)
   constructor(string $table, string $column, int $migrated, int $failed, int $skipped, ?string $error = …, array $failureReasons = …)
   method getTotal(): int
@@ -1140,7 +1147,7 @@ Netresearch\NrVault\Service\FieldValueMigratorInterface (interface)
   method countRowsWithDuplicateKey(string $table, string $keyField): ?int
   method findColumn(string $table, string $field): ?Doctrine\DBAL\Schema\Column
   method identifierInUse(string $identifier): bool
-  method migrate(string $table, string $field, string $keyField, string $key, string $value, string $identifier): ?string
+  method migrate(string $table, string $field, string $keyField, string $key, string $value, string $identifier): Netresearch\NrVault\Domain\Dto\FieldMigrationOutcome
   method restrictToMigratableRows(TYPO3\CMS\Core\Database\Query\QueryBuilder $queryBuilder, string $table): void
 
 Netresearch\NrVault\Service\OrphanReferenceCheckerInterface (interface)
