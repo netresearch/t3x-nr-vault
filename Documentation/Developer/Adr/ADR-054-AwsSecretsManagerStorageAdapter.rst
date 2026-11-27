@@ -190,8 +190,9 @@ Taking a write back does not compare payloads. ``CreateSecret`` and
 only while ``AWSCURRENT`` is still that version.
 
 *   **Taking back an update or an adoption is conditional on AWS**
-    (`#567 <https://github.com/netresearch/t3x-nr-vault/issues/567>`__), when
-    the store implements :php:`AwsVersionedSecretStoreInterface`, as the shipped
+    (`#567 <https://github.com/netresearch/t3x-nr-vault/issues/567>`__) after a
+    failed row write and in the journal compensations below, when the store
+    implements :php:`AwsVersionedSecretStoreInterface`, as the shipped
     :php:`AwsSecretsManagerStore` does. The adapter reads the previous document
     and its ``VersionId`` from one ``GetSecretValue`` response before it writes,
     and keeps both in the request journal. The rollback is
@@ -204,42 +205,51 @@ only while ``AWSCURRENT`` is still that version.
     that lands after our write keeps its value. No new version is written: the
     previous version is current again, and AWS moves ``AWSPREVIOUS`` to the
     version the rollback removed ``AWSCURRENT`` from.
-*   **After a failed move one function decides what the move did**, from
-    ``AWSCURRENT`` instead of the error code, which AWS does not document. It
-    reads until it sees our version or the version moved back to, at most three
-    times with the delay between reads:
+*   **A move that fails writes nothing**, unless it was refused for lack of
+    the permission (below). The SDK has already retried a throttled or failed
+    request once. AWS does not document the error code of a mismatch, so the
+    outcome is read from ``AWSCURRENT``: the store reads until it sees our
+    version or the version moved back to, at most three times with the delay
+    between reads.
 
-    -   Our version: the move is tried once more (a conditional move cannot
-        overwrite anything). If it fails again and our version is still
-        current, for example because the version to move back to no longer
-        exists, the store falls back to read-then-write with a warning: the
-        previous document is in hand, so the result is never worse than before
-        the conditional move existed.
-    -   The version moved back to: the move applied and only its answer was
-        lost (the SDK's one retry of an applied move is refused). A read that
-        has not caught up with our write shows the same version, so it counts
-        as applied only when a second read after the delay shows it again. If
-        the second read shows our version, the move is tried once more as
-        above; if it shows a third version, the outcome is unconfirmed: the
-        rollback counts as skipped and a warning names the secret.
+    -   The version moved back to, twice in a row (a second read after the
+        delay): the move applied and only its answer was lost (the SDK's retry
+        of an applied move is refused). The rollback counts as applied. A read
+        that has not caught up with our write shows the same version, which is
+        why one read is not enough; if the second read shows anything else, the
+        outcome is unconfirmed, the rollback counts as skipped and a warning
+        names the secret.
+    -   Our version: the move did not apply. The rollback counts as skipped and
+        a warning names the secret and the error code; the write stays.
     -   Any other version, or none: a concurrent writer won, or the secret is
-        gone. The rollback is skipped (false, a warning from the adapter).
+        gone. The rollback is skipped.
 
-    The first failure and the retry's failure go through the same function.
-*   **The rollback falls back to read-then-write** when the move is refused
-    for lack of the permission (``AccessDeniedException``; the warning names
-    ``secretsmanager:UpdateSecretVersionStage`` and the secret), when it is
-    answered with a ``403`` without a readable error code (the warning names
-    the status, not a permission), when the move keeps failing while our
-    version is current (above), and when the store does not implement
-    :php:`AwsVersionedSecretStoreInterface`. The fallback reads the
-    ``AWSCURRENT`` id and, if it is still the write's version, puts the
-    previous document back as a new version. A write landing between that read
-    and the put is overwritten.
-*   **A rollback that fails is not an applied one.** When the store throws, the
-    adapter logs a warning and reports the rollback as not applied, so the
-    compensation of a create keeps the row: it still points at whatever AWS
-    holds.
+    A skipped rollback is logged by the adapter, and a create compensation
+    keeps the row.
+*   **The rollback falls back to read-then-write** only when the move is
+    refused for lack of the permission and when the store does not implement
+    :php:`AwsVersionedSecretStoreInterface`, as it did before #567. A refusal
+    is ``AccessDeniedException`` (the warning names
+    ``secretsmanager:UpdateSecretVersionStage`` and the secret) or a ``403``
+    without a readable error code (the warning names the status, not a
+    permission). The fallback reads the ``AWSCURRENT`` id and, if it is still
+    the write's version, puts the previous document back as a new version. A
+    write landing between that read and the put is overwritten.
+*   **A compensation whose rollback throws is not quiet.** When the
+    compensation of a failed audit write takes its rollback from the request
+    journal (a create, or an update whose previous row held no value), a
+    rollback that throws is rethrown. :php:`VaultService` then logs the
+    mutation that persisted without an audit record at critical level and
+    chains the rollback failure onto the ``AuditWriteException``; the row stays
+    and points at what AWS holds. A rollback after a failed row write is still only logged, because
+    the row failure is the error the caller sees.
+*   **The compensation of an update whose audit write failed is not
+    conditional** when the secret already held a value. :php:`VaultService`
+    takes it back by storing the previous row again
+    (``adapter->store($existing)``), which writes the previous envelope as a
+    new AWS version without any version check: a writer that lands before that
+    write is overwritten. The conditional move covers the rollback after a
+    failed row write and the two journal compensations above.
 *   **A writer between the adapter's read and its write is still discarded.**
     The adapter reads the previous document, then writes. A writer whose
     version lands between the two is displaced by our write, and the rollback
@@ -400,11 +410,11 @@ The functional suite runs against Moto only. Four things it cannot show:
    (Moto: ``InvalidParameterException``), and the one for a missing
    ``UpdateSecretVersionStage`` permission (``AccessDeniedException`` is
    assumed; Moto answers an XML ``403`` without a readable code, which is
-   treated the same). Neither decides the outcome, because the store reads
-   ``AWSCURRENT`` after any other failed move and falls back to read-then-write
-   when the move keeps failing at our version; with an unexpected denial code
-   the store only tries the move once more first, and the warning says "kept
-   failing" instead of naming the permission.
+   treated the same). The first does not decide the outcome, because the store
+   reads ``AWSCURRENT`` after any failed move. The second does: if AWS denies
+   with another code, the move counts as failed at our version, so the
+   rollback is skipped and nothing is written, instead of falling back to
+   read-then-write.
 
 Alternatives considered
 =======================

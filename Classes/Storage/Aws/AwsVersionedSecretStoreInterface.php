@@ -37,15 +37,19 @@ interface AwsVersionedSecretStoreInterface
      * write created back to the version it replaced, with
      * UpdateSecretVersionStage. AWS refuses the move when AWSCURRENT is on any
      * other version, so a writer that landed after the write keeps its value.
-     * When the move is refused for lack of the permission, the fields are put
-     * back as a new version after a read of the current id, as
-     * {@see AwsSecretStoreInterface::restoreIfCurrent()} does.
      *
-     * @param array<string, mixed> $data The fields of the version the write replaced
+     * When the move fails, nothing is written: it counts as applied only when
+     * two consecutive reads show the version moved back to (the move applied
+     * and its answer was lost), and as skipped otherwise. Only a refusal for
+     * lack of the permission (AccessDeniedException, or a 403 without an error
+     * code) falls back to {@see AwsSecretStoreInterface::restoreIfCurrent()}.
      *
-     * @return bool False when somebody wrote since, or the secret is gone
+     * @param array<string, mixed> $data The fields of the version the write replaced, for that fallback
      *
-     * @throws AwsSecretsManagerException When the move keeps failing while the secret is still at the given version
+     * @return bool True when the write was taken back; false when it was skipped (somebody wrote since, the
+     *              secret is gone, or the move failed and did not apply)
+     *
+     * @throws AwsSecretsManagerException When a read or the fallback fails
      */
     public function restoreToVersionIfCurrent(string $identifier, array $data, string $versionId, string $previousVersionId): bool;
 }

@@ -114,7 +114,7 @@ final readonly class AwsSecretsManagerAdapter implements CreateCompensatingAdapt
                 if ($entry !== null) {
                     $this->undoJournalled($identifier, $entry);
                 } else {
-                    $previous = $this->readOwned($identifier)['data'] ?? null;
+                    $previous = $this->readOwned($identifier, false)['data'] ?? null;
                     $this->store->destroy($identifier);
                 }
             }
@@ -149,7 +149,7 @@ final readonly class AwsSecretsManagerAdapter implements CreateCompensatingAdapt
         $previous = null;
         if ($bound) {
             $this->assertOwnsLocation($existing);
-            $previous = $this->readOwned($identifier);
+            $previous = $this->readOwned($identifier, true);
         }
 
         if ($previous !== null) {
@@ -190,10 +190,12 @@ final readonly class AwsSecretsManagerAdapter implements CreateCompensatingAdapt
         $rolledBack = $this->undoJournalled($identifier, $entry);
         if (!$rolledBack) {
             // The secret is at a version somebody else wrote since, or the
-            // rollback failed and the value this call wrote is still there. Its
-            // row stays, so whatever AWS holds keeps its pointer.
+            // conditional move failed without applying and the value this call
+            // wrote is still there. Its row stays, so whatever AWS holds keeps
+            // its pointer. A rollback that throws is not caught here: it
+            // reaches VaultService, which reports the inconsistency.
             $this->logger->warning(
-                'nr-vault: the row was kept because the AWS write that is being compensated was not taken back (the secret changed since, or the rollback failed).',
+                'nr-vault: the row was kept because the AWS write that is being compensated was not taken back (the secret changed since, or the conditional move failed without applying).',
                 ['secret' => $identifier],
             );
 
@@ -236,7 +238,7 @@ final readonly class AwsSecretsManagerAdapter implements CreateCompensatingAdapt
             $this->assertOwnsLocation($row);
 
             try {
-                $previous = $this->readOwned($identifier)['data'] ?? null;
+                $previous = $this->readOwned($identifier, false)['data'] ?? null;
             } catch (AwsSecretsManagerException $e) {
                 // The row owns this secret by its recorded location; a value that
                 // is not even a JSON object must not make the row undeletable.
@@ -292,9 +294,13 @@ final readonly class AwsSecretsManagerAdapter implements CreateCompensatingAdapt
 
     /**
      * Take back the AWS write recorded in the journal, while the row is being
-     * removed.
+     * removed. This runs as the compensation of a failed audit write, so a
+     * rollback that fails is thrown: VaultService then reports the mutation
+     * that persisted without an audit record (#567).
      *
      * @param array{previous: array<string, mixed>|null, version: int|string|null, previousVersion: int|string|null} $entry
+     *
+     * @throws Throwable When the rollback fails
      */
     private function undoJournalled(string $identifier, #[SensitiveParameter] array $entry): bool
     {
@@ -303,6 +309,7 @@ final readonly class AwsSecretsManagerAdapter implements CreateCompensatingAdapt
             $entry['previous'],
             is_string($entry['version']) ? $entry['version'] : null,
             is_string($entry['previousVersion']) ? $entry['previousVersion'] : null,
+            true,
             true,
         );
     }
@@ -316,11 +323,12 @@ final readonly class AwsSecretsManagerAdapter implements CreateCompensatingAdapt
      * while the secret is still at the version this call wrote.
      *
      * @param array<string, mixed>|null $previous
+     * @param bool                      $rethrow  Throw a failed rollback instead of reporting it as a warning
      *
      * @return bool True when the write was taken back or there was nothing to take back; false when the
      *              rollback was skipped or failed, so a caller that removes the row keeps it
      */
-    private function undoAwsWrite(string $identifier, #[SensitiveParameter] ?array $previous, ?string $version, ?string $previousVersion = null, bool $rowIsBeingRemoved = false): bool
+    private function undoAwsWrite(string $identifier, #[SensitiveParameter] ?array $previous, ?string $version, ?string $previousVersion = null, bool $rowIsBeingRemoved = false, bool $rethrow = false): bool
     {
         try {
             $applied = true;
@@ -334,13 +342,17 @@ final readonly class AwsSecretsManagerAdapter implements CreateCompensatingAdapt
 
             if (!$applied) {
                 $this->logger->warning(
-                    'nr-vault: the rollback of an AWS Secrets Manager write was skipped because the secret is not at the version this call wrote (somebody wrote since, or the read was stale). The secret was left as it is.',
+                    'nr-vault: the rollback of an AWS Secrets Manager write was skipped: the secret is not at the version this call wrote (somebody wrote since, or the read was stale), or the conditional move failed without applying. The secret was left as it is.',
                     ['secret' => $identifier],
                 );
             }
 
             return $applied;
         } catch (Throwable $e) {
+            if ($rethrow) {
+                throw $e;
+            }
+
             // The original failure is the one to report; a failed rollback is
             // not an applied one.
             $this->warnRollbackFailed($identifier, $e);
@@ -461,9 +473,15 @@ final readonly class AwsSecretsManagerAdapter implements CreateCompensatingAdapt
      *
      * @throws AwsSecretsManagerException
      */
-    private function readOwned(string $identifier): ?array
+    private function readOwned(string $identifier, bool $withVersion): ?array
     {
-        $read    = $this->readCurrent($identifier);
+        if ($withVersion) {
+            $read = $this->readCurrent($identifier);
+        } else {
+            $data = $this->store->read($identifier);
+            $read = $data === null ? null : ['data' => $data, 'versionId' => null];
+        }
+
         $payload = $read['data'] ?? null;
         if ($payload !== null && (($payload['identifier'] ?? null) !== $identifier || ($payload['format'] ?? null) !== self::FORMAT || (array_key_exists('installation', $payload) && $payload['installation'] !== $this->installation->value()))) {
             throw AwsSecretsManagerException::nameTaken($identifier);
