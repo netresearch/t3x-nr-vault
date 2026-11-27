@@ -232,8 +232,12 @@ final class MotoServer
 
         $iam = new IamClient(self::options($address, 'AKIABOOTSTRAP', 'bootstrap'));
 
-        // Exactly the four actions the adapter calls, so the whole suite passing
-        // under this policy is the evidence that no other action is needed. The
+        // Exactly the four actions every operation calls, so the whole suite
+        // passing under this policy is the evidence that no other action is
+        // needed. UpdateSecretVersionStage, which the rollback of a write uses,
+        // is left out on purpose: Moto 5.2.5 does not move the default version
+        // on a stage move (#567), so the suite runs the rollback's documented
+        // fallback, and the conditional move is unit-tested against a fake. The
         // resource is "*": Moto evaluates a policy's Resource against "*" for
         // Secrets Manager calls instead of against the secret's ARN (an ARN
         // scoped to the prefix denied every call, measured on 5.2.5), so the

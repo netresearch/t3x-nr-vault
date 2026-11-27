@@ -14,8 +14,10 @@ use Netresearch\NrVault\Domain\Dto\SecretFilters;
 use Netresearch\NrVault\Domain\Model\Secret;
 use Netresearch\NrVault\Exception\AwsSecretsManagerException;
 use Netresearch\NrVault\Exception\ConfigurationException;
+use Netresearch\NrVault\Storage\Aws\AwsRestoreOutcome;
 use Netresearch\NrVault\Storage\Aws\AwsSecretsEndpoint;
 use Netresearch\NrVault\Storage\Aws\AwsSecretStoreInterface;
+use Netresearch\NrVault\Storage\Aws\AwsVersionedSecretStoreInterface;
 use Netresearch\NrVault\Storage\ExternalEnvelopeCodec;
 use Netresearch\NrVault\Storage\ExternalStoreJournal;
 use Netresearch\NrVault\Storage\InstallationMarker;
@@ -141,19 +143,24 @@ final readonly class AwsSecretsManagerAdapter implements CreateCompensatingAdapt
         // unless it is an earlier write of nr-vault for this very identifier
         // (an unreferenced one left by a crash). Every write reports the
         // version id it created; taking a write back is applied only while the
-        // secret is still at that version, so a concurrent writer is neither
-        // overwritten nor deleted and no payload is compared.
-        $previous = null;
+        // secret is still at that version, and no payload is compared. The
+        // checks and their remaining windows are described in ADR-054.
+        // The previous document and its version id come from one read, so a
+        // failed row write can move AWSCURRENT back to exactly that version
+        // (#567).
+        $read = null;
         if ($bound) {
             $this->assertOwnsLocation($existing);
-            $previous = $this->readOwned($identifier);
+            $read = $this->readOwnedWithVersion($identifier);
         }
 
-        if ($previous !== null) {
+        if ($read !== null) {
             $version = $this->store->write($identifier, $payload);
         } else {
-            [$previous, $version] = $this->createOrAdopt($identifier, $payload);
+            [$read, $version] = $this->createOrAdopt($identifier, $payload);
         }
+
+        $previous = $read['data'] ?? null;
 
         $row = $secret->withExternalStorage(self::IDENTIFIER, $this->store->reference($identifier));
         $this->journal->remember(self::IDENTIFIER, $identifier, $previous, $version);
@@ -162,7 +169,7 @@ final readonly class AwsSecretsManagerAdapter implements CreateCompensatingAdapt
             return $this->registry->store($row, $persistGroupRelations)->withEnvelope(...ExternalEnvelopeCodec::envelopeOf($secret));
         } catch (Throwable $e) {
             $this->journal->forget(self::IDENTIFIER, $identifier);
-            $this->undoAwsWrite($identifier, $previous, $version);
+            $this->undoAwsWrite($identifier, $previous, $version, previousVersion: $read['versionId'] ?? null);
 
             throw $e;
         }
@@ -287,19 +294,27 @@ final readonly class AwsSecretsManagerAdapter implements CreateCompensatingAdapt
      * Take back an AWS write after the row could not be written. A first insert
      * removes the secret it created, unless a row for the identifier exists by
      * now: a concurrent create that won the unique key owns it. An update puts
-     * the previous envelope back as a new version. Both apply only while the
+     * the previous envelope back as a new version; after a failed row write,
+     * with the version it replaced and a store that supports it, it moves
+     * AWSCURRENT back to that version instead (#567). Both apply only while the
      * secret is still at the version this call wrote.
      *
      * @param array<string, mixed>|null $previous
+     * @param string|null               $previousVersion The version $previous was read from; only the row-write
+     *                                                   rollback in store() passes it
      */
-    private function undoAwsWrite(string $identifier, #[SensitiveParameter] ?array $previous, ?string $version, bool $rowIsBeingRemoved = false): bool
+    private function undoAwsWrite(string $identifier, #[SensitiveParameter] ?array $previous, ?string $version, bool $rowIsBeingRemoved = false, ?string $previousVersion = null): bool
     {
         try {
             if ($version === null) {
                 return true;
             }
 
-            if ($previous !== null) {
+            $outcome = null;
+            if ($previous !== null && $previousVersion !== null && $this->store instanceof AwsVersionedSecretStoreInterface) {
+                $outcome = $this->store->restoreToVersionIfCurrent($identifier, $previous, $version, $previousVersion);
+                $applied = $outcome === AwsRestoreOutcome::Applied;
+            } elseif ($previous !== null) {
                 $applied = $this->store->restoreIfCurrent($identifier, $previous, $version);
             } elseif ($rowIsBeingRemoved || !$this->registry->exists($identifier)) {
                 $applied = $this->store->destroyIfCurrent($identifier, $version);
@@ -308,10 +323,7 @@ final readonly class AwsSecretsManagerAdapter implements CreateCompensatingAdapt
             }
 
             if (!$applied) {
-                $this->logger->warning(
-                    'nr-vault: the rollback of an AWS Secrets Manager write was skipped because the secret is not at the version this call wrote (somebody wrote since, or the read was stale). The secret was left as it is.',
-                    ['secret' => $identifier],
-                );
+                $this->logger->warning($this->skippedRollbackMessage($outcome), ['secret' => $identifier]);
             }
 
             return $applied;
@@ -321,6 +333,18 @@ final readonly class AwsSecretsManagerAdapter implements CreateCompensatingAdapt
 
             return true;
         }
+    }
+
+    /**
+     * One message per skipped rollback, matching what the store reported.
+     */
+    private function skippedRollbackMessage(?AwsRestoreOutcome $outcome): string
+    {
+        return match ($outcome) {
+            AwsRestoreOutcome::NotApplied  => 'nr-vault: the rollback of an AWS Secrets Manager write was not acknowledged: UpdateSecretVersionStage failed twice, after a read that showed the version this call wrote. Nothing was written; reads can lag, so check which version is current.',
+            AwsRestoreOutcome::Unconfirmed => 'nr-vault: the outcome of the rollback of an AWS Secrets Manager write is unconfirmed: UpdateSecretVersionStage failed, and AWSCURRENT showed the version it moves back to, which a read that lags behind this write also shows. Nothing was written; check the secret.',
+            default                        => 'nr-vault: the rollback of an AWS Secrets Manager write was skipped because the secret is not at the version this call wrote (somebody wrote since, or the read was stale). The secret was left as it is.',
+        };
     }
 
     private function warnRollbackFailed(string $identifier, Throwable $e): void
@@ -364,9 +388,14 @@ final readonly class AwsSecretsManagerAdapter implements CreateCompensatingAdapt
     /**
      * @param array<string, mixed> $payload
      *
-     * @return array{0: array<string, mixed>|null, 1: string} The adopted earlier write (null when the
-     *                                                        secret was created now) and the version id
-     *                                                        written
+     * @return array{0: array{data: array<string, mixed>, versionId: string|null}|null, 1: string} The adopted
+     *                                                                                             earlier write
+     *                                                                                             and its version
+     *                                                                                             id (null when the
+     *                                                                                             secret was
+     *                                                                                             created now) and
+     *                                                                                             the version id
+     *                                                                                             written
      *
      * @throws AwsSecretsManagerException When the name belongs to something else
      */
@@ -385,7 +414,7 @@ final readonly class AwsSecretsManagerAdapter implements CreateCompensatingAdapt
             }
 
             try {
-                $existing = $this->store->read($identifier);
+                $existing = $this->readCurrent($identifier);
             } catch (AwsSecretsManagerException $e) {
                 // Present, but not a JSON object: not ours either.
                 throw $e->getCode() === 1794500008 ? AwsSecretsManagerException::nameTaken($identifier) : $e;
@@ -395,7 +424,8 @@ final readonly class AwsSecretsManagerAdapter implements CreateCompensatingAdapt
                 continue;
             }
 
-            if (($existing['identifier'] ?? null) !== $identifier || ($existing['format'] ?? null) !== self::FORMAT || ($existing['installation'] ?? null) !== $this->installation->value()) {
+            $document = $existing['data'];
+            if (($document['identifier'] ?? null) !== $identifier || ($document['format'] ?? null) !== self::FORMAT || ($document['installation'] ?? null) !== $this->installation->value()) {
                 throw AwsSecretsManagerException::nameTaken($identifier);
             }
 
@@ -435,11 +465,56 @@ final readonly class AwsSecretsManagerAdapter implements CreateCompensatingAdapt
     private function readOwned(string $identifier): ?array
     {
         $payload = $this->store->read($identifier);
+        $this->assertOwnDocument($identifier, $payload);
+
+        return $payload;
+    }
+
+    /**
+     * {@see readOwned()}, with the version id from the same response when the
+     * store can move back to a version (null otherwise).
+     *
+     * @return array{data: array<string, mixed>, versionId: string|null}|null
+     *
+     * @throws AwsSecretsManagerException
+     */
+    private function readOwnedWithVersion(string $identifier): ?array
+    {
+        $read = $this->readCurrent($identifier);
+        $this->assertOwnDocument($identifier, $read['data'] ?? null);
+
+        return $read;
+    }
+
+    /**
+     * @param array<string, mixed>|null $payload
+     *
+     * @throws AwsSecretsManagerException
+     */
+    private function assertOwnDocument(string $identifier, ?array $payload): void
+    {
         if ($payload !== null && (($payload['identifier'] ?? null) !== $identifier || ($payload['format'] ?? null) !== self::FORMAT || (array_key_exists('installation', $payload) && $payload['installation'] !== $this->installation->value()))) {
             throw AwsSecretsManagerException::nameTaken($identifier);
         }
+    }
 
-        return $payload;
+    /**
+     * The document and, from the same response, its version id when the store
+     * can move back to a version (null otherwise).
+     *
+     * @return array{data: array<string, mixed>, versionId: string|null}|null
+     *
+     * @throws AwsSecretsManagerException
+     */
+    private function readCurrent(string $identifier): ?array
+    {
+        if ($this->store instanceof AwsVersionedSecretStoreInterface) {
+            return $this->store->readWithVersion($identifier);
+        }
+
+        $data = $this->store->read($identifier);
+
+        return $data === null ? null : ['data' => $data, 'versionId' => null];
     }
 
     /**

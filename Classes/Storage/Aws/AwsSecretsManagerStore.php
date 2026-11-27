@@ -40,7 +40,7 @@ use function sprintf;
  * HTTP status and the AWS error code, not the SDK exception that holds the
  * signed request and the command parameters.
  */
-final class AwsSecretsManagerStore implements AwsSecretStoreInterface
+final class AwsSecretsManagerStore implements AwsSecretStoreInterface, AwsVersionedSecretStoreInterface
 {
     private const VERSION_READ_ATTEMPTS = 3;
 
@@ -78,37 +78,22 @@ final class AwsSecretsManagerStore implements AwsSecretStoreInterface
 
     public function read(string $identifier): ?array
     {
-        $name   = $this->endpoint()->name($identifier);
-        $client = $this->client();
+        return $this->fetch($identifier)[0] ?? null;
+    }
 
-        try {
-            $result = $client->getSecretValue(['SecretId' => $name]);
-        } catch (Throwable $e) {
-            if ($this->isNotFound($e)) {
-                return null;
-            }
+    public function readWithVersion(string $identifier): ?array
+    {
+        $fetched = $this->fetch($identifier);
 
-            throw $this->translate($e, 'read');
+        if ($fetched === null) {
+            return null;
         }
 
-        $raw = $result['SecretString'] ?? null;
-        if (!is_string($raw) || $raw === '') {
-            throw AwsSecretsManagerException::malformedResponse('read', 'secret holds no string value');
-        }
+        // Without a version id the caller takes a write back by
+        // read-then-write, as before #567; the read itself is fine.
+        $version = $fetched[1]['VersionId'] ?? null;
 
-        try {
-            /** @var mixed $decoded */
-            $decoded = json_decode($raw, true, 32, JSON_THROW_ON_ERROR);
-        } catch (JsonException) {
-            throw AwsSecretsManagerException::malformedResponse('read', 'secret value is not valid JSON');
-        }
-
-        if (!is_array($decoded)) {
-            throw AwsSecretsManagerException::malformedResponse('read', 'secret value is not a JSON object');
-        }
-
-        /** @var array<string, mixed> $decoded */
-        return $decoded;
+        return ['data' => $fetched[0], 'versionId' => is_string($version) && $version !== '' ? $version : null];
     }
 
     public function create(string $identifier, #[SensitiveParameter] array $data): string
@@ -184,6 +169,30 @@ final class AwsSecretsManagerStore implements AwsSecretStoreInterface
         return true;
     }
 
+    public function restoreToVersionIfCurrent(string $identifier, #[SensitiveParameter] array $data, string $versionId, string $previousVersionId): AwsRestoreOutcome
+    {
+        // The stage move is conditional (API_UpdateSecretVersionStage): it
+        // fails when AWSCURRENT is attached to any version but ours, so a
+        // writer that landed since keeps its value. No new version is written:
+        // the previous one becomes current again and ours becomes AWSPREVIOUS.
+        // The SDK already retries a throttled or failed request once.
+        try {
+            $this->moveBack($identifier, $versionId, $previousVersionId);
+
+            return AwsRestoreOutcome::Applied;
+        } catch (Throwable $e) {
+            if ($this->isAccessDenied($e)) {
+                // Without the permission, the read-then-write of
+                // restoreIfCurrent() is the rollback, as before #567.
+                $this->warnDenied($identifier, $e);
+
+                return $this->restoreIfCurrent($identifier, $data, $versionId) ? AwsRestoreOutcome::Applied : AwsRestoreOutcome::OtherWriter;
+            }
+
+            return $this->outcomeAfterFailedMove($identifier, $versionId, $previousVersionId);
+        }
+    }
+
     public function destroyIfCurrent(string $identifier, string $versionId): bool
     {
         if (!$this->isCurrent($identifier, $versionId)) {
@@ -234,6 +243,47 @@ final class AwsSecretsManagerStore implements AwsSecretStoreInterface
     }
 
     /**
+     * The decoded document of AWSCURRENT and the response it came from, or
+     * null when the secret does not exist.
+     *
+     * @return array{0: array<string, mixed>, 1: Result<string, mixed>}|null
+     */
+    private function fetch(string $identifier): ?array
+    {
+        $name   = $this->endpoint()->name($identifier);
+        $client = $this->client();
+
+        try {
+            $result = $client->getSecretValue(['SecretId' => $name]);
+        } catch (Throwable $e) {
+            if ($this->isNotFound($e)) {
+                return null;
+            }
+
+            throw $this->translate($e, 'read');
+        }
+
+        $raw = $result['SecretString'] ?? null;
+        if (!is_string($raw) || $raw === '') {
+            throw AwsSecretsManagerException::malformedResponse('read', 'secret holds no string value');
+        }
+
+        try {
+            /** @var mixed $decoded */
+            $decoded = json_decode($raw, true, 32, JSON_THROW_ON_ERROR);
+        } catch (JsonException) {
+            throw AwsSecretsManagerException::malformedResponse('read', 'secret value is not valid JSON');
+        }
+
+        if (!is_array($decoded)) {
+            throw AwsSecretsManagerException::malformedResponse('read', 'secret value is not a JSON object');
+        }
+
+        /** @var array<string, mixed> $decoded */
+        return [$decoded, $result];
+    }
+
+    /**
      * The secret did not exist for the put. Create it. When a concurrent create
      * won in between, the secret belongs to that writer: the conflict is raised,
      * nothing is written into it.
@@ -249,6 +299,86 @@ final class AwsSecretsManagerStore implements AwsSecretStoreInterface
 
             throw $this->translate($e, 'write');
         }
+    }
+
+    private function moveBack(string $identifier, string $versionId, string $previousVersionId): void
+    {
+        $this->client()->updateSecretVersionStage([
+            'SecretId'            => $this->endpoint()->name($identifier),
+            'VersionStage'        => 'AWSCURRENT',
+            'MoveToVersionId'     => $previousVersionId,
+            'RemoveFromVersionId' => $versionId,
+        ]);
+    }
+
+    /**
+     * What a failed move leaves, read from AWSCURRENT rather than from the
+     * error code, which AWS does not document for a mismatch. Nothing is
+     * written. AWSCURRENT is read until it shows our version or the version
+     * moved back to, at most VERSION_READ_ATTEMPTS times.
+     *
+     * - Our version: the move is called once more; it is conditional, so that
+     *   is safe. Only a move call that succeeds counts as applied.
+     * - The version moved back to: unconfirmed. An applied move whose answer
+     *   was lost shows it, and so does a read that lags behind our own write.
+     * - Anything else: another writer won, or the secret is gone.
+     */
+    private function outcomeAfterFailedMove(string $identifier, string $versionId, string $previousVersionId): AwsRestoreOutcome
+    {
+        $current = null;
+        for ($attempt = 1; $attempt <= self::VERSION_READ_ATTEMPTS && $current !== $versionId && $current !== $previousVersionId; ++$attempt) {
+            if ($attempt > 1) {
+                ($this->sleep)(self::VERSION_READ_DELAY_MICROSECONDS);
+            }
+
+            $current = $this->currentVersion($identifier);
+        }
+
+        return match ($current) {
+            $versionId         => $this->moveAgain($identifier, $versionId, $previousVersionId),
+            $previousVersionId => AwsRestoreOutcome::Unconfirmed,
+            default            => AwsRestoreOutcome::OtherWriter,
+        };
+    }
+
+    private function moveAgain(string $identifier, string $versionId, string $previousVersionId): AwsRestoreOutcome
+    {
+        try {
+            $this->moveBack($identifier, $versionId, $previousVersionId);
+
+            return AwsRestoreOutcome::Applied;
+        } catch (Throwable) {
+            return AwsRestoreOutcome::NotApplied;
+        }
+    }
+
+    /**
+     * AccessDeniedException, or a 403 without a readable error code (Moto
+     * answers a denied call with an XML 403).
+     */
+    private function isAccessDenied(Throwable $e): bool
+    {
+        if (!$e instanceof AwsException) {
+            return false;
+        }
+
+        $code = $this->safeCode($e->getAwsErrorCode());
+
+        return $code === 'AccessDeniedException' || ($code === '' && $e->getStatusCode() === 403);
+    }
+
+    /**
+     * Only AccessDeniedException names the missing permission; a bare 403 is
+     * reported with its status, since nothing says what was refused.
+     */
+    private function warnDenied(string $identifier, Throwable $failure): void
+    {
+        $code    = $this->failureCode($failure);
+        $message = $code === 'AccessDeniedException'
+            ? 'nr-vault: AWS Secrets Manager refused UpdateSecretVersionStage ({code}); grant secretsmanager:UpdateSecretVersionStage. The rollback fell back to read-then-write, which overwrites a write that lands in between.'
+            : 'nr-vault: AWS Secrets Manager answered UpdateSecretVersionStage with {code} and no error code. The rollback fell back to read-then-write, which overwrites a write that lands in between.';
+
+        $this->logger?->warning($message, ['secret' => $identifier, 'code' => $code]);
     }
 
     private function put(SecretsManagerClient $client, string $name, #[SensitiveParameter] string $encoded): string
@@ -267,13 +397,12 @@ final class AwsSecretsManagerStore implements AwsSecretStoreInterface
         for ($attempt = 1; $attempt <= self::VERSION_READ_ATTEMPTS; ++$attempt) {
             // Not found is retried too: a read that has not caught up with the
             // create looks like a missing secret for a moment.
-            $current = $this->currentVersion($identifier);
-            if ($current === $versionId) {
+            if ($this->currentVersion($identifier) === $versionId) {
                 return true;
             }
 
             if ($attempt < self::VERSION_READ_ATTEMPTS) {
-                usleep(self::VERSION_READ_DELAY_MICROSECONDS);
+                ($this->sleep)(self::VERSION_READ_DELAY_MICROSECONDS);
             }
         }
 
@@ -365,6 +494,24 @@ final class AwsSecretsManagerStore implements AwsSecretStoreInterface
             $operation,
             self::redact($cause->getMessage()) . sprintf(' (caused by %s)', $cause::class),
         );
+    }
+
+    /**
+     * The AWS error code of a failure for a log line, or the HTTP status when
+     * the response carried no code that can be read.
+     */
+    private function failureCode(Throwable $e): string
+    {
+        if (!$e instanceof AwsException) {
+            return 'transport failure';
+        }
+
+        $code = $this->safeCode($e->getAwsErrorCode());
+        if ($code !== '') {
+            return $code;
+        }
+
+        return $e->getStatusCode() !== null ? 'HTTP ' . $e->getStatusCode() : 'no error code';
     }
 
     /**

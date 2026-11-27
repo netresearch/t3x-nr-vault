@@ -1,0 +1,1 @@
+- AWS Secrets Manager adapter: add `secretsmanager:UpdateSecretVersionStage` to the IAM policy of the adapter (see the operations page). Without it everything keeps working, but taking back a failed update can overwrite a concurrent write, and every such rollback logs a warning (#567).

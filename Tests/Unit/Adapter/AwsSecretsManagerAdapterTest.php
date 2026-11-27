@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Unit\Adapter;
 
+use LogicException;
 use Netresearch\NrVault\Adapter\AwsSecretsManagerAdapter;
 use Netresearch\NrVault\Adapter\LocalEncryptionAdapter;
 use Netresearch\NrVault\Configuration\Dto\AwsSecretsConfig;
@@ -18,7 +19,9 @@ use Netresearch\NrVault\Domain\Model\Secret;
 use Netresearch\NrVault\Domain\Repository\SecretRepositoryInterface;
 use Netresearch\NrVault\Exception\AwsSecretsManagerException;
 use Netresearch\NrVault\Exception\ConfigurationException;
+use Netresearch\NrVault\Storage\Aws\AwsRestoreOutcome;
 use Netresearch\NrVault\Storage\Aws\AwsSecretStoreInterface;
+use Netresearch\NrVault\Storage\Aws\AwsVersionedSecretStoreInterface;
 use Netresearch\NrVault\Storage\ExternalStoreJournal;
 use Netresearch\NrVault\Storage\InstallationMarker;
 use Netresearch\NrVault\Tests\Unit\TestCase;
@@ -70,6 +73,17 @@ final class AwsSecretsManagerAdapterTest extends TestCase
     /** @var list<string> */
     private array $warnings = [];
 
+    /** @var list<string> The previous version id each restoreToVersionIfCurrent() was given */
+    private array $restoredToVersions = [];
+
+    /** The outcome the fake store reports for the next stage move, instead of moving */
+    private ?AwsRestoreOutcome $forcedOutcome = null;
+
+    private bool $versionlessReads = false;
+
+    /** @var array<string, list<string>> Every version id written per secret, oldest first */
+    private array $history = [];
+
     private string $masterKey = '';
 
     private ExternalStoreJournal $journal;
@@ -90,6 +104,10 @@ final class AwsSecretsManagerAdapterTest extends TestCase
         $this->createScript                   = [];
         $this->readScript                     = [];
         $this->warnings                       = [];
+        $this->restoredToVersions             = [];
+        $this->history                        = [];
+        $this->forcedOutcome                  = null;
+        $this->versionlessReads               = false;
         $this->awsWritesAllowed               = null;
         $this->masterKey                      = sodium_crypto_secretbox_keygen();
         $this->journal                        = new ExternalStoreJournal();
@@ -242,15 +260,92 @@ final class AwsSecretsManagerAdapterTest extends TestCase
         $adapter->store($this->envelopeSecret('api_key'));
 
         $before             = $this->aws['api_key'];
+        $replaced           = $this->awsVersion('api_key');
         $this->failRowWrite = true;
 
         try {
             $adapter->store($this->envelopeSecret('api_key', 'newer')->withUid(1));
             self::fail('The row failure must propagate.');
-        } catch (RuntimeException) {
+        } catch (RuntimeException $e) {
+            self::assertSame(4778462882, $e->getCode(), 'the registry failure is the one rethrown');
         }
 
         self::assertSame($before, $this->aws['api_key']);
+        self::assertSame([$replaced], $this->restoredToVersions, 'the rollback names the version the update replaced, read with the previous envelope (#567)');
+    }
+
+    /**
+     * @return array<string, array{AwsRestoreOutcome, string}>
+     */
+    public static function skippedOutcomeProvider(): array
+    {
+        return [
+            'not applied'  => [AwsRestoreOutcome::NotApplied, 'was not acknowledged: UpdateSecretVersionStage failed twice'],
+            'unconfirmed'  => [AwsRestoreOutcome::Unconfirmed, 'is unconfirmed'],
+            'other writer' => [AwsRestoreOutcome::OtherWriter, 'somebody wrote since'],
+        ];
+    }
+
+    #[Test]
+    #[DataProvider('skippedOutcomeProvider')]
+    public function aSkippedRowWriteRollbackIsLoggedOnceWithItsReason(AwsRestoreOutcome $outcome, string $reason): void
+    {
+        $adapter = $this->adapter();
+        $adapter->store($this->envelopeSecret('api_key'));
+
+        $this->failRowWrite  = true;
+        $this->forcedOutcome = $outcome;
+
+        try {
+            $adapter->store($this->envelopeSecret('api_key', 'newer')->withUid(1));
+            self::fail('The row failure must propagate.');
+        } catch (RuntimeException $e) {
+            self::assertSame(4778462882, $e->getCode(), 'the registry failure is the one rethrown');
+        }
+
+        self::assertCount(1, $this->warnings, 'one warning per skipped rollback');
+        self::assertStringContainsString($reason, $this->warnings[0]);
+    }
+
+    #[Test]
+    public function anUpdateReadWithoutAVersionIdIsTakenBackByReadThenWrite(): void
+    {
+        $adapter = $this->adapter();
+        $adapter->store($this->envelopeSecret('api_key'));
+
+        $before                 = $this->aws['api_key'];
+        $this->versionlessReads = true;
+        $this->failRowWrite     = true;
+
+        try {
+            $adapter->store($this->envelopeSecret('api_key', 'newer')->withUid(1));
+            self::fail('The row failure must propagate.');
+        } catch (RuntimeException $e) {
+            self::assertSame(4778462882, $e->getCode(), 'the write itself did not fail on the missing version id');
+        }
+
+        self::assertSame($before, $this->aws['api_key'], 'put back by read-then-write');
+        self::assertSame([], $this->restoredToVersions, 'no stage move without a version id');
+    }
+
+    #[Test]
+    public function aStoreWithoutVersionSupportTakesAFailedUpdateBackByReadThenWrite(): void
+    {
+        $adapter = $this->adapter(versionedStore: false);
+        $adapter->store($this->envelopeSecret('api_key'));
+
+        $before             = $this->aws['api_key'];
+        $this->failRowWrite = true;
+
+        try {
+            $adapter->store($this->envelopeSecret('api_key', 'newer')->withUid(1));
+            self::fail('The row failure must propagate.');
+        } catch (RuntimeException $e) {
+            self::assertSame(4778462882, $e->getCode(), 'the registry failure is the one rethrown');
+        }
+
+        self::assertSame($before, $this->aws['api_key']);
+        self::assertSame([], $this->restoredToVersions, 'the conditional path needs AwsVersionedSecretStoreInterface');
     }
 
     #[Test]
@@ -379,6 +474,31 @@ final class AwsSecretsManagerAdapterTest extends TestCase
         self::assertArrayNotHasKey('api_key', $this->aws);
         self::assertArrayNotHasKey('api_key', $this->rows);
         self::assertSame('destroy:api_key', end($this->awsCalls));
+    }
+
+    #[Test]
+    public function deleteAndTheValuelessRestoreReadWithoutAskingForTheVersion(): void
+    {
+        $adapter = $this->adapter();
+        $adapter->store($this->envelopeSecret('api_key'));
+        $adapter->releaseStore('api_key');
+        $adapter->store($this->envelopeSecret('other'));
+        $adapter->releaseStore('other');
+
+        $dangling = $adapter->retrieveIncludingDisabled('other');
+        self::assertInstanceOf(Secret::class, $dangling);
+        $this->awsCalls = [];
+
+        $adapter->store($this->envelopeSecret('api_key', 'newer')->withUid(1));
+        $adapter->releaseStore('api_key');
+        $adapter->delete('api_key');
+        $adapter->store($dangling->withExternalStorage('aws', 'eu-central-1:typo3/other'));
+
+        self::assertSame(
+            ['readWithVersion:api_key', 'read:api_key', 'write:api_key', 'read:api_key', 'destroy:api_key', 'read:other', 'destroy:other'],
+            $this->awsCalls,
+            'only the update reads the version; the delete and the valueless store read the plain document',
+        );
     }
 
     #[Test]
@@ -565,15 +685,18 @@ final class AwsSecretsManagerAdapterTest extends TestCase
 
         unset($this->rows['api_key']);
         $this->aws['api_key'] = $orphan;
+        $adopted              = $this->awsVersion('api_key');
         $this->failRowWrite   = true;
 
         try {
             $adapter->store($this->envelopeSecret('api_key', 'adopted-again'));
             self::fail('The row failure must propagate.');
-        } catch (RuntimeException) {
+        } catch (RuntimeException $e) {
+            self::assertSame(4778462882, $e->getCode(), 'the registry failure is the one rethrown');
         }
 
         self::assertSame($orphan, $this->aws['api_key'], 'the adopted secret is put back, not destroyed');
+        self::assertSame([$adopted], $this->restoredToVersions, 'the rollback names the version that was adopted');
     }
 
     #[Test]
@@ -726,6 +849,7 @@ final class AwsSecretsManagerAdapterTest extends TestCase
 
         self::assertEquals($orphan, $this->aws['api_key'], 'the adopted secret is back');
         self::assertArrayNotHasKey('api_key', $this->rows, 'the row is removed');
+        self::assertSame([], $this->restoredToVersions, 'an audit-failure compensation is not conditional (#567 covers only the row-write rollback)');
     }
 
     #[Test]
@@ -791,6 +915,7 @@ final class AwsSecretsManagerAdapterTest extends TestCase
         $adapter->store(new Secret(identifier: 'api_key', uid: 1));
 
         self::assertEquals($orphan, $this->aws['api_key'], 'the adopted secret is back, not destroyed');
+        self::assertSame([], $this->restoredToVersions, 'an audit-failure compensation is not conditional (#567 covers only the row-write rollback)');
     }
 
     #[Test]
@@ -1053,8 +1178,9 @@ final class AwsSecretsManagerAdapterTest extends TestCase
             throw new RuntimeException('aws write refused', 4778462884);
         }
 
-        $this->aws[$identifier]      = $data;
-        $this->versions[$identifier] = ($this->versions[$identifier] ?? 0) + 1;
+        $this->aws[$identifier]       = $data;
+        $this->versions[$identifier]  = ($this->versions[$identifier] ?? 0) + 1;
+        $this->history[$identifier][] = $this->awsVersion($identifier);
 
         return $this->awsVersion($identifier);
     }
@@ -1081,8 +1207,40 @@ final class AwsSecretsManagerAdapterTest extends TestCase
 
         $this->aws[$identifier]      = $data;
         $this->versions[$identifier] = 1;
+        $this->history[$identifier]  = ['v1'];
 
         return 'v1';
+    }
+
+    /**
+     * Whether the version is an earlier one of the secret, which a stage move
+     * can make current again.
+     */
+    public function awsHasEarlierVersion(string $identifier, string $versionId): bool
+    {
+        $history = $this->history[$identifier] ?? [];
+
+        return in_array($versionId, $history, true) && $versionId !== $this->awsVersion($identifier);
+    }
+
+    public function forcedOutcome(): ?AwsRestoreOutcome
+    {
+        return $this->forcedOutcome;
+    }
+
+    public function awsVersionForRead(string $identifier): ?string
+    {
+        return $this->versionlessReads ? null : $this->awsVersion($identifier);
+    }
+
+    public function recordVersionedRead(string $identifier): void
+    {
+        $this->awsCalls[] = 'readWithVersion:' . $identifier;
+    }
+
+    public function recordRestoreTo(string $previousVersionId): void
+    {
+        $this->restoredToVersions[] = $previousVersionId;
     }
 
     public function recordWarning(string $message): void
@@ -1093,7 +1251,7 @@ final class AwsSecretsManagerAdapterTest extends TestCase
     public function awsDestroy(string $identifier): void
     {
         $this->awsCalls[] = 'destroy:' . $identifier;
-        unset($this->aws[$identifier], $this->versions[$identifier]);
+        unset($this->aws[$identifier], $this->versions[$identifier], $this->history[$identifier]);
     }
 
     /**
@@ -1127,7 +1285,7 @@ final class AwsSecretsManagerAdapterTest extends TestCase
         );
     }
 
-    private function adapter(string $endpoint = '', string $region = 'eu-central-1', bool $sdkInstalled = true): AwsSecretsManagerAdapter
+    private function adapter(string $endpoint = '', string $region = 'eu-central-1', bool $sdkInstalled = true, bool $versionedStore = true): AwsSecretsManagerAdapter
     {
         $repository = $this->createMock(SecretRepositoryInterface::class);
         $repository->method('findByIdentifier')->willReturnCallback(
@@ -1178,7 +1336,7 @@ final class AwsSecretsManagerAdapterTest extends TestCase
             endpoint: $endpoint,
         ));
 
-        $kv = new class ($this, $sdkInstalled) implements AwsSecretStoreInterface {
+        $kv = new class ($this, $sdkInstalled) implements AwsSecretStoreInterface, AwsVersionedSecretStoreInterface {
             public function __construct(private readonly AwsSecretsManagerAdapterTest $test, private readonly bool $sdkInstalled) {}
 
             public function isSdkInstalled(): bool
@@ -1191,6 +1349,14 @@ final class AwsSecretsManagerAdapterTest extends TestCase
                 return $this->test->awsRead($identifier);
             }
 
+            public function readWithVersion(string $identifier): ?array
+            {
+                $this->test->recordVersionedRead($identifier);
+                $data = $this->test->awsRead($identifier);
+
+                return $data === null ? null : ['data' => $data, 'versionId' => $this->test->awsVersionForRead($identifier)];
+            }
+
             public function create(string $identifier, array $data): string
             {
                 return $this->test->awsCreate($identifier, $data);
@@ -1199,6 +1365,28 @@ final class AwsSecretsManagerAdapterTest extends TestCase
             public function write(string $identifier, array $data): string
             {
                 return $this->test->awsWrite($identifier, $data);
+            }
+
+            public function restoreToVersionIfCurrent(string $identifier, array $data, string $versionId, string $previousVersionId): AwsRestoreOutcome
+            {
+                $this->test->recordRestoreTo($previousVersionId);
+
+                $forced = $this->test->forcedOutcome();
+                if ($forced instanceof AwsRestoreOutcome) {
+                    return $forced;
+                }
+
+                // A stage move: AWSCURRENT must still be on the version the
+                // write created, and the one to move back to an earlier one.
+                if ($this->test->awsVersion($identifier) !== $versionId) {
+                    return AwsRestoreOutcome::OtherWriter;
+                }
+
+                if (!$this->test->awsHasEarlierVersion($identifier, $previousVersionId)) {
+                    throw new LogicException('MoveToVersionId ' . $previousVersionId . ' is not an earlier version of ' . $identifier . '.', 1794567010);
+                }
+
+                return $this->restoreIfCurrent($identifier, $data, $versionId) ? AwsRestoreOutcome::Applied : AwsRestoreOutcome::OtherWriter;
             }
 
             public function restoreIfCurrent(string $identifier, array $data, string $versionId): bool
@@ -1233,6 +1421,54 @@ final class AwsSecretsManagerAdapterTest extends TestCase
                 return 'eu-central-1:typo3/' . $identifier;
             }
         };
+
+        if (!$versionedStore) {
+            // A store implementing only AwsSecretStoreInterface, as one written
+            // before #567 does.
+            $kv = new class ($kv) implements AwsSecretStoreInterface {
+                public function __construct(private readonly AwsSecretStoreInterface $inner) {}
+
+                public function isSdkInstalled(): bool
+                {
+                    return $this->inner->isSdkInstalled();
+                }
+
+                public function read(string $identifier): ?array
+                {
+                    return $this->inner->read($identifier);
+                }
+
+                public function create(string $identifier, array $data): string
+                {
+                    return $this->inner->create($identifier, $data);
+                }
+
+                public function write(string $identifier, array $data): string
+                {
+                    return $this->inner->write($identifier, $data);
+                }
+
+                public function restoreIfCurrent(string $identifier, array $data, string $versionId): bool
+                {
+                    return $this->inner->restoreIfCurrent($identifier, $data, $versionId);
+                }
+
+                public function destroyIfCurrent(string $identifier, string $versionId): bool
+                {
+                    return $this->inner->destroyIfCurrent($identifier, $versionId);
+                }
+
+                public function destroy(string $identifier): void
+                {
+                    $this->inner->destroy($identifier);
+                }
+
+                public function reference(string $identifier): string
+                {
+                    return $this->inner->reference($identifier);
+                }
+            };
+        }
 
         $masterKey = $this->createMock(MasterKeyProviderInterface::class);
         $masterKey->method('getMasterKey')->willReturnCallback(fn (): string => $this->masterKey);

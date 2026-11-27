@@ -20,6 +20,7 @@ use Netresearch\NrVault\Configuration\Dto\AwsSecretsConfig;
 use Netresearch\NrVault\Configuration\ExtensionConfigurationInterface;
 use Netresearch\NrVault\Exception\AwsSecretsManagerException;
 use Netresearch\NrVault\Storage\Aws\AwsClientFactory;
+use Netresearch\NrVault\Storage\Aws\AwsRestoreOutcome;
 use Netresearch\NrVault\Storage\Aws\AwsSecretsManagerStore;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
@@ -27,14 +28,24 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use Psr\Http\Message\RequestInterface;
+use Psr\Log\AbstractLogger;
 use Psr\Log\LoggerInterface;
+use Stringable;
 use Throwable;
+
+use function array_slice;
+use function count;
+use function is_string;
 
 /**
  * The store against the real SDK, with the HTTP exchange scripted. The client
  * is built the way production builds it: `http_errors` off, as the hardened
  * factory does, so a rejected request only reaches the store as an error when
  * the SDK is told to treat statuses as errors.
+ *
+ * The conditional rollback (#567) runs against a stateful fake of one secret
+ * instead ({@see FakeSecretsManagerSecret}), which follows the AWS API
+ * reference; it is not verified against AWS itself.
  */
 #[CoversClass(AwsSecretsManagerStore::class)]
 #[AllowMockObjectsWithoutExpectations]
@@ -43,6 +54,13 @@ final class AwsSecretsManagerStoreTest extends TestCase
     use AccessKeyFixtures;
 
     private const SECRET_KEY = 'unit-test-secret-access-key-value';
+
+    private const SECRET_NAME = 'typo3/api_key';
+
+    private const OTHER_VERSION = '77777777-0000-4000-8000-777777777777';
+
+    /** @var list<array{string, string, array<array-key, mixed>}> */
+    private array $logged = [];
 
     /** @var list<RequestInterface> */
     private array $requests = [];
@@ -58,6 +76,7 @@ final class AwsSecretsManagerStoreTest extends TestCase
 
         $this->requests = [];
         $this->sleeps   = [];
+        $this->logged   = [];
         $this->logger   = self::createStub(LoggerInterface::class);
         putenv('NR_VAULT_AWS_ACCESS_KEY_ID=' . self::akia('UNITTESTKEY00001'));
         putenv('NR_VAULT_AWS_SECRET_ACCESS_KEY=' . self::SECRET_KEY);
@@ -273,6 +292,14 @@ final class AwsSecretsManagerStoreTest extends TestCase
         $this->expectExceptionCode(1794500008);
 
         $store->write('api_key', ['k' => 'v']);
+    }
+
+    #[Test]
+    public function readWithVersionReportsNoVersionWhenTheResponseNamesNone(): void
+    {
+        $store = $this->store(self::json(200, ['Name' => 'typo3/api_key', 'SecretString' => '{"k":"v"}']));
+
+        self::assertSame(['data' => ['k' => 'v'], 'versionId' => null], $store->readWithVersion('api_key'), 'the caller falls back to read-then-write; the write is not failed');
     }
 
     #[Test]
@@ -550,6 +577,287 @@ final class AwsSecretsManagerStoreTest extends TestCase
     }
 
     /**
+     * AWS does not document the error of a mismatching RemoveFromVersionId;
+     * moto answers InvalidParameterException. The store must not depend on it.
+     *
+     * @return array<string, array{string}>
+     */
+    public static function mismatchCodeProvider(): array
+    {
+        return [
+            'InvalidParameterException (moto)' => ['InvalidParameterException'],
+            'InvalidRequestException'          => ['InvalidRequestException'],
+        ];
+    }
+
+    #[Test]
+    #[DataProvider('mismatchCodeProvider')]
+    public function aWriterLandingBetweenTheWriteAndTheRollbackKeepsItsValue(string $mismatchCode): void
+    {
+        $secret   = new FakeSecretsManagerSecret(self::SECRET_NAME, $mismatchCode);
+        $previous = $secret->seed(['v' => 'previous']);
+        $store    = $this->storeAgainst($secret);
+
+        $ours = $store->write('api_key', ['v' => 'ours']);
+        $secret->concurrentPutBeforeNextWrite(['v' => 'concurrent']);
+
+        self::assertSame(AwsRestoreOutcome::OtherWriter, $store->restoreToVersionIfCurrent('api_key', ['v' => 'previous'], $ours, $previous));
+        self::assertSame(['v' => 'concurrent'], $secret->currentData(), 'the concurrent value is not overwritten');
+        self::assertSame([], $this->warnings(), 'the adapter logs the outcome');
+    }
+
+    #[Test]
+    public function aRollbackMovesAwsCurrentBackToTheVersionTheWriteReplaced(): void
+    {
+        $secret   = new FakeSecretsManagerSecret(self::SECRET_NAME);
+        $previous = $secret->seed(['v' => 'previous']);
+        $store    = $this->storeAgainst($secret);
+
+        $ours   = $store->write('api_key', ['v' => 'ours']);
+        $before = count($secret->targets());
+
+        self::assertSame(AwsRestoreOutcome::Applied, $store->restoreToVersionIfCurrent('api_key', ['v' => 'previous'], $ours, $previous));
+
+        self::assertSame(['UpdateSecretVersionStage'], array_slice($secret->targets(), $before), 'one conditional request, no read and no put');
+        self::assertSame($previous, $secret->versionLabelled('AWSCURRENT'));
+        self::assertSame($ours, $secret->versionLabelled('AWSPREVIOUS'));
+        self::assertSame(2, $secret->versionCount(), 'no version was added');
+    }
+
+    #[Test]
+    public function withoutThePermissionTheRollbackFallsBackToReadThenWriteAndNamesThePermission(): void
+    {
+        $secret   = new FakeSecretsManagerSecret(self::SECRET_NAME);
+        $previous = $secret->seed(['v' => 'previous']);
+        $secret->deny('UpdateSecretVersionStage');
+        $store = $this->storeAgainst($secret);
+
+        $ours   = $store->write('api_key', ['v' => 'ours']);
+        $before = count($secret->targets());
+
+        self::assertSame(AwsRestoreOutcome::Applied, $store->restoreToVersionIfCurrent('api_key', ['v' => 'previous'], $ours, $previous));
+
+        self::assertSame(['UpdateSecretVersionStage', 'GetSecretValue', 'PutSecretValue'], array_slice($secret->targets(), $before));
+        self::assertSame(['v' => 'previous'], $secret->currentData(), 'the previous value is back, as a new version');
+        self::assertCount(1, $this->warnings());
+        self::assertStringContainsString('refused UpdateSecretVersionStage (AccessDeniedException); grant secretsmanager:UpdateSecretVersionStage', $this->warnings()[0]);
+        self::assertSame(['api_key'], $this->warningSecrets());
+    }
+
+    #[Test]
+    public function aBare403FallsBackAndNamesTheStatusWithoutClaimingAPermission(): void
+    {
+        $secret   = new FakeSecretsManagerSecret(self::SECRET_NAME);
+        $previous = $secret->seed(['v' => 'previous']);
+        $secret->denyWithBare403('UpdateSecretVersionStage');
+        $store = $this->storeAgainst($secret);
+
+        $ours = $store->write('api_key', ['v' => 'ours']);
+
+        self::assertSame(AwsRestoreOutcome::Applied, $store->restoreToVersionIfCurrent('api_key', ['v' => 'previous'], $ours, $previous));
+
+        self::assertCount(1, $this->warnings());
+        self::assertStringContainsString('answered UpdateSecretVersionStage with HTTP 403 and no error code', $this->warnings()[0]);
+        self::assertStringNotContainsString('grant', $this->warnings()[0]);
+    }
+
+    #[Test]
+    public function withoutThePermissionAConcurrentWriterSeenByTheReadIsStillNotOverwritten(): void
+    {
+        $secret   = new FakeSecretsManagerSecret(self::SECRET_NAME);
+        $previous = $secret->seed(['v' => 'previous']);
+        $secret->deny('UpdateSecretVersionStage');
+        $store = $this->storeAgainst($secret);
+
+        $ours = $store->write('api_key', ['v' => 'ours']);
+        $secret->seed(['v' => 'concurrent']);
+
+        self::assertSame(AwsRestoreOutcome::OtherWriter, $store->restoreToVersionIfCurrent('api_key', ['v' => 'previous'], $ours, $previous));
+        self::assertSame(['v' => 'concurrent'], $secret->currentData());
+    }
+
+    #[Test]
+    public function aFailedMoveAtOurVersionIsCalledOnceMoreAndCountsOnlyWhenThatCallSucceeds(): void
+    {
+        $secret   = new FakeSecretsManagerSecret(self::SECRET_NAME);
+        $previous = $secret->seed(['v' => 'previous']);
+        $store    = $this->storeAgainst($secret);
+
+        $ours = $store->write('api_key', ['v' => 'ours']);
+        $secret->failNext('UpdateSecretVersionStage', 'InvalidRequestException');
+        $before = count($secret->targets());
+
+        self::assertSame(AwsRestoreOutcome::Applied, $store->restoreToVersionIfCurrent('api_key', ['v' => 'previous'], $ours, $previous));
+
+        self::assertSame(['UpdateSecretVersionStage', 'GetSecretValue', 'UpdateSecretVersionStage'], array_slice($secret->targets(), $before), 'moved, never written');
+        self::assertSame($previous, $secret->versionLabelled('AWSCURRENT'));
+        self::assertSame(2, $secret->versionCount());
+    }
+
+    #[Test]
+    public function aMoveThatFailsTwiceAtOurVersionIsNotAppliedAndWritesNothing(): void
+    {
+        $secret   = new FakeSecretsManagerSecret(self::SECRET_NAME);
+        $previous = $secret->seed(['v' => 'previous']);
+        $store    = $this->storeAgainst($secret);
+
+        $ours = $store->write('api_key', ['v' => 'ours']);
+        $secret->failNext('UpdateSecretVersionStage', 'InvalidRequestException', 'InvalidRequestException');
+        $before = count($secret->targets());
+
+        self::assertSame(AwsRestoreOutcome::NotApplied, $store->restoreToVersionIfCurrent('api_key', ['v' => 'previous'], $ours, $previous));
+
+        self::assertSame(['UpdateSecretVersionStage', 'GetSecretValue', 'UpdateSecretVersionStage'], array_slice($secret->targets(), $before));
+        self::assertSame($ours, $secret->versionLabelled('AWSCURRENT'));
+        self::assertSame(2, $secret->versionCount(), 'nothing was written');
+        self::assertSame([], $this->warnings(), 'the adapter logs the outcome');
+    }
+
+    #[Test]
+    public function aVersionToMoveBackToThatNoLongerExistsWritesNothing(): void
+    {
+        $secret = new FakeSecretsManagerSecret(self::SECRET_NAME);
+        $secret->seed(['v' => 'previous']);
+
+        $store = $this->storeAgainst($secret);
+
+        $ours = $store->write('api_key', ['v' => 'ours']);
+
+        self::assertSame(AwsRestoreOutcome::NotApplied, $store->restoreToVersionIfCurrent('api_key', ['v' => 'previous'], $ours, self::OTHER_VERSION));
+
+        self::assertSame(['v' => 'ours'], $secret->currentData());
+        self::assertSame(2, $secret->versionCount(), 'a failed move never falls back to a write');
+    }
+
+    #[Test]
+    public function readsThatShowTheReplacedVersionAfterAFailedMoveAreUnconfirmedEvenWhenTheyRepeat(): void
+    {
+        $secret   = new FakeSecretsManagerSecret(self::SECRET_NAME);
+        $previous = $secret->seed(['v' => 'previous']);
+        $store    = $this->storeAgainst($secret);
+
+        $ours = $store->write('api_key', ['v' => 'ours']);
+        // The move fails without applying, and every read lags behind our write.
+        $secret->failNext('UpdateSecretVersionStage', 'InvalidRequestException');
+        $secret->staleReads($previous, $previous, $previous);
+
+        $before = count($secret->targets());
+
+        self::assertSame(AwsRestoreOutcome::Unconfirmed, $store->restoreToVersionIfCurrent('api_key', ['v' => 'previous'], $ours, $previous));
+
+        self::assertSame(['UpdateSecretVersionStage', 'GetSecretValue'], array_slice($secret->targets(), $before), 'one read of the replaced version decides: no read can confirm it');
+        self::assertSame($ours, $secret->versionLabelled('AWSCURRENT'), 'the move never applied');
+        self::assertSame(2, $secret->versionCount());
+    }
+
+    #[Test]
+    public function aMoveWhoseAnswerWasLostIsUnconfirmedNotApplied(): void
+    {
+        $secret   = new FakeSecretsManagerSecret(self::SECRET_NAME);
+        $previous = $secret->seed(['v' => 'previous']);
+        $store    = $this->storeAgainst($secret);
+
+        $ours = $store->write('api_key', ['v' => 'ours']);
+        // The move applies but its answer is lost; the SDK's retry is refused.
+        $secret->applyThenFail('UpdateSecretVersionStage');
+
+        self::assertSame(AwsRestoreOutcome::Unconfirmed, $store->restoreToVersionIfCurrent('api_key', ['v' => 'previous'], $ours, $previous), 'no move call succeeded');
+        self::assertSame($previous, $secret->versionLabelled('AWSCURRENT'));
+        self::assertSame(2, $secret->versionCount(), 'nothing was written');
+    }
+
+    #[Test]
+    public function aLaggingReadOfOurVersionAfterAnAppliedMoveLeadsToARefusedSecondMove(): void
+    {
+        $secret   = new FakeSecretsManagerSecret(self::SECRET_NAME);
+        $previous = $secret->seed(['v' => 'previous']);
+        $store    = $this->storeAgainst($secret);
+
+        $ours = $store->write('api_key', ['v' => 'ours']);
+        $secret->applyThenFail('UpdateSecretVersionStage');
+        $secret->staleReads($ours);
+
+        self::assertSame(AwsRestoreOutcome::NotApplied, $store->restoreToVersionIfCurrent('api_key', ['v' => 'previous'], $ours, $previous), 'the second move is refused');
+        self::assertSame($previous, $secret->versionLabelled('AWSCURRENT'), 'the first move did apply');
+        self::assertSame(2, $secret->versionCount(), 'nothing was written');
+    }
+
+    #[Test]
+    public function aRefusedMoveIsNotMistakenForALostAnswer(): void
+    {
+        $secret   = new FakeSecretsManagerSecret(self::SECRET_NAME);
+        $previous = $secret->seed(['v' => 'previous']);
+        $store    = $this->storeAgainst($secret);
+
+        $ours = $store->write('api_key', ['v' => 'ours']);
+        $secret->concurrentPutBeforeNextWrite(['v' => 'concurrent']);
+        $secret->applyThenFail('UpdateSecretVersionStage');
+
+        $before = count($secret->targets());
+
+        self::assertSame(AwsRestoreOutcome::OtherWriter, $store->restoreToVersionIfCurrent('api_key', ['v' => 'previous'], $ours, $previous));
+
+        self::assertSame(['UpdateSecretVersionStage', 'GetSecretValue', 'GetSecretValue', 'GetSecretValue'], array_slice($secret->targets(), $before), 'the refusal is answered as a refusal (no server error, so no SDK retry)');
+    }
+
+    #[Test]
+    public function readsThatNeverShowEitherVersionMeanAnotherWriter(): void
+    {
+        $secret   = new FakeSecretsManagerSecret(self::SECRET_NAME);
+        $previous = $secret->seed(['v' => 'previous']);
+        $store    = $this->storeAgainst($secret);
+
+        $ours = $store->write('api_key', ['v' => 'ours']);
+        $secret->failNext('UpdateSecretVersionStage', 'InvalidRequestException');
+        $secret->staleReads(self::OTHER_VERSION, self::OTHER_VERSION, self::OTHER_VERSION);
+
+        self::assertSame(AwsRestoreOutcome::OtherWriter, $store->restoreToVersionIfCurrent('api_key', ['v' => 'previous'], $ours, $previous));
+        self::assertSame([150_000, 150_000], $this->sleeps, 'the delays go through the injected sleep');
+    }
+
+    #[Test]
+    public function restoreIfCurrentReadsThenWrites(): void
+    {
+        $secret = new FakeSecretsManagerSecret(self::SECRET_NAME);
+        $secret->seed(['v' => 'previous']);
+
+        $store = $this->storeAgainst($secret);
+
+        $ours   = $store->write('api_key', ['v' => 'ours']);
+        $before = count($secret->targets());
+
+        self::assertTrue($store->restoreIfCurrent('api_key', ['v' => 'previous'], $ours));
+        self::assertSame(['GetSecretValue', 'PutSecretValue'], array_slice($secret->targets(), $before));
+        self::assertSame([], $this->warnings());
+    }
+
+    #[Test]
+    public function readWithVersionReturnsTheDocumentAndTheVersionFromOneResponse(): void
+    {
+        $secret  = new FakeSecretsManagerSecret(self::SECRET_NAME);
+        $version = $secret->seed(['v' => 'stored']);
+
+        self::assertSame(['data' => ['v' => 'stored'], 'versionId' => $version], $this->storeAgainst($secret)->readWithVersion('api_key'));
+        self::assertSame(['GetSecretValue'], $secret->targets());
+    }
+
+    #[Test]
+    public function readWithVersionOfAMissingSecretIsNull(): void
+    {
+        $secret = new FakeSecretsManagerSecret(self::SECRET_NAME);
+
+        self::assertNull($this->storeAgainst($secret)->readWithVersion('api_key'));
+    }
+
+    /**
+     * @param array<array-key, mixed> $context
+     */
+    public function record(string $level, string $message, array $context): void
+    {
+        $this->logged[] = [$level, $message, $context];
+    }
+
+    /**
      * @param array<array-key, mixed> $body
      */
     private function json(int $status, array $body): Response
@@ -600,6 +908,68 @@ final class AwsSecretsManagerStoreTest extends TestCase
                 $this->sleeps[] = $microseconds;
             },
             $this->logger,
+        );
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function warnings(): array
+    {
+        $warnings = [];
+        foreach ($this->logged as [$level, $message, $context]) {
+            if ($level === 'warning') {
+                $code       = $context['code'] ?? '';
+                $warnings[] = strtr($message, ['{code}' => is_string($code) ? $code : '']);
+            }
+        }
+
+        return $warnings;
+    }
+
+    /**
+     * @return list<mixed>
+     */
+    private function warningSecrets(): array
+    {
+        $secrets = [];
+        foreach ($this->logged as [$level, , $context]) {
+            if ($level === 'warning') {
+                $secrets[] = $context['secret'] ?? null;
+            }
+        }
+
+        return $secrets;
+    }
+
+    /**
+     * The store against a stateful fake of one secret, with a logger that
+     * records what it is told.
+     */
+    private function storeAgainst(FakeSecretsManagerSecret $secret): AwsSecretsManagerStore
+    {
+        // Like SecureHttpClientFactory: statuses are responses, not exceptions.
+        $client = new Client(['handler' => HandlerStack::create($secret), 'http_errors' => false]);
+
+        $configuration = $this->createMock(ExtensionConfigurationInterface::class);
+        $configuration->method('getAwsConfig')->willReturn(new AwsSecretsConfig(region: 'eu-central-1', secretPrefix: 'typo3/'));
+
+        $logger = new class ($this) extends AbstractLogger {
+            public function __construct(private readonly AwsSecretsManagerStoreTest $test) {}
+
+            public function log($level, string|Stringable $message, array $context = []): void
+            {
+                $this->test->record(is_string($level) ? $level : '', (string) $message, $context);
+            }
+        };
+
+        return new AwsSecretsManagerStore(
+            $configuration,
+            new AwsClientFactory($configuration, $client),
+            function (int $microseconds): void {
+                $this->sleeps[] = $microseconds;
+            },
+            $logger,
         );
     }
 }
