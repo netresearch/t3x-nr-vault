@@ -38,7 +38,10 @@ interface VaultServiceInterface
      *                                         - groups: int[] - BE user group UIDs allowed to access
      *                                         - context: string - Permission scoping
      *                                         - expiresAt: int|\DateTimeInterface|null - When secret expires
-     *                                         - metadata: array - Custom metadata; replaces the stored map
+     *                                         - metadata: array - Custom metadata; replaces the stored map.
+     *                                         A record link for orphan cleanup goes here, built by
+     *                                         SecretRecordLink::forField()/forFlexField(); top-level
+     *                                         table/field/uid options are not read
      *                                         - mergeMetadata: array - Custom metadata merged into the stored map
      *                                         (keys it names are replaced, others kept). The merge reads the map
      *                                         inside the store's own mutation; not together with metadata

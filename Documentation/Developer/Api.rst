@@ -543,6 +543,36 @@ service merges the entries into the map it reads inside the store's own
 mutation, so with the local storage adapter a metadata write committed by
 another vault call is kept. The two options cannot be combined.
 
+.. _api-example-record-link:
+
+Linking a secret to its record
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Orphan cleanup (the :guilabel:`Vault Orphan Cleanup` scheduler task and
+:ref:`vault:cleanup-orphans <command-cleanup-orphans>`) only considers secrets
+that carry a record link in their ``metadata``. Build the link with
+:php:`\Netresearch\NrVault\Domain\Dto\SecretRecordLink` and pass it as the
+``metadata`` option. Keys such as ``table``, ``field`` or ``uid`` passed at the
+top level of ``$options`` are not metadata; the service ignores them.
+
+.. code-block:: php
+   :caption: Store a secret with a record link
+
+   use Netresearch\NrVault\Domain\Dto\SecretRecordLink;
+
+   $this->vault->store($identifier, $value, [
+       'metadata' => SecretRecordLink::forField(
+           SecretRecordLink::SOURCE_TCA_FIELD,
+           'tx_myext_settings',
+           'api_key',
+           $recordUid,
+       ),
+   ]);
+
+The vault field hooks (TCA and FlexForm fields, record copies) and both
+migration paths write this link themselves. Inside a workspace the hooks link
+the live record, never the uid of a workspace version.
+
 .. _api-example-retrieving:
 
 Retrieving a secret

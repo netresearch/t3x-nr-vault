@@ -14,6 +14,7 @@ use Doctrine\DBAL\Schema\Column;
 use Doctrine\DBAL\Schema\Table;
 use Exception;
 use Netresearch\NrVault\Domain\Dto\MigrationResult;
+use Netresearch\NrVault\Domain\Dto\SecretRecordLink;
 use Netresearch\NrVault\Security\VaultPermission;
 use Netresearch\NrVault\Service\SecretDetectionService;
 use Netresearch\NrVault\Service\VaultServiceInterface;
@@ -535,10 +536,7 @@ final readonly class MigrationController
                 try {
                     // Store in vault
                     $this->vaultService->store($identifier, $value, [
-                        'source'         => 'migration',
-                        'originalTable'  => $table,
-                        'originalColumn' => $column,
-                        'originalUid'    => $uid,
+                        'metadata' => SecretRecordLink::forField(SecretRecordLink::SOURCE_MIGRATION, $table, $column, $uid),
                     ]);
 
                     // Update database with vault identifier

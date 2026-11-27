@@ -17,6 +17,7 @@ use Netresearch\NrVault\Hook\DataHandlerHook;
 use Netresearch\NrVault\Hook\FlexFormVaultHook;
 use Netresearch\NrVault\Hook\PendingSecretExtractor;
 use Netresearch\NrVault\Hook\PendingSecretPersister;
+use Netresearch\NrVault\Hook\RecordLinkFactory;
 use Netresearch\NrVault\Hook\VaultFailureReporter;
 use Netresearch\NrVault\Service\VaultFieldPermissionService;
 use Netresearch\NrVault\Service\VaultServiceInterface;
@@ -43,6 +44,7 @@ use TYPO3\CMS\Core\Messaging\FlashMessageQueue;
 use TYPO3\CMS\Core\Messaging\FlashMessageService;
 use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 
+use function array_keys;
 use function array_slice;
 use function count;
 use function sprintf;
@@ -125,6 +127,7 @@ final class DataHandlerHookTest extends TestCase
                 new VaultFailureReporter($this->failureLogger),
                 new TranslationSharedSecretResolver($this->connectionPool, $vaultFieldResolver),
             ),
+            new RecordLinkFactory($this->connectionPool, $this->tcaSchemaFactory),
         );
     }
 
@@ -272,10 +275,16 @@ final class DataHandlerHookTest extends TestCase
             ->with(
                 self::matchesRegularExpression(self::UUID_PATTERN),
                 'new-secret',
-                self::callback(static fn (array $options): bool => $options['table'] === 'tx_test'
-                    && $options['field'] === 'api_key'
-                    && $options['uid'] === 42
-                    && $options['source'] === 'tca_field'),
+                // The record link goes under `metadata`, the only key the
+                // service stores (#565).
+                [
+                    'metadata' => [
+                        'source' => 'tca_field',
+                        'table'  => 'tx_test',
+                        'field'  => 'api_key',
+                        'uid'    => 42,
+                    ],
+                ],
             );
 
         $this->subject->processDatamap_afterDatabaseOperations(
@@ -1452,10 +1461,12 @@ final class DataHandlerHookTest extends TestCase
             ->with(
                 self::matchesRegularExpression(self::UUID_PATTERN),
                 'the-secret-value',
-                self::callback(static fn (array $options): bool => $options['table'] === 'tx_test'
-                    && $options['field'] === 'api_key'
-                    && $options['uid'] === 100
-                    && $options['source'] === 'record_copy'),
+                self::callback(static fn (array $options): bool => array_keys($options) === ['metadata']
+                    && $options['metadata']['table'] === 'tx_test'
+                    && $options['metadata']['field'] === 'api_key'
+                    && $options['metadata']['uid'] === 100
+                    && $options['metadata']['source'] === 'record_copy'
+                    && isset($options['metadata']['copied_from'])),
             );
 
         // Update the copied record

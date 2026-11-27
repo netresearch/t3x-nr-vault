@@ -267,6 +267,16 @@ parameters:
 
 		-
 			rawMessage: '''
+				Call to deprecated method listTableColumns() of class Doctrine\DBAL\Schema\AbstractSchemaManager:
+				Use {@see introspectTableColumns()}, {@see introspectTableColumnsByUnquotedName()}
+				            or {@see introspectTableColumnsByQuotedName()} instead.
+			'''
+			identifier: method.deprecated
+			count: 1
+			path: ../Classes/Service/OrphanReferenceChecker.php
+
+		-
+			rawMessage: '''
 				Call to deprecated method getName() of class Doctrine\DBAL\Schema\AbstractAsset:
 				Use {@see NamedObject::getObjectName()} or {@see OptionallyQualifiedName::getObjectName()} instead.
 				            In SQL context, convert the resulting {@see Name} to SQL using {@see Name::toSQL()}. In other

@@ -10,12 +10,13 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Task;
 
 use Netresearch\NrVault\Domain\Dto\OrphanReference;
+use Netresearch\NrVault\Domain\Dto\SecretRecordLink;
 use Netresearch\NrVault\Domain\Repository\SecretRepositoryInterface;
+use Netresearch\NrVault\Service\OrphanReferenceChecker;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 use Throwable;
-use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Log\LogManager;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
@@ -91,6 +92,7 @@ final class OrphanCleanupTask extends AbstractTask
         $connectionPool = $this->getConnectionPool();
         $repository     = $this->getSecretRepository();
         $logger         = $this->getLogger();
+        $checker        = new OrphanReferenceChecker($connectionPool, $logger);
 
         $logger->info('Starting vault orphan cleanup', [
             'retentionDays' => $this->retentionDays,
@@ -129,9 +131,9 @@ final class OrphanCleanupTask extends AbstractTask
 
                 ++$checked;
 
-                // Only delete if the source record is gone AND the secret is
-                // older than the retention period.
-                if ($this->recordExists($connectionPool, $logger, $reference->table, $reference->uid) || $secret->getCrdate() >= $retentionCutoff) {
+                // Only delete if the secret is older than the retention period
+                // AND nothing references it any more (see OrphanReferenceChecker).
+                if ($secret->getCrdate() >= $retentionCutoff || !$checker->isOrphaned($reference, $secret->getIdentifier())) {
                     continue;
                 }
 
@@ -168,22 +170,14 @@ final class OrphanCleanupTask extends AbstractTask
 
     /**
      * Resolve a deletable orphan reference from a secret's metadata, or null
-     * when the secret is not a TCA-sourced candidate, has no parseable
-     * reference, or is excluded by the configured table filter.
+     * when the secret is no cleanup candidate (see SecretRecordLink) or is
+     * excluded by the configured table filter.
      *
      * @param array<string, mixed> $metadata Secret metadata
      */
     private function resolveOrphanReference(array $metadata): ?OrphanReference
     {
-        $source = $metadata['source'] ?? '';
-
-        // Only check TCA-sourced secrets
-        if ($source !== 'tca_field' && $source !== 'migration') {
-            return null;
-        }
-
-        // Extract reference from metadata (table, field, uid are stored by DataHandlerHook)
-        $reference = $this->parseMetadataReference($metadata);
+        $reference = SecretRecordLink::referenceFrom($metadata);
         if (!$reference instanceof OrphanReference) {
             return null;
         }
@@ -214,95 +208,6 @@ final class OrphanCleanupTask extends AbstractTask
             ]);
 
             return false;
-        }
-    }
-
-    /**
-     * Extract orphan reference from secret metadata.
-     *
-     * TCA-sourced secrets store their origin in metadata (table, field, uid)
-     * rather than encoding it in the identifier (which is a UUID).
-     *
-     * @param array<string, mixed> $metadata Secret metadata
-     */
-    private function parseMetadataReference(array $metadata): ?OrphanReference
-    {
-        $table = $metadata['table'] ?? '';
-        $field = $metadata['field'] ?? $metadata['flexField'] ?? '';
-        $uid   = $metadata['uid'] ?? null;
-
-        if (!is_string($table) || $table === '') {
-            return null;
-        }
-
-        if (!is_numeric($uid) || (int) $uid <= 0) {
-            return null;
-        }
-
-        return new OrphanReference(
-            table: $table,
-            field: is_string($field) ? $field : '',
-            uid: (int) $uid,
-        );
-    }
-
-    /**
-     * Does the referenced source record still exist?
-     *
-     * Fails CLOSED. Only a successful lookup against an existing table that
-     * returns no row may answer false, because false is a DELETE trigger:
-     * the caller reads it as "the source is gone, retire the secret". A
-     * reference the task cannot resolve — a table that does not exist, a
-     * lookup that errors — proves nothing about the source and must answer
-     * true, leaving the secret alone.
-     *
-     * This matters because the reference is not trusted input. It comes from
-     * the secret's `metadata` column, which is editable through the
-     * FormEngine; before this hardening a crafted table name was enough to
-     * make the scheduler delete a secret on the attacker's behalf, with the
-     * task as the recorded actor. `metadata` is a privileged column in
-     * `SecretTcaHook` for the same reason — both halves are needed: the gate
-     * keeps the payload out, this keeps an unresolvable payload from being
-     * read as evidence.
-     */
-    private function recordExists(
-        ConnectionPool $connectionPool,
-        LoggerInterface $logger,
-        string $table,
-        int $uid,
-    ): bool {
-        try {
-            $connection = $connectionPool->getConnectionByName(ConnectionPool::DEFAULT_CONNECTION_NAME);
-            if (!$connection->createSchemaManager()->tablesExist([$table])) {
-                $logger->warning('Orphan reference names an unknown table; keeping the secret', [
-                    'table' => $table,
-                    'uid'   => $uid,
-                ]);
-
-                return true;
-            }
-
-            $queryBuilder = $connectionPool->getQueryBuilderForTable($table);
-            $queryBuilder->getRestrictions()->removeAll();
-
-            $count = $queryBuilder
-                ->count('*')
-                ->from($table)
-                ->where(
-                    $queryBuilder->expr()->eq('uid', $queryBuilder->createNamedParameter($uid, Connection::PARAM_INT)),
-                )
-                ->executeQuery()
-                ->fetchOne();
-
-            return $count > 0;
-        } catch (Throwable $e) {
-            $logger->warning('Orphan reference could not be resolved; keeping the secret', [
-                'table' => $table,
-                'uid'   => $uid,
-                'error' => $e->getMessage(),
-            ]);
-
-            return true;
         }
     }
 

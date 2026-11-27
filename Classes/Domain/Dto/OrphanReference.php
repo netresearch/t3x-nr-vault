@@ -19,10 +19,15 @@ use function sprintf;
  */
 readonly class OrphanReference
 {
+    /**
+     * @param bool $flexForm The field is a FlexForm column whose XML contains
+     *                       the identifier, not a column holding it as value
+     */
     public function __construct(
         public string $table,
         public string $field,
         public int $uid,
+        public bool $flexForm = false,
     ) {}
 
     /**

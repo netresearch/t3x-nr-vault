@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Command;
 
+use Netresearch\NrVault\Domain\Dto\SecretRecordLink;
 use Netresearch\NrVault\Exception\VaultException;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Netresearch\NrVault\Utility\IdentifierValidator;
@@ -266,13 +267,14 @@ final class VaultMigrateFieldCommand extends Command
                 try {
                     $identifier = IdentifierValidator::generateUuid();
 
-                    // Store in vault
+                    // Store in vault. The record link names the `uid` column,
+                    // which orphan cleanup looks the record up by; a value from
+                    // another --uid-field column would point it at the wrong
+                    // record, so such a secret gets no link.
                     $this->vaultService->store($identifier, $valueStr, [
-                        'table'       => $table,
-                        'field'       => $field,
-                        'uid'         => $uidInt,
-                        'source'      => 'migration',
-                        'migrated_at' => time(),
+                        'metadata' => $uidField === 'uid'
+                            ? SecretRecordLink::forField(SecretRecordLink::SOURCE_MIGRATION, $table, $field, $uidInt, ['migrated_at' => time()])
+                            : ['migrated_at' => time()],
                     ]);
 
                     // Optionally clear source field

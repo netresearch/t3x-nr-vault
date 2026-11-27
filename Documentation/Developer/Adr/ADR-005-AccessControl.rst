@@ -276,8 +276,9 @@ owner holding ``secret.manage_policy``:
    and clearing it revives a retired one.
 
 ``metadata``
-   Machine-consumed provenance that :php:`OrphanCleanupTask` reads to decide
-   whether a secret is an orphan to delete.
+   Machine-consumed provenance: the record link that :php:`OrphanCleanupTask`
+   and ``vault:cleanup-orphans`` read to decide whether a secret is an orphan
+   to delete (see :php:`SecretRecordLink`).
 
 ``context``
    The inventory dimension the listing and analytics filter on.
