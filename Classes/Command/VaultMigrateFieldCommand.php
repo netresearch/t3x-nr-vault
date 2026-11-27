@@ -9,12 +9,8 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Command;
 
-use Doctrine\DBAL\Exception as DbalException;
 use Doctrine\DBAL\Schema\Column;
-use Doctrine\DBAL\Types\StringType;
-use Doctrine\DBAL\Types\TextType;
-use Netresearch\NrVault\Domain\Dto\SecretRecordLink;
-use Netresearch\NrVault\Exception\VaultException;
+use Netresearch\NrVault\Service\FieldValueMigrator;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Netresearch\NrVault\Utility\IdentifierValidator;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -25,6 +21,7 @@ use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
+use Throwable;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 
 use function array_slice;
@@ -55,10 +52,14 @@ final class VaultMigrateFieldCommand extends Command
     /** Length of the UUID v7 identifiers this command writes. */
     private const IDENTIFIER_LENGTH = 36;
 
+    private readonly FieldValueMigrator $migrator;
+
     public function __construct(
         private readonly VaultServiceInterface $vaultService,
         private readonly ConnectionPool $connectionPool,
+        ?FieldValueMigrator $migrator = null,
     ) {
+        $this->migrator = $migrator ?? new FieldValueMigrator($vaultService, $connectionPool);
         parent::__construct();
     }
 
@@ -159,7 +160,7 @@ final class VaultMigrateFieldCommand extends Command
         }
 
         // Validate field exists
-        $column = $this->findColumn($table, $field);
+        $column = $this->migrator->findColumn($table, $field);
         if (!$column instanceof Column) {
             $io->error(sprintf('Field "%s" does not exist in table "%s"', $field, $table));
 
@@ -169,9 +170,31 @@ final class VaultMigrateFieldCommand extends Command
         // The field receives the identifier. A column too narrow for it would
         // truncate it (non-strict SQL) or reject it (strict SQL), and either
         // way the stored secret would be unreferenced.
-        $columnProblem = $this->columnProblem($column);
+        $columnProblem = $this->migrator->columnProblem($column, self::IDENTIFIER_LENGTH);
         if ($columnProblem !== null) {
             $io->error(sprintf('Field "%s" cannot hold a vault identifier: %s. Widen the column first.', $field, $columnProblem));
+
+            return Command::FAILURE;
+        }
+
+        // The UPDATE finds the row by --uid-field. A value shared by several
+        // rows would write one identifier into all of them and overwrite
+        // their plaintexts.
+        if (!$this->migrator->findColumn($table, $uidField) instanceof Column) {
+            $io->error(sprintf('Field "%s" (--uid-field) does not exist in table "%s"', $uidField, $table));
+
+            return Command::FAILURE;
+        }
+
+        $duplicates = $this->migrator->countRowsWithDuplicateKey($table, $uidField);
+        if ($duplicates === null) {
+            $io->error(sprintf('Could not check that --uid-field "%s" is unique.', $uidField));
+
+            return Command::FAILURE;
+        }
+
+        if ($duplicates > 0) {
+            $io->error(sprintf('--uid-field "%s" is not unique: %d row(s) share their value with another row. Use a unique column.', $uidField, $duplicates));
 
             return Command::FAILURE;
         }
@@ -289,15 +312,26 @@ final class VaultMigrateFieldCommand extends Command
                 // The field already holds the identifier of an existing secret
                 // (an earlier run, or --force): wrapping it in a new secret
                 // would leave that secret unreferenced, and orphan cleanup
-                // would delete it.
-                if ($this->isExistingVaultIdentifier($valueStr)) {
+                // would delete it. When the vault cannot answer, the record
+                // fails instead of being migrated blind.
+                try {
+                    $isExistingIdentifier = $this->isExistingVaultIdentifier($valueStr);
+                } catch (Throwable $e) {
+                    ++$failed;
+                    $errors[] = sprintf('UID %d: could not check whether the value is a vault identifier: %s', $uidInt, $e->getMessage());
+                    $progressBar->advance();
+
+                    continue;
+                }
+
+                if ($isExistingIdentifier) {
                     $skipped[] = ['uid' => $uidInt, 'identifier' => $valueStr];
                     $progressBar->advance();
 
                     continue;
                 }
 
-                $error = $this->migrateRecord($table, $field, $uidField, $uidInt, $valueStr);
+                $error = $this->migrator->migrate($table, $field, $uidField, (string) $uid, $valueStr, IdentifierValidator::generateUuid());
                 if ($error === null) {
                     ++$migrated;
                 } else {
@@ -317,56 +351,6 @@ final class VaultMigrateFieldCommand extends Command
         }
 
         return ['migrated' => $migrated, 'failed' => $failed, 'errors' => $errors, 'skipped' => $skipped];
-    }
-
-    /**
-     * Store one value and replace it with the identifier. Returns null on
-     * success, otherwise the reason the record failed.
-     */
-    private function migrateRecord(string $table, string $field, string $uidField, int $uid, string $value): ?string
-    {
-        $identifier = IdentifierValidator::generateUuid();
-
-        try {
-            $this->vaultService->store($identifier, $value, [
-                'metadata' => $this->buildMetadata($table, $field, $uidField, $uid),
-            ]);
-        } catch (VaultException $e) {
-            return $e->getMessage();
-        }
-
-        // Replace the plaintext with the identifier: the vault field resolves
-        // the secret through it. Read it back, because non-strict SQL
-        // truncates silently and a WHERE on --uid-field may match no row.
-        try {
-            $this->writeIdentifier($table, $field, $uidField, $uid, $identifier);
-            $written = $this->readField($table, $field, $uidField, $uid);
-        } catch (DbalException $e) {
-            return $this->discardStoredSecret($identifier, 'the field could not be updated: ' . $e->getMessage());
-        }
-
-        if ($written !== $identifier) {
-            return $this->discardStoredSecret($identifier, 'the field does not hold the identifier after the update');
-        }
-
-        return null;
-    }
-
-    /**
-     * The field kept its plaintext, so the secret just stored is referenced
-     * by nothing. Delete it now: a secret stored without a record link
-     * (--uid-field other than uid) is invisible to orphan cleanup and would
-     * otherwise stay forever.
-     */
-    private function discardStoredSecret(string $identifier, string $reason): string
-    {
-        try {
-            $this->vaultService->delete($identifier, 'vault:migrate-field: ' . $reason);
-        } catch (VaultException $e) {
-            return sprintf('%s; the stored secret %s could not be deleted: %s', $reason, $identifier, $e->getMessage());
-        }
-
-        return $reason . '; the stored secret was deleted again';
     }
 
     private function isExistingVaultIdentifier(string $value): bool
@@ -402,42 +386,7 @@ final class VaultMigrateFieldCommand extends Command
 
     private function fieldExists(string $table, string $field): bool
     {
-        return $this->findColumn($table, $field) instanceof Column;
-    }
-
-    /**
-     * DBAL keys the list by the lower-cased, platform-QUOTED name: a reserved
-     * word arrives as `key` or "key". Strip the quotes to find the column.
-     */
-    private function findColumn(string $table, string $field): ?Column
-    {
-        $connection = $this->connectionPool->getConnectionByName(ConnectionPool::DEFAULT_CONNECTION_NAME);
-
-        foreach ($connection->createSchemaManager()->listTableColumns($table) as $key => $column) {
-            if (trim((string) $key, '`"[]') === strtolower($field)) {
-                return $column;
-            }
-        }
-
-        return null;
-    }
-
-    /**
-     * Why the column cannot hold an identifier, or null when it can.
-     */
-    private function columnProblem(Column $column): ?string
-    {
-        $type = $column->getType();
-        if (!$type instanceof StringType && !$type instanceof TextType) {
-            return 'it is not a text column';
-        }
-
-        $length = $column->getLength();
-        if ($length !== null && $length < self::IDENTIFIER_LENGTH) {
-            return sprintf('it holds at most %d characters, an identifier needs %d', $length, self::IDENTIFIER_LENGTH);
-        }
-
-        return null;
+        return $this->migrator->findColumn($table, $field) instanceof Column;
     }
 
     /**
@@ -530,48 +479,5 @@ final class VaultMigrateFieldCommand extends Command
         }
 
         return str_repeat('*', $maxLength - 3) . '...';
-    }
-
-    /**
-     * The record link names the `uid` column, which orphan cleanup looks the
-     * record up by. A value from another --uid-field column would point the
-     * cleanup at the wrong record, so such a secret gets no link.
-     *
-     * @return array<string, mixed>
-     */
-    private function buildMetadata(string $table, string $field, string $uidField, int $uid): array
-    {
-        if ($uidField !== 'uid') {
-            return ['migrated_at' => time()];
-        }
-
-        return SecretRecordLink::forField(SecretRecordLink::SOURCE_MIGRATION, $table, $field, $uid, ['migrated_at' => time()]);
-    }
-
-    private function readField(string $table, string $field, string $uidField, int $uid): mixed
-    {
-        $queryBuilder = $this->connectionPool->getQueryBuilderForTable($table);
-        $queryBuilder->getRestrictions()->removeAll();
-
-        return $queryBuilder
-            ->select($field)
-            ->from($table)
-            ->where(
-                $queryBuilder->expr()->eq($uidField, $queryBuilder->createNamedParameter($uid)),
-            )
-            ->executeQuery()
-            ->fetchOne();
-    }
-
-    private function writeIdentifier(string $table, string $field, string $uidField, int $uid, string $identifier): void
-    {
-        $queryBuilder = $this->connectionPool->getQueryBuilderForTable($table);
-        $queryBuilder
-            ->update($table)
-            ->set($field, $identifier)
-            ->where(
-                $queryBuilder->expr()->eq($uidField, $queryBuilder->createNamedParameter($uid)),
-            )
-            ->executeStatement();
     }
 }

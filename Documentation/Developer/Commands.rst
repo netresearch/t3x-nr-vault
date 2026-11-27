@@ -1098,20 +1098,40 @@ Migrate existing plaintext database field values to vault storage.
 
 Each value is stored as a new vault secret, and the field is updated to hold
 that secret's identifier instead of the plaintext, which is what a
-``vaultSecret`` field resolves. The command reads the field back after the
-update; when it does not hold the identifier (a truncating column, a
-``--uid-field`` that matches no row), the record counts as failed and the
-secret just stored is deleted again.
+``vaultSecret`` field resolves. Code that read the plaintext from the column
+must resolve the identifier through the vault after the migration.
+
+The value is never left without a copy:
+
+*  The command reads the field back after the update. A CHAR column's padding
+   counts as a match.
+*  The secret gets its record link only once the field holds the identifier.
+   Orphan cleanup deletes only linked secrets, so a secret kept after a failed
+   write stays until you remove it.
+*  When the update matched no row, the field still holds the plaintext and the
+   secret just stored is deleted again.
+*  When the update changed the field but the read-back differs (a truncating
+   column), the command writes the original value back and reads it back. Only
+   then does it delete the secret. If that fails, the secret is kept and named
+   in the error list: it holds the value.
+*  When the update changed more than one row, or the read-back fails, the
+   record counts as failed and the secret is kept and named.
 
 Hidden and time-restricted records are migrated too; deleted records are not.
 Before anything is stored, the command refuses a field that is not a text
-column or is too short for an identifier (36 characters).
+column or is too short for an identifier (36 characters), and a
+``--uid-field`` that does not exist or whose value several rows share.
 
 A run skips values that already have the UUID v7 format of a migrated field
 unless ``--force`` is given. Even with ``--force`` it never wraps a value that
 is the identifier of an existing secret in a new one, because the existing
 secret would then be referenced by nothing; such records are listed as
-skipped.
+skipped. When the vault cannot answer whether a value is such an identifier,
+that record counts as failed and the run continues.
+
+The backend migration module moves values with the same safeguards. Its
+identifier comes from a pattern, so it also refuses a row whose identifier
+already names a secret, and checks the column width per identifier.
 
 .. code-block:: bash
    :caption: Command syntax
@@ -1151,7 +1171,8 @@ Options
    the vault identifier; clearing the field would leave the secret unreachable.
 
 --uid-field=NAME
-   Name of the UID field (default: uid). Only with ``uid`` does a migrated
+   Name of the UID field (default: uid). Its values must be unique: the update
+   finds the record by this column. Only with ``uid`` does a migrated
    secret get the record link that orphan cleanup reads, because the link names
    a record by its ``uid`` column and a value from another column would name the
    wrong record. With any other column the secret is stored without a link and
@@ -1198,8 +1219,8 @@ sources ``tca_field``, ``record_copy``, ``flexform_field``,
 following hold:
 
 *  it is older than ``--retention-days``, and in any case older than 15
-   minutes. Writers such as record copies and the migrations store a secret
-   a moment before they write its identifier into the record; the minimum
+   minutes. Writers such as record copies store a secret a moment before
+   they write its identifier into the record; the minimum
    age keeps a cleanup running in that moment from deleting it, even with
    ``--retention-days=0``;
 *  no row of the linked table, deleted rows included, holds the identifier in

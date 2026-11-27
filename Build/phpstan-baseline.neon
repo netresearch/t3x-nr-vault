@@ -31,16 +31,6 @@ parameters:
 			path: ../Classes/Command/VaultInitCommand.php
 
 		-
-			rawMessage: '''
-				Call to deprecated method listTableColumns() of class Doctrine\DBAL\Schema\AbstractSchemaManager:
-				Use {@see introspectTableColumns()}, {@see introspectTableColumnsByUnquotedName()}
-				            or {@see introspectTableColumnsByQuotedName()} instead.
-			'''
-			identifier: method.deprecated
-			count: 1
-			path: ../Classes/Command/VaultMigrateFieldCommand.php
-
-		-
 			rawMessage: 'Parameter #2 of function sprintf is expected to be int by placeholder #1 ("%%d"), int|string given.'
 			identifier: argument.type
 			count: 1
@@ -264,6 +254,16 @@ parameters:
 			identifier: ternary.shortNotAllowed
 			count: 3
 			path: ../Classes/Http/SecureHttpClientFactory.php
+
+		-
+			rawMessage: '''
+				Call to deprecated method listTableColumns() of class Doctrine\DBAL\Schema\AbstractSchemaManager:
+				Use {@see introspectTableColumns()}, {@see introspectTableColumnsByUnquotedName()}
+				            or {@see introspectTableColumnsByQuotedName()} instead.
+			'''
+			identifier: method.deprecated
+			count: 1
+			path: ../Classes/Service/FieldValueMigrator.php
 
 		-
 			rawMessage: '''

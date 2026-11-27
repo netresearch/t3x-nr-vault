@@ -14,10 +14,9 @@ use Doctrine\DBAL\Schema\Column;
 use Doctrine\DBAL\Schema\Table;
 use Exception;
 use Netresearch\NrVault\Domain\Dto\MigrationResult;
-use Netresearch\NrVault\Domain\Dto\SecretRecordLink;
 use Netresearch\NrVault\Security\VaultPermission;
+use Netresearch\NrVault\Service\FieldValueMigrator;
 use Netresearch\NrVault\Service\SecretDetectionService;
-use Netresearch\NrVault\Service\VaultServiceInterface;
 use Netresearch\NrVault\Utility\IdentifierValidator;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -44,6 +43,7 @@ use function is_int;
 use function is_object;
 use function is_string;
 use function sprintf;
+use function strlen;
 
 /**
  * Backend module controller for secret migration wizard.
@@ -67,6 +67,9 @@ final readonly class MigrationController
      */
     private const ALLOWED_ACTIONS = ['index', 'scan', 'review', 'configure', 'execute', 'verify'];
 
+    /** Failed rows whose reason a column's result carries. */
+    private const MAX_REPORTED_ERRORS = 10;
+
     private const LL_PREFIX = 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:';
 
     private const LL_TABS_TAB = self::LL_PREFIX . 'mlang_tabs_tab';
@@ -74,13 +77,13 @@ final readonly class MigrationController
     public function __construct(
         private ModuleTemplateFactory $moduleTemplateFactory,
         private SecretDetectionService $detectionService,
-        private VaultServiceInterface $vaultService,
         private ConnectionPool $connectionPool,
         private UriBuilder $uriBuilder,
         private FlashMessageService $flashMessageService,
         private IconFactory $iconFactory,
         private PageRenderer $pageRenderer,
         private ModuleAccessGuard $accessGuard,
+        private FieldValueMigrator $fieldValueMigrator,
     ) {}
 
     /**
@@ -481,6 +484,7 @@ final readonly class MigrationController
         $migrated = 0;
         $failed   = 0;
         $skipped  = 0;
+        $errors   = [];
 
         // Validate table and column names against database schema to prevent SQL injection
         try {
@@ -506,17 +510,28 @@ final readonly class MigrationController
             return MigrationResult::error($table, $column, 'Schema validation failed');
         }
 
+        $columnSchema = $this->fieldValueMigrator->findColumn($table, $column);
+        if (!$columnSchema instanceof Column) {
+            return MigrationResult::error($table, $column, 'Invalid column name');
+        }
+
         try {
             $queryBuilder = $this->connectionPool->getQueryBuilderForTable($table);
-            $rows         = $queryBuilder
+            // Hidden and time-restricted records hold plaintext secrets too;
+            // only deleted records stay out.
+            $queryBuilder->getRestrictions()->removeAll();
+            $queryBuilder
                 ->select('uid', $column)
                 ->from($table)
                 ->where(
                     $queryBuilder->expr()->isNotNull($column),
                     $queryBuilder->expr()->neq($column, $queryBuilder->createNamedParameter('')),
-                )
-                ->executeQuery()
-                ->fetchAllAssociative();
+                );
+            if ($this->fieldValueMigrator->findColumn($table, 'deleted') instanceof Column) {
+                $queryBuilder->andWhere($queryBuilder->expr()->eq('deleted', 0));
+            }
+
+            $rows = $queryBuilder->executeQuery()->fetchAllAssociative();
 
             foreach ($rows as $row) {
                 $uidVal   = $row['uid'] ?? 0;
@@ -533,33 +548,37 @@ final readonly class MigrationController
                 // Generate identifier from pattern
                 $identifier = str_replace('{uid}', (string) $uid, $identifierPattern);
 
-                try {
-                    // Store in vault
-                    $this->vaultService->store($identifier, $value, [
-                        'metadata' => SecretRecordLink::forField(SecretRecordLink::SOURCE_MIGRATION, $table, $column, $uid),
-                    ]);
+                // An earlier run already migrated this row.
+                if ($value === $identifier) {
+                    ++$skipped;
+                    continue;
+                }
 
-                    // Update database with vault identifier
-                    $updateBuilder = $this->connectionPool->getQueryBuilderForTable($table);
-                    $updateBuilder
-                        ->update($table)
-                        ->set($column, $identifier)
-                        ->where($updateBuilder->expr()->eq('uid', $uid))
-                        ->executeStatement();
-
+                // A column narrower than the identifier would truncate it,
+                // and the row would lose its plaintext to a broken reference.
+                $error = $this->fieldValueMigrator->columnProblem($columnSchema, strlen($identifier))
+                    ?? $this->fieldValueMigrator->migrate($table, $column, 'uid', (string) $uid, $value, $identifier);
+                if ($error === null) {
                     ++$migrated;
-
-                    // Clear original if requested (update already done above with identifier)
-                    // The column now contains the vault identifier, not the original value
-                } catch (Exception) {
+                } else {
                     ++$failed;
+                    $errors[] = sprintf('uid %d: %s', $uid, $error);
                 }
             }
         } catch (DbalException $e) {
             return MigrationResult::error($table, $column, $e->getMessage());
         }
 
-        return MigrationResult::withFailures($table, $column, $migrated, $failed, $skipped);
+        // The reasons name any secret kept as the only copy of a value.
+        $error = null;
+        if ($errors !== []) {
+            $error = implode('; ', array_slice($errors, 0, self::MAX_REPORTED_ERRORS));
+            if (count($errors) > self::MAX_REPORTED_ERRORS) {
+                $error .= sprintf('; and %d more', count($errors) - self::MAX_REPORTED_ERRORS);
+            }
+        }
+
+        return new MigrationResult($table, $column, $migrated, $failed, $skipped, $error);
     }
 
     /**

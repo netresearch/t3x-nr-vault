@@ -13,6 +13,7 @@ use Doctrine\DBAL\Schema\Table;
 use Doctrine\DBAL\Types\Types;
 use Netresearch\NrVault\Controller\MigrationController;
 use Netresearch\NrVault\Domain\Dto\MigrationResult;
+use Netresearch\NrVault\Service\FieldValueMigrator;
 use Netresearch\NrVault\Service\SecretDetectionServiceInterface;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Netresearch\NrVault\Tests\Functional\AbstractVaultFunctionalTestCase;
@@ -29,6 +30,7 @@ use TYPO3\CMS\Core\Database\ConnectionPool;
  * These tests verify that the controller's dependencies are properly configured.
  */
 #[CoversClass(MigrationController::class)]
+#[CoversClass(FieldValueMigrator::class)]
 final class MigrationControllerTest extends AbstractVaultFunctionalTestCase
 {
     private const FIXTURE_TABLE = 'tx_nrvault_test_migration';
@@ -152,9 +154,13 @@ final class MigrationControllerTest extends AbstractVaultFunctionalTestCase
             ->select(['metadata'], 'tx_nrvault_secret', ['identifier' => $expectedIdentifier])
             ->fetchOne();
         self::assertIsString($metadataJson);
+        $metadata = json_decode($metadataJson, true);
+        self::assertIsArray($metadata);
+        self::assertIsInt($metadata['migrated_at'] ?? null);
+        unset($metadata['migrated_at']);
         self::assertSame(
             ['source' => 'migration', 'table' => self::FIXTURE_TABLE, 'field' => self::FIXTURE_COLUMN, 'uid' => $uid],
-            json_decode($metadataJson, true),
+            $metadata,
         );
 
         $vaultService->delete($expectedIdentifier, 'test cleanup');
@@ -195,6 +201,57 @@ final class MigrationControllerTest extends AbstractVaultFunctionalTestCase
     }
 
     /**
+     * A column narrower than the identifier would truncate it: the row fails,
+     * keeps its plaintext, and nothing is stored (#565).
+     */
+    #[Test]
+    public function migrateColumnRefusesAColumnTooNarrowForTheIdentifier(): void
+    {
+        $this->createMigrationFixtureTable();
+        $connection = $this->get(ConnectionPool::class)->getConnectionForTable(self::FIXTURE_TABLE);
+        $connection->insert(self::FIXTURE_TABLE, ['narrow' => 'short-secret']);
+
+        $uid = (int) $connection->lastInsertId();
+
+        $identifier = 'a_rather_long_identifier_' . $uid;
+        $result     = $this->invokeMigrateColumn(self::FIXTURE_TABLE, 'narrow', 'a_rather_long_identifier_{uid}');
+
+        self::assertSame(0, $result->migrated);
+        self::assertSame(1, $result->failed);
+        self::assertStringContainsString('holds at most 20 characters', $result->error ?? '');
+        self::assertSame('short-secret', $connection->select(['narrow'], self::FIXTURE_TABLE, ['uid' => $uid])->fetchOne());
+        self::assertFalse($this->get(VaultServiceInterface::class)->exists($identifier));
+    }
+
+    /**
+     * An identifier that already names a secret must not overwrite it: the
+     * row fails and both the secret and the row keep their values (#565).
+     */
+    #[Test]
+    public function migrateColumnDoesNotOverwriteAnExistingSecret(): void
+    {
+        $this->createMigrationFixtureTable();
+        $connection = $this->get(ConnectionPool::class)->getConnectionForTable(self::FIXTURE_TABLE);
+        $connection->insert(self::FIXTURE_TABLE, [self::FIXTURE_COLUMN => 'row-plaintext']);
+
+        $uid = (int) $connection->lastInsertId();
+
+        $identifier   = self::FIXTURE_TABLE . '__taken__' . $uid;
+        $vaultService = $this->get(VaultServiceInterface::class);
+        $vaultService->store($identifier, 'someone-elses-secret');
+
+        $result = $this->invokeMigrateColumn(self::FIXTURE_TABLE, self::FIXTURE_COLUMN, self::FIXTURE_TABLE . '__taken__{uid}');
+
+        self::assertSame(0, $result->migrated);
+        self::assertSame(1, $result->failed);
+        self::assertStringContainsString('already exists', $result->error ?? '');
+        self::assertSame('someone-elses-secret', $vaultService->retrieve($identifier));
+        self::assertSame('row-plaintext', $connection->select([self::FIXTURE_COLUMN], self::FIXTURE_TABLE, ['uid' => $uid])->fetchOne());
+
+        $vaultService->delete($identifier, 'test cleanup');
+    }
+
+    /**
      * Invoke the private `MigrationController::migrateColumn()` via reflection.
      * The full backend-module render path (`handleRequest`/`configureAction`)
      * needs a module routing attribute on the request that functional tests do
@@ -229,6 +286,7 @@ final class MigrationControllerTest extends AbstractVaultFunctionalTestCase
         $table = new Table(self::FIXTURE_TABLE);
         $table->addColumn('uid', Types::INTEGER, ['autoincrement' => true, 'unsigned' => true]);
         $table->addColumn(self::FIXTURE_COLUMN, Types::TEXT, ['notnull' => false]);
+        $table->addColumn('narrow', Types::STRING, ['length' => 20, 'notnull' => false]);
         $table->setPrimaryKey(['uid']);
 
         $schemaManager->createTable($table);

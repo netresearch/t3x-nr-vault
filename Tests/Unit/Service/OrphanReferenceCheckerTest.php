@@ -67,9 +67,6 @@ final class OrphanReferenceCheckerTest extends TestCase
     /** What the authoritative holder count (eq or LIKE) returns. */
     private int $holderCount = 0;
 
-    /** @var list<string> What the load of a plain column's values returns. */
-    private array $heldValues = [];
-
     protected function setUp(): void
     {
         parent::setUp();
@@ -85,7 +82,6 @@ final class OrphanReferenceCheckerTest extends TestCase
 
         $result = $this->createMock(Result::class);
         $result->method('fetchOne')->willReturnCallback(fn (): mixed => $this->isCounting ? $this->holderCount : $this->linkedRowValue);
-        $result->method('fetchFirstColumn')->willReturnCallback(fn (): array => $this->heldValues);
 
         $this->queryBuilder = $this->createMock(QueryBuilder::class);
         $this->queryBuilder->method('getRestrictions')->willReturn($this->createMock(QueryRestrictionContainerInterface::class));
@@ -99,7 +95,6 @@ final class OrphanReferenceCheckerTest extends TestCase
 
             return $this->queryBuilder;
         });
-        $this->queryBuilder->method('distinct')->willReturnSelf();
         $this->queryBuilder->method('from')->willReturnSelf();
         $this->queryBuilder->method('where')->willReturnSelf();
         $this->queryBuilder->method('expr')->willReturn($this->expressionBuilder);
@@ -113,11 +108,11 @@ final class OrphanReferenceCheckerTest extends TestCase
     }
 
     #[Test]
-    public function aSecretItsLinkedRowHoldsIsKeptWithoutScanningTheTable(): void
+    public function aSecretItsLinkedRowHoldsIsKeptWithoutTheCount(): void
     {
         $this->mockTable(['uid', 'api_key']);
         $this->linkedRowValue = self::IDENTIFIER;
-        $this->queryBuilder->expects(self::never())->method('distinct');
+        $this->queryBuilder->expects(self::never())->method('count');
 
         self::assertFalse($this->checker()->isOrphaned($this->reference(), self::IDENTIFIER));
     }
@@ -127,7 +122,7 @@ final class OrphanReferenceCheckerTest extends TestCase
     {
         $this->mockTable(['uid', 'api_key']);
         $this->linkedRowValue = '';
-        $this->heldValues     = [self::OTHER_IDENTIFIER];
+        $this->holderCount    = 0;
 
         self::assertTrue($this->checker()->isOrphaned($this->reference(), self::IDENTIFIER));
     }
@@ -137,7 +132,7 @@ final class OrphanReferenceCheckerTest extends TestCase
     {
         $this->mockTable(['uid', 'api_key']);
         $this->linkedRowValue = '';
-        $this->heldValues     = [self::OTHER_IDENTIFIER, self::IDENTIFIER];
+        $this->holderCount    = 1;
 
         self::assertFalse($this->checker()->isOrphaned($this->reference(), self::IDENTIFIER));
     }
@@ -151,8 +146,7 @@ final class OrphanReferenceCheckerTest extends TestCase
     public function aHolderOnlyTheDatabaseMatchesKeepsTheSecret(): void
     {
         $this->mockTable(['uid', 'api_key']);
-        $this->linkedRowValue = strtoupper(self::IDENTIFIER);
-        $this->heldValues     = [strtoupper(self::IDENTIFIER) . ' '];
+        $this->linkedRowValue = strtoupper(self::IDENTIFIER) . ' ';
         $this->holderCount    = 1;
         $this->queryBuilder->expects(self::once())->method('count')->willReturnCallback(function (): QueryBuilder {
             $this->isCounting = true;
@@ -163,40 +157,30 @@ final class OrphanReferenceCheckerTest extends TestCase
         self::assertFalse($this->checker()->isOrphaned($this->reference(), self::IDENTIFIER));
     }
 
-    /**
-     * A fast-path hit answers "held" without the authoritative count.
-     */
-    #[Test]
-    public function aFastPathHitNeedsNoCount(): void
-    {
-        $this->mockTable(['uid', 'api_key']);
-        $this->linkedRowValue = '';
-        $this->heldValues     = [self::IDENTIFIER];
-        $this->queryBuilder->expects(self::never())->method('count');
-
-        self::assertFalse($this->checker()->isOrphaned($this->reference(), self::IDENTIFIER));
-    }
-
     #[Test]
     public function aSecretWhoseLinkedRowIsGoneIsCheckedAgainstTheOtherRows(): void
     {
         $this->mockTable(['uid', 'api_key']);
         $this->linkedRowValue = false;
-        $this->heldValues     = [self::IDENTIFIER];
+        $this->holderCount    = 1;
 
         self::assertFalse($this->checker()->isOrphaned($this->reference(), self::IDENTIFIER));
     }
 
     /**
-     * The values of a plain column are loaded once per run, not queried per
-     * secret.
+     * Every secret its linked row does not hold costs one count; no column is
+     * loaded into memory.
      */
     #[Test]
-    public function theValuesOfAColumnAreLoadedOncePerRun(): void
+    public function eachSecretTheLinkedRowDoesNotHoldIsCountedOnce(): void
     {
         $this->mockTable(['uid', 'api_key']);
         $this->linkedRowValue = '';
-        $this->queryBuilder->expects(self::once())->method('distinct')->willReturnSelf();
+        $this->queryBuilder->expects(self::exactly(2))->method('count')->willReturnCallback(function (): QueryBuilder {
+            $this->isCounting = true;
+
+            return $this->queryBuilder;
+        });
 
         $checker = $this->checker();
         $checker->isOrphaned($this->reference(), self::IDENTIFIER);
@@ -208,7 +192,7 @@ final class OrphanReferenceCheckerTest extends TestCase
     {
         $this->mockTable(['api_key']);
         $this->linkedRowValue = self::IDENTIFIER; // would answer "held" if it were read
-        $this->heldValues     = [];
+        $this->holderCount    = 0;
 
         self::assertTrue($this->checker()->isOrphaned($this->reference(), self::IDENTIFIER));
     }
@@ -230,7 +214,6 @@ final class OrphanReferenceCheckerTest extends TestCase
         $this->linkedRowValue = '<T3FlexForms/>';
         $this->holderCount    = 1;
         $this->expressionBuilder->expects(self::once())->method('like')->with('settings', self::PARAMETER)->willReturn('like');
-        $this->queryBuilder->expects(self::never())->method('distinct');
 
         self::assertFalse($this->checker()->isOrphaned($this->flexReference(), self::IDENTIFIER));
     }

@@ -1,0 +1,1 @@
+- `vault:migrate-field` now replaces the field value with the vault identifier, as its documentation describes; before, it left the plaintext in the field and the new secret unreferenced. This is the new default and needs no option: code that read the plaintext from the migrated column must resolve the identifier through the vault (`VaultFieldResolver::resolveFields()`).

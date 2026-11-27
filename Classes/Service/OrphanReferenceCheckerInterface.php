@@ -24,12 +24,12 @@ interface OrphanReferenceCheckerInterface
      * Minimum age, in seconds, of a secret before any cleanup may delete it,
      * whatever retention the run is configured with (0 included).
      *
-     * Several writers store a secret first and write its identifier into the
-     * record right after: a record copy clones the secret and then updates
-     * the copy, `vault:migrate-field` and the migration module store and then
-     * update the row. Writing the identifier first is not an option there: if
-     * the store then failed, the row would point at a secret that does not
-     * exist and the plaintext would be gone. Between the two steps no row
+     * Writers store a secret first and write its identifier into the record
+     * right after: a record copy clones the secret and then updates the copy.
+     * (The migrations store theirs without the record link and add it only
+     * once the row holds the identifier.) Writing the identifier first is not
+     * an option: if the store then failed, the row would point at a secret
+     * that does not exist and the value would be gone. Between the two steps no row
      * holds the identifier, so a cleanup running at that moment would delete
      * a secret that is about to be referenced. The gap is one request; 15
      * minutes is far above any request or batch step, including a stalled

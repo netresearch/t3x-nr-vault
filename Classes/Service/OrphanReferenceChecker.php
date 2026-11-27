@@ -38,12 +38,10 @@ use function trim;
  *
  * Queries per run, for N secrets in T tables: one table and one column
  * introspection per table and one primary-key read per secret (the linked
- * row nearly always holds its own secret). When that row does not, a plain
- * field's values are loaded once per (table, field) for the run, which
- * answers "held by another row" without a further query. Both are fast paths
- * for "held" only: PHP compares more strictly than the database collation,
- * so before a secret counts as an orphan one eq (plain) or LIKE (FlexForm)
- * count per secret asks the database itself.
+ * row nearly always holds its own secret). That read is a fast path for
+ * "held" only: PHP compares more strictly than the database collation, so
+ * when the linked row does not hold the identifier, one eq (plain) or LIKE
+ * (FlexForm) count per secret asks the database itself.
  *
  * Fails CLOSED. Only a lookup that succeeds and finds no holder may answer
  * true, because true is a DELETE trigger. A table, connection or column the
@@ -63,13 +61,6 @@ final class OrphanReferenceChecker implements OrphanReferenceCheckerInterface
      */
     private array $columns = [];
 
-    /**
-     * The non-empty values of a plain field, as a set, per "table.field".
-     *
-     * @var array<string, array<string, true>>
-     */
-    private array $heldValues = [];
-
     /** @var list<array{identifier: string, table: string, field: string, uid: int, reason: string}> */
     private array $unresolved = [];
 
@@ -82,7 +73,6 @@ final class OrphanReferenceChecker implements OrphanReferenceCheckerInterface
     {
         $this->tables     = [];
         $this->columns    = [];
-        $this->heldValues = [];
         $this->unresolved = [];
     }
 
@@ -107,7 +97,7 @@ final class OrphanReferenceChecker implements OrphanReferenceCheckerInterface
             // trailing spaces under MySQL's defaults): they may only confirm
             // "held". "Not held" is the delete trigger, so it always comes
             // from the database itself.
-            if ($this->linkedRowHolds($reference, $identifier) || $this->loadedValuesHold($reference, $identifier)) {
+            if ($this->linkedRowHolds($reference, $identifier)) {
                 return false;
             }
 
@@ -218,17 +208,6 @@ final class OrphanReferenceChecker implements OrphanReferenceCheckerInterface
     }
 
     /**
-     * Fast path for "held": the run's loaded values of a plain field contain
-     * the identifier exactly. A FlexForm column is not loaded (its XML would
-     * have to be parsed); a miss proves nothing.
-     */
-    private function loadedValuesHold(OrphanReference $reference, string $identifier): bool
-    {
-        return !$reference->flexForm
-            && isset($this->heldValuesOf($reference->table, $reference->field)[$identifier]);
-    }
-
-    /**
      * The authoritative answer: does any row of the linked table, deleted rows
      * included, hold the identifier in the linked field, compared the way the
      * database compares (its collation decides, as it does for every lookup
@@ -254,36 +233,5 @@ final class OrphanReferenceChecker implements OrphanReferenceCheckerInterface
             ->fetchOne();
 
         return $count > 0;
-    }
-
-    /**
-     * @return array<string, true>
-     */
-    private function heldValuesOf(string $table, string $field): array
-    {
-        $key = $table . '.' . $field;
-        if (!isset($this->heldValues[$key])) {
-            $queryBuilder = $this->connectionPool->getQueryBuilderForTable($table);
-            $queryBuilder->getRestrictions()->removeAll();
-
-            $values = $queryBuilder
-                ->select($field)
-                ->distinct()
-                ->from($table)
-                ->where($queryBuilder->expr()->neq($field, $queryBuilder->createNamedParameter('')))
-                ->executeQuery()
-                ->fetchFirstColumn();
-
-            $set = [];
-            foreach ($values as $value) {
-                if (is_string($value)) {
-                    $set[$value] = true;
-                }
-            }
-
-            $this->heldValues[$key] = $set;
-        }
-
-        return $this->heldValues[$key];
     }
 }

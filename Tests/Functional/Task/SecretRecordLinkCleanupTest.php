@@ -12,9 +12,12 @@ namespace Netresearch\NrVault\Tests\Functional\Task;
 use Doctrine\DBAL\Platforms\AbstractMySQLPlatform;
 use Netresearch\NrVault\Command\VaultCleanupOrphansCommand;
 use Netresearch\NrVault\Command\VaultMigrateFieldCommand;
+use Netresearch\NrVault\Controller\MigrationController;
+use Netresearch\NrVault\Domain\Dto\MigrationResult;
 use Netresearch\NrVault\Domain\Dto\SecretRecordLink;
 use Netresearch\NrVault\Hook\DataHandlerHook;
 use Netresearch\NrVault\Hook\FlexFormVaultHook;
+use Netresearch\NrVault\Service\FieldValueMigrator;
 use Netresearch\NrVault\Service\OrphanReferenceChecker;
 use Netresearch\NrVault\Service\OrphanReferenceCheckerInterface;
 use Netresearch\NrVault\Service\VaultServiceInterface;
@@ -24,6 +27,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use Psr\Log\NullLogger;
+use ReflectionMethod;
 use ReflectionProperty;
 use Symfony\Component\Console\Tester\CommandTester;
 use TYPO3\CMS\Core\Database\Connection;
@@ -47,6 +51,8 @@ use function json_encode;
 #[CoversClass(OrphanCleanupTask::class)]
 #[CoversClass(VaultCleanupOrphansCommand::class)]
 #[CoversClass(VaultMigrateFieldCommand::class)]
+#[CoversClass(MigrationController::class)]
+#[CoversClass(FieldValueMigrator::class)]
 #[CoversClass(OrphanReferenceChecker::class)]
 #[CoversClass(DataHandlerHook::class)]
 #[CoversClass(FlexFormVaultHook::class)]
@@ -406,6 +412,52 @@ final class SecretRecordLinkCleanupTest extends AbstractVaultFunctionalTestCase
     }
 
     /**
+     * PostgreSQL returns a CHAR column padded to its length. The padding is
+     * not a mismatch: the record migrates and its secret stays (#565).
+     */
+    #[Test]
+    public function theMigrateFieldCommandMigratesAFixedWidthColumn(): void
+    {
+        $this->insertRow(self::RESERVED_TABLE, ['pid' => 1, 'title' => 'Padded', 'padded' => 'char-secret']);
+        $uid = (int) $this->getConnectionPool()->getConnectionForTable(self::RESERVED_TABLE)->lastInsertId();
+
+        $tester = new CommandTester($this->get(VaultMigrateFieldCommand::class));
+        $tester->setInputs(['yes']);
+
+        $exitCode = $tester->execute(['table' => self::RESERVED_TABLE, 'field' => 'padded']);
+
+        self::assertSame(0, $exitCode, $tester->getDisplay());
+        $identifier = rtrim($this->fetchField(self::RESERVED_TABLE, $uid, 'padded'), ' ');
+        self::assertSame('char-secret', $this->get(VaultServiceInterface::class)->retrieve($identifier));
+    }
+
+    /**
+     * A --uid-field whose value several rows share would write one identifier
+     * into all of them. The command refuses before it stores or writes
+     * anything (#565).
+     */
+    #[Test]
+    public function theMigrateFieldCommandRefusesAUidFieldSeveralRowsShare(): void
+    {
+        $this->insertRow(self::RESERVED_TABLE, ['pid' => 7, 'title' => 'First', 'key' => 'first-plain']);
+        $first = (int) $this->getConnectionPool()->getConnectionForTable(self::RESERVED_TABLE)->lastInsertId();
+        $this->insertRow(self::RESERVED_TABLE, ['pid' => 7, 'title' => 'Second', 'key' => 'second-plain']);
+        $second = (int) $this->getConnectionPool()->getConnectionForTable(self::RESERVED_TABLE)->lastInsertId();
+        $before = $this->secretCount();
+
+        $tester = new CommandTester($this->get(VaultMigrateFieldCommand::class));
+        $tester->setInputs(['yes']);
+
+        $exitCode = $tester->execute(['table' => self::RESERVED_TABLE, 'field' => 'key', '--uid-field' => 'pid']);
+
+        self::assertSame(1, $exitCode);
+        self::assertStringContainsString('is not unique', $tester->getDisplay());
+        self::assertSame('first-plain', $this->fetchField(self::RESERVED_TABLE, $first, 'key'));
+        self::assertSame('second-plain', $this->fetchField(self::RESERVED_TABLE, $second, 'key'));
+        self::assertSame($before, $this->secretCount());
+    }
+
+    /**
      * A column too narrow for an identifier would truncate it (non-strict
      * SQL, and SQLite ignores the length) and leave the stored secret
      * unreferenced. The command refuses before storing anything (#565).
@@ -454,6 +506,34 @@ final class SecretRecordLinkCleanupTest extends AbstractVaultFunctionalTestCase
         $vaultService = $this->get(VaultServiceInterface::class);
         self::assertSame('hidden-plain', $vaultService->retrieve($this->fetchField(self::RESERVED_TABLE, $hiddenUid, 'key')));
         self::assertSame('scheduled-plain', $vaultService->retrieve($this->fetchField(self::RESERVED_TABLE, $scheduledUid, 'key')));
+        self::assertSame('deleted-plain', $this->fetchField(self::RESERVED_TABLE, $deletedUid, 'key'), 'A deleted record must not be migrated');
+    }
+
+    /**
+     * The backend migration wizard selects like the command: hidden and
+     * time-restricted records are migrated, deleted ones are not (#565).
+     */
+    #[Test]
+    public function theMigrationWizardMigratesHiddenAndScheduledRecordsButNotDeletedOnes(): void
+    {
+        $connection = $this->getConnectionPool()->getConnectionForTable(self::RESERVED_TABLE);
+        $connection->insert(self::RESERVED_TABLE, ['pid' => 1, 'title' => 'Hidden', 'key' => 'hidden-plain', 'hidden' => 1]);
+
+        $hiddenUid = (int) $connection->lastInsertId();
+        $connection->insert(self::RESERVED_TABLE, ['pid' => 1, 'title' => 'Scheduled', 'key' => 'scheduled-plain', 'starttime' => time() + 86400]);
+        $scheduledUid = (int) $connection->lastInsertId();
+        $connection->insert(self::RESERVED_TABLE, ['pid' => 1, 'title' => 'Deleted', 'key' => 'deleted-plain', 'deleted' => 1]);
+        $deletedUid = (int) $connection->lastInsertId();
+
+        $controller = $this->get(MigrationController::class);
+        $result     = (new ReflectionMethod(MigrationController::class, 'migrateColumn'))
+            ->invoke($controller, self::RESERVED_TABLE, 'key', 'wizard_key_{uid}');
+        self::assertInstanceOf(MigrationResult::class, $result);
+        self::assertSame(2, $result->migrated, $result->error ?? '');
+
+        $vaultService = $this->get(VaultServiceInterface::class);
+        self::assertSame('hidden-plain', $vaultService->retrieve('wizard_key_' . $hiddenUid));
+        self::assertSame('scheduled-plain', $vaultService->retrieve('wizard_key_' . $scheduledUid));
         self::assertSame('deleted-plain', $this->fetchField(self::RESERVED_TABLE, $deletedUid, 'key'), 'A deleted record must not be migrated');
     }
 
