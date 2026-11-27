@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.12.0] - 2026-11-24
+
+### Added
+
+- `VaultService::store()` takes a `mergeMetadata` option that merges entries into the stored metadata; `metadata` still replaces the map, and passing both is refused (#570).
+
+### Changed
+
+- `vault:store --metadata` on an existing secret no longer makes a separate metadata read with its own read-access check; the write check decides. With the shipped access rules a user who may write a secret may also read it, so this changes the outcome only for a custom access control service (#570).
+
+### Fixed
+
+- `vault:store --metadata` on an existing secret no longer loses a metadata change that another `VaultService` write (CLI or API) commits while the command runs: `VaultService::store()` merges the pairs inside its own locked transaction on the local storage adapter (#570). A save of the record in the backend form is not serialised with it. With the HashiCorp or AWS adapter the read and the write of one store are still not one transaction (#576).
+
 ## [1.11.0] - 2026-11-23
 
 ### Upgrading from 1.10
@@ -2416,7 +2430,8 @@ upgrading.
 - Constructor property promotion
 - Modern PHP 8.x patterns (match, named arguments, attributes)
 
-[Unreleased]: https://github.com/netresearch/t3x-nr-vault/compare/v1.11.0...HEAD
+[Unreleased]: https://github.com/netresearch/t3x-nr-vault/compare/v1.12.0...HEAD
+[1.12.0]: https://github.com/netresearch/t3x-nr-vault/compare/v1.11.0...v1.12.0
 [1.11.0]: https://github.com/netresearch/t3x-nr-vault/compare/v1.10.0...v1.11.0
 [1.10.0]: https://github.com/netresearch/t3x-nr-vault/compare/v1.9.1...v1.10.0
 [1.9.1]: https://github.com/netresearch/t3x-nr-vault/compare/v1.9.0...v1.9.1

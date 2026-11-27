@@ -11,8 +11,8 @@
 >
     <project
         title="Secrets Vault"
-        version="1.11"
-        release="1.11.0"
+        version="1.12"
+        release="1.12.0"
         copyright="since 2025 by Netresearch DTT GmbH"
     />
 
