@@ -67,25 +67,10 @@ final class OrphanReferenceChecker
             'identifier' => $identifier,
         ];
 
-        if ($reference->field === '' || $identifier === '') {
-            $this->logger->warning('Orphan reference names no field; keeping the secret', $context);
-
-            return false;
-        }
-
         try {
-            $connection = $this->connectionPool->getConnectionForTable($reference->table);
-            if (!$connection->createSchemaManager()->tablesExist([$reference->table])) {
-                $this->logger->warning('Orphan reference names an unknown table; keeping the secret', $context);
-
-                return false;
-            }
-
-            // Checked explicitly: SQLite reads an unknown double-quoted
-            // identifier as a string literal, so the holder query below would
-            // answer "no row holds it" instead of failing.
-            if (!in_array(strtolower($reference->field), $this->columnsOf($reference->table), true)) {
-                $this->logger->warning('Orphan reference names an unknown field; keeping the secret', $context);
+            $unresolvable = $this->unresolvableReason($reference, $identifier);
+            if ($unresolvable !== null) {
+                $this->logger->warning('Orphan reference ' . $unresolvable . '; keeping the secret', $context);
 
                 return false;
             }
@@ -99,6 +84,27 @@ final class OrphanReferenceChecker
 
             return false;
         }
+    }
+
+    /**
+     * Why the reference cannot be checked, or null when it can.
+     */
+    private function unresolvableReason(OrphanReference $reference, string $identifier): ?string
+    {
+        $reason = null;
+
+        if ($reference->field === '' || $identifier === '') {
+            $reason = 'names no field';
+        } elseif (!$this->connectionPool->getConnectionForTable($reference->table)->createSchemaManager()->tablesExist([$reference->table])) {
+            $reason = 'names an unknown table';
+        } elseif (!in_array(strtolower($reference->field), $this->columnsOf($reference->table), true)) {
+            // Checked explicitly: SQLite reads an unknown double-quoted
+            // identifier as a string literal, so the holder query would
+            // answer "no row holds it" instead of failing.
+            $reason = 'names an unknown field';
+        }
+
+        return $reason;
     }
 
     /**

@@ -267,14 +267,9 @@ final class VaultMigrateFieldCommand extends Command
                 try {
                     $identifier = IdentifierValidator::generateUuid();
 
-                    // Store in vault. The record link names the `uid` column,
-                    // which orphan cleanup looks the record up by; a value from
-                    // another --uid-field column would point it at the wrong
-                    // record, so such a secret gets no link.
+                    // Store in vault
                     $this->vaultService->store($identifier, $valueStr, [
-                        'metadata' => $uidField === 'uid'
-                            ? SecretRecordLink::forField(SecretRecordLink::SOURCE_MIGRATION, $table, $field, $uidInt, ['migrated_at' => time()])
-                            : ['migrated_at' => time()],
+                        'metadata' => $this->buildMetadata($table, $field, $uidField, $uidInt),
                     ]);
 
                     // Optionally clear source field
@@ -421,6 +416,22 @@ final class VaultMigrateFieldCommand extends Command
         }
 
         return str_repeat('*', $maxLength - 3) . '...';
+    }
+
+    /**
+     * The record link names the `uid` column, which orphan cleanup looks the
+     * record up by. A value from another --uid-field column would point the
+     * cleanup at the wrong record, so such a secret gets no link.
+     *
+     * @return array<string, mixed>
+     */
+    private function buildMetadata(string $table, string $field, string $uidField, int $uid): array
+    {
+        if ($uidField !== 'uid') {
+            return ['migrated_at' => time()];
+        }
+
+        return SecretRecordLink::forField(SecretRecordLink::SOURCE_MIGRATION, $table, $field, $uid, ['migrated_at' => time()]);
     }
 
     private function clearSourceField(string $table, string $field, string $uidField, int $uid): void

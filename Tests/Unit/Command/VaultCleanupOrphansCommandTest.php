@@ -39,6 +39,9 @@ final class VaultCleanupOrphansCommandTest extends TestCase
      * Columns the mocked schema reports, keyed like listTableColumns(): every
      * field name the fixtures link to, so the checker's column check passes.
      */
+    /** Placeholder the mocked query builder returns for every named parameter. */
+    private const NAMED_PARAMETER = ':dcValue1';
+
     private const LINKED_COLUMNS = [
         'api_key'         => null,
         'k'               => null,
@@ -1211,7 +1214,7 @@ final class VaultCleanupOrphansCommandTest extends TestCase
         $queryBuilder->method('where')->willReturnSelf();
         $queryBuilder->method('getRestrictions')->willReturn($this->createMock(QueryRestrictionContainerInterface::class));
         $queryBuilder->method('expr')->willReturn($expressionBuilder);
-        $queryBuilder->method('createNamedParameter')->willReturn(':dcValue1');
+        $queryBuilder->method('createNamedParameter')->willReturn(self::NAMED_PARAMETER);
         $queryBuilder->method('executeQuery')->willReturn($result);
         $this->connectionPool->method('getQueryBuilderForTable')->willReturn($queryBuilder);
 
@@ -1250,7 +1253,7 @@ final class VaultCleanupOrphansCommandTest extends TestCase
         $queryBuilder->method('where')->willReturnSelf();
         $queryBuilder->method('getRestrictions')->willReturn($restrictions);
         $queryBuilder->method('expr')->willReturn($expressionBuilder);
-        $queryBuilder->method('createNamedParameter')->willReturn(':dcValue1');
+        $queryBuilder->method('createNamedParameter')->willReturn(self::NAMED_PARAMETER);
         $queryBuilder->method('executeQuery')->willReturn($result);
 
         $this->connectionPool
@@ -1285,7 +1288,7 @@ final class VaultCleanupOrphansCommandTest extends TestCase
         $queryBuilder->method('where')->willReturnSelf();
         $queryBuilder->method('getRestrictions')->willReturn($restrictions);
         $queryBuilder->method('expr')->willReturn($expressionBuilder);
-        $queryBuilder->method('createNamedParameter')->willReturn(':dcValue1');
+        $queryBuilder->method('createNamedParameter')->willReturn(self::NAMED_PARAMETER);
         $queryBuilder->method('executeQuery')->willReturn($result);
 
         $this->connectionPool

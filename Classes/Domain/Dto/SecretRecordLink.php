@@ -93,18 +93,13 @@ final class SecretRecordLink
      */
     public static function referenceFrom(array $metadata): ?OrphanReference
     {
-        $source = $metadata['source'] ?? '';
-        if (!in_array($source, self::ORPHAN_CLEANUP_SOURCES, true)) {
-            return null;
-        }
-
         $table = $metadata['table'] ?? '';
-        if (!is_string($table) || $table === '') {
-            return null;
-        }
+        $uid   = $metadata['uid'] ?? null;
 
-        $uid = $metadata['uid'] ?? null;
-        if (!is_numeric($uid) || (int) $uid <= 0) {
+        $isCandidate = in_array($metadata['source'] ?? '', self::ORPHAN_CLEANUP_SOURCES, true)
+            && is_string($table) && $table !== ''
+            && is_numeric($uid) && (int) $uid > 0;
+        if (!$isCandidate) {
             return null;
         }
 

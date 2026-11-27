@@ -73,7 +73,7 @@ final class WorkspacePublishOrphanCleanupTest extends AbstractVaultFunctionalTes
         $plaintext     = 'workspace-' . bin2hex(random_bytes(8));
 
         // A live record without a secret.
-        $created = $actionService->createNewRecord(self::TABLE, 1, ['title' => 'Live record']);
+        $created     = $actionService->createNewRecord(self::TABLE, 1, ['title' => 'Live record']);
         $createdUids = $created[self::TABLE] ?? null;
         self::assertIsArray($createdUids);
         $liveUid = $createdUids[0] ?? null;
