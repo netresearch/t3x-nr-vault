@@ -539,27 +539,11 @@ final readonly class MigrationController
                 $valueVal = $row[$column] ?? '';
                 $value    = is_string($valueVal) ? $valueVal : '';
 
-                // Skip if already looks like a vault identifier
-                if (IdentifierValidator::looksLikeVaultIdentifier($value)) {
-                    ++$skipped;
-                    continue;
-                }
-
-                // Generate identifier from pattern
-                $identifier = str_replace('{uid}', (string) $uid, $identifierPattern);
-
-                // An earlier run already migrated this row.
-                if ($value === $identifier) {
-                    ++$skipped;
-                    continue;
-                }
-
-                // A column narrower than the identifier would truncate it,
-                // and the row would lose its plaintext to a broken reference.
-                $error = $this->fieldValueMigrator->columnProblem($columnSchema, strlen($identifier))
-                    ?? $this->fieldValueMigrator->migrate($table, $column, 'uid', (string) $uid, $value, $identifier);
+                $error = $this->migrateRow($table, $column, $columnSchema, $uid, $value, $identifierPattern);
                 if ($error === null) {
                     ++$migrated;
+                } elseif ($error === '') {
+                    ++$skipped;
                 } else {
                     ++$failed;
                     $errors[] = sprintf('uid %d: %s', $uid, $error);
@@ -579,6 +563,37 @@ final readonly class MigrationController
         }
 
         return new MigrationResult($table, $column, $migrated, $failed, $skipped, $error);
+    }
+
+    /**
+     * Migrate one row. Returns null when migrated, '' when skipped, otherwise
+     * the reason the row failed.
+     */
+    private function migrateRow(
+        string $table,
+        string $column,
+        Column $columnSchema,
+        int $uid,
+        string $value,
+        string $identifierPattern,
+    ): ?string {
+        // Skip if already looks like a vault identifier
+        if (IdentifierValidator::looksLikeVaultIdentifier($value)) {
+            return '';
+        }
+
+        // Generate identifier from pattern
+        $identifier = str_replace('{uid}', (string) $uid, $identifierPattern);
+
+        // An earlier run already migrated this row.
+        if ($value === $identifier) {
+            return '';
+        }
+
+        // A column narrower than the identifier would truncate it, and the
+        // row would lose its plaintext to a broken reference.
+        return $this->fieldValueMigrator->columnProblem($columnSchema, strlen($identifier))
+            ?? $this->fieldValueMigrator->migrate($table, $column, 'uid', (string) $uid, $value, $identifier);
     }
 
     /**

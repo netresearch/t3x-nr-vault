@@ -177,24 +177,9 @@ final class VaultMigrateFieldCommand extends Command
             return Command::FAILURE;
         }
 
-        // The UPDATE finds the row by --uid-field. A value shared by several
-        // rows would write one identifier into all of them and overwrite
-        // their plaintexts.
-        if (!$this->migrator->findColumn($table, $uidField) instanceof Column) {
-            $io->error(sprintf('Field "%s" (--uid-field) does not exist in table "%s"', $uidField, $table));
-
-            return Command::FAILURE;
-        }
-
-        $duplicates = $this->migrator->countRowsWithDuplicateKey($table, $uidField);
-        if ($duplicates === null) {
-            $io->error(sprintf('Could not check that --uid-field "%s" is unique.', $uidField));
-
-            return Command::FAILURE;
-        }
-
-        if ($duplicates > 0) {
-            $io->error(sprintf('--uid-field "%s" is not unique: %d row(s) share their value with another row. Use a unique column.', $uidField, $duplicates));
+        $uidFieldProblem = $this->uidFieldProblem($table, $uidField);
+        if ($uidFieldProblem !== null) {
+            $io->error($uidFieldProblem);
 
             return Command::FAILURE;
         }
@@ -309,34 +294,14 @@ final class VaultMigrateFieldCommand extends Command
                 $uidInt   = (int) $uid;
                 $valueStr = (string) $value;
 
-                // The field already holds the identifier of an existing secret
-                // (an earlier run, or --force): wrapping it in a new secret
-                // would leave that secret unreferenced, and orphan cleanup
-                // would delete it. When the vault cannot answer, the record
-                // fails instead of being migrated blind.
-                try {
-                    $isExistingIdentifier = $this->isExistingVaultIdentifier($valueStr);
-                } catch (Throwable $e) {
-                    ++$failed;
-                    $errors[] = sprintf('UID %d: could not check whether the value is a vault identifier: %s', $uidInt, $e->getMessage());
-                    $progressBar->advance();
-
-                    continue;
-                }
-
-                if ($isExistingIdentifier) {
-                    $skipped[] = ['uid' => $uidInt, 'identifier' => $valueStr];
-                    $progressBar->advance();
-
-                    continue;
-                }
-
-                $error = $this->migrator->migrate($table, $field, $uidField, (string) $uid, $valueStr, IdentifierValidator::generateUuid());
-                if ($error === null) {
+                [$outcome, $detail] = $this->migrateRecord($table, $field, $uidField, (string) $uid, $valueStr);
+                if ($outcome === 'migrated') {
                     ++$migrated;
+                } elseif ($outcome === 'skipped') {
+                    $skipped[] = ['uid' => $uidInt, 'identifier' => $detail];
                 } else {
                     ++$failed;
-                    $errors[] = sprintf('UID %d: %s', $uidInt, $error);
+                    $errors[] = sprintf('UID %d: %s', $uidInt, $detail);
                 }
 
                 // Clear value from memory
@@ -351,6 +316,55 @@ final class VaultMigrateFieldCommand extends Command
         }
 
         return ['migrated' => $migrated, 'failed' => $failed, 'errors' => $errors, 'skipped' => $skipped];
+    }
+
+    /**
+     * Migrate one record: 'migrated', 'skipped' with the existing identifier,
+     * or 'failed' with the reason.
+     *
+     * @return array{'migrated'|'skipped'|'failed', string}
+     */
+    private function migrateRecord(string $table, string $field, string $uidField, string $uid, string $value): array
+    {
+        // The field already holds the identifier of an existing secret (an
+        // earlier run, or --force): wrapping it in a new secret would leave
+        // that secret unreferenced, and orphan cleanup would delete it. When
+        // the vault cannot answer, the record fails instead of being migrated
+        // blind.
+        try {
+            if ($this->isExistingVaultIdentifier($value)) {
+                return ['skipped', $value];
+            }
+        } catch (Throwable $e) {
+            return ['failed', 'could not check whether the value is a vault identifier: ' . $e->getMessage()];
+        }
+
+        $error = $this->migrator->migrate($table, $field, $uidField, $uid, $value, IdentifierValidator::generateUuid());
+
+        return $error === null ? ['migrated', ''] : ['failed', $error];
+    }
+
+    /**
+     * Why --uid-field cannot key the UPDATE, or null when it can. A value
+     * shared by several rows would write one identifier into all of them and
+     * overwrite their plaintexts.
+     */
+    private function uidFieldProblem(string $table, string $uidField): ?string
+    {
+        if (!$this->migrator->findColumn($table, $uidField) instanceof Column) {
+            return sprintf('Field "%s" (--uid-field) does not exist in table "%s"', $uidField, $table);
+        }
+
+        $duplicates = $this->migrator->countRowsWithDuplicateKey($table, $uidField);
+        if ($duplicates === null) {
+            return sprintf('Could not check that --uid-field "%s" is unique.', $uidField);
+        }
+
+        if ($duplicates > 0) {
+            return sprintf('--uid-field "%s" is not unique: %d row(s) share their value with another row. Use a unique column.', $uidField, $duplicates);
+        }
+
+        return null;
     }
 
     private function isExistingVaultIdentifier(string $value): bool
