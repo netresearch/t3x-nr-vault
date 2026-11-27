@@ -47,6 +47,20 @@ final class AwsSecretsManagerStore implements AwsSecretStoreInterface, AwsVersio
     private const VERSION_READ_DELAY_MICROSECONDS = 150_000;
 
     /**
+     * Conditional stage moves per rollback: the first one, and one more when
+     * a failed move leaves the secret at our version.
+     */
+    private const MOVE_ATTEMPTS = 2;
+
+    private const MOVE_APPLIED = 'applied';
+
+    private const MOVE_SKIPPED = 'skipped';
+
+    private const MOVE_STILL_OURS = 'still ours';
+
+    private const MOVE_DENIED = 'denied';
+
+    /**
      * Back-off between CreateSecret attempts while a force-deleted name is
      * still being deleted (≤ 3.75 s over five attempts).
      */
@@ -85,7 +99,16 @@ final class AwsSecretsManagerStore implements AwsSecretStoreInterface, AwsVersio
     {
         $fetched = $this->fetch($identifier);
 
-        return $fetched === null ? null : ['data' => $fetched[0], 'versionId' => $this->versionOf($fetched[1], 'read')];
+        if ($fetched === null) {
+            return null;
+        }
+
+        $version = $fetched[1]['VersionId'] ?? null;
+        if (!is_string($version) || $version === '') {
+            throw AwsSecretsManagerException::versionMissing('read');
+        }
+
+        return ['data' => $fetched[0], 'versionId' => $version];
     }
 
     public function create(string $identifier, #[SensitiveParameter] array $data): string
@@ -167,13 +190,21 @@ final class AwsSecretsManagerStore implements AwsSecretStoreInterface, AwsVersio
         // fails when AWSCURRENT is attached to any version but ours, so a
         // writer that landed since keeps its value. No new version is written:
         // the previous one becomes current again and ours becomes AWSPREVIOUS.
-        try {
-            $this->moveBack($identifier, $versionId, $previousVersionId);
-
-            return true;
-        } catch (Throwable $e) {
-            return $this->restoreAfterFailedMove($identifier, $data, $versionId, $previousVersionId, $e);
+        $outcome = self::MOVE_STILL_OURS;
+        $failure = null;
+        for ($attempt = 1; $attempt <= self::MOVE_ATTEMPTS && $outcome === self::MOVE_STILL_OURS; ++$attempt) {
+            [$outcome, $failure] = $this->attemptMove($identifier, $versionId, $previousVersionId);
         }
+
+        if ($outcome === self::MOVE_DENIED || $outcome === self::MOVE_STILL_OURS) {
+            // The previous document is in hand, so the read-then-write of
+            // before #567 is the floor: never worse than without the move.
+            $this->warnFallback($identifier, $outcome, $failure);
+
+            return $this->restoreIfCurrent($identifier, $data, $versionId);
+        }
+
+        return $outcome === self::MOVE_APPLIED;
     }
 
     public function destroyIfCurrent(string $identifier, string $versionId): bool
@@ -295,82 +326,67 @@ final class AwsSecretsManagerStore implements AwsSecretStoreInterface, AwsVersio
     }
 
     /**
-     * The stage move failed. Without the permission the value is put back by
-     * read-then-write. Otherwise what happened is read from AWSCURRENT, not
-     * from the error code, which AWS does not document: still our version, the
-     * move is tried once more; the version moved back to, the move applied and
-     * only its answer was lost; any other, a concurrent writer won.
+     * One conditional move, and what it did: applied, skipped (a concurrent
+     * writer won, or the secret is gone), still ours (failed, our version is
+     * current), or denied (no permission, or a 403 without a code). After a
+     * failure the outcome is read from AWSCURRENT, not from the error code,
+     * which AWS does not document for a mismatch.
      *
-     * @param array<string, mixed> $data
+     * @return array{0: string, 1: Throwable|null} The outcome and the failure
      */
-    private function restoreAfterFailedMove(string $identifier, #[SensitiveParameter] array $data, string $versionId, string $previousVersionId, Throwable $e): bool
-    {
-        if ($this->isAccessDenied($e)) {
-            $this->warnNoPermission($identifier, $e);
-
-            return $this->restoreIfCurrent($identifier, $data, $versionId);
-        }
-
-        $current = $this->observedAfterFailedMove($identifier, $versionId, $previousVersionId);
-        if ($current === $versionId) {
-            return $this->retryMove($identifier, $data, $versionId, $previousVersionId);
-        }
-
-        return $current === $previousVersionId;
-    }
-
-    /**
-     * AWSCURRENT after a failed move. A read that shows the version moved back
-     * to may lag behind our own write, so it is confirmed by a second read
-     * after the delay before the rollback counts as applied.
-     */
-    private function observedAfterFailedMove(string $identifier, string $versionId, string $previousVersionId): ?string
-    {
-        $current = $this->settledVersion($identifier, $versionId);
-        if ($current !== $previousVersionId) {
-            return $current;
-        }
-
-        ($this->sleep)(self::VERSION_READ_DELAY_MICROSECONDS);
-        $confirmed = $this->currentVersion($identifier);
-        if ($confirmed !== $previousVersionId && $confirmed !== $versionId) {
-            $this->logger?->warning(
-                'nr-vault: the outcome of an AWS Secrets Manager rollback is unconfirmed: UpdateSecretVersionStage failed, and AWSCURRENT showed the version moved back to, then another one. The rollback is treated as skipped; check the secret.',
-                ['secret' => $identifier],
-            );
-        }
-
-        return $confirmed;
-    }
-
-    /**
-     * The secret is still at our version after a failed move: the move is
-     * tried once more. Only a refusal for lack of the permission falls back to
-     * read-then-write; a move that keeps failing while our version is current
-     * is reported as a failed rollback.
-     *
-     * @param array<string, mixed> $data
-     */
-    private function retryMove(string $identifier, #[SensitiveParameter] array $data, string $versionId, string $previousVersionId): bool
+    private function attemptMove(string $identifier, string $versionId, string $previousVersionId): array
     {
         try {
             $this->moveBack($identifier, $versionId, $previousVersionId);
 
-            return true;
+            return [self::MOVE_APPLIED, null];
         } catch (Throwable $e) {
-            if ($this->isAccessDenied($e)) {
-                $this->warnNoPermission($identifier, $e);
+            $outcome = $this->isAccessDenied($e) ? self::MOVE_DENIED : $this->outcomeAfterFailedMove($identifier, $versionId, $previousVersionId);
 
-                return $this->restoreIfCurrent($identifier, $data, $versionId);
-            }
-
-            $current = $this->currentVersion($identifier);
-            if ($current === $versionId) {
-                throw $this->translate($e, 'restore');
-            }
-
-            return $current === $previousVersionId;
+            return [$outcome, $e];
         }
+    }
+
+    /**
+     * The one place that decides what a failed move did. AWSCURRENT is read
+     * until it shows our version or the version moved back to, at most
+     * VERSION_READ_ATTEMPTS times. Our version decides at once (the next step
+     * is another conditional move, which cannot overwrite anything). The
+     * version moved back to is also what a read that lags behind our own
+     * write shows, so it counts as applied only when a second read after the
+     * delay shows it again; a second read that shows a third version leaves
+     * the outcome unconfirmed, which is treated as skipped and logged.
+     */
+    private function outcomeAfterFailedMove(string $identifier, string $versionId, string $previousVersionId): string
+    {
+        $current = null;
+        for ($attempt = 1; $attempt <= self::VERSION_READ_ATTEMPTS; ++$attempt) {
+            $current = $this->currentVersion($identifier);
+            if ($current === $versionId || $current === $previousVersionId) {
+                break;
+            }
+
+            if ($attempt < self::VERSION_READ_ATTEMPTS) {
+                ($this->sleep)(self::VERSION_READ_DELAY_MICROSECONDS);
+            }
+        }
+
+        if ($current === $previousVersionId) {
+            ($this->sleep)(self::VERSION_READ_DELAY_MICROSECONDS);
+            $current = $this->currentVersion($identifier);
+            if ($current !== $previousVersionId && $current !== $versionId) {
+                $this->logger?->warning(
+                    'nr-vault: the outcome of an AWS Secrets Manager rollback is unconfirmed: UpdateSecretVersionStage failed, and AWSCURRENT showed the version moved back to, then another one. The rollback is treated as skipped; check the secret.',
+                    ['secret' => $identifier],
+                );
+            }
+        }
+
+        return match ($current) {
+            $versionId         => self::MOVE_STILL_OURS,
+            $previousVersionId => self::MOVE_APPLIED,
+            default            => self::MOVE_SKIPPED,
+        };
     }
 
     /**
@@ -388,12 +404,20 @@ final class AwsSecretsManagerStore implements AwsSecretStoreInterface, AwsVersio
         return $code === 'AccessDeniedException' || ($code === '' && $e->getStatusCode() === 403);
     }
 
-    private function warnNoPermission(string $identifier, Throwable $e): void
+    /**
+     * Only AccessDeniedException names the missing permission; a bare 403 is
+     * reported with its status, since nothing says what was refused.
+     */
+    private function warnFallback(string $identifier, string $outcome, ?Throwable $failure): void
     {
-        $this->logger?->warning(
-            'nr-vault: AWS Secrets Manager refused UpdateSecretVersionStage ({code}); grant secretsmanager:UpdateSecretVersionStage. The rollback fell back to read-then-write, which overwrites a write that lands in between.',
-            ['secret' => $identifier, 'code' => $this->failureCode($e)],
-        );
+        $code    = $failure instanceof Throwable ? $this->failureCode($failure) : 'no error';
+        $message = match (true) {
+            $outcome === self::MOVE_DENIED && $code === 'AccessDeniedException' => 'nr-vault: AWS Secrets Manager refused UpdateSecretVersionStage ({code}); grant secretsmanager:UpdateSecretVersionStage. The rollback fell back to read-then-write, which overwrites a write that lands in between.',
+            $outcome === self::MOVE_DENIED                                      => 'nr-vault: AWS Secrets Manager answered UpdateSecretVersionStage with {code} and no error code. The rollback fell back to read-then-write, which overwrites a write that lands in between.',
+            default                                                             => 'nr-vault: AWS Secrets Manager UpdateSecretVersionStage kept failing ({code}) while the secret was still at the version this call wrote. The rollback fell back to read-then-write, which overwrites a write that lands in between.',
+        };
+
+        $this->logger?->warning($message, ['secret' => $identifier, 'code' => $code]);
     }
 
     private function put(SecretsManagerClient $client, string $name, #[SensitiveParameter] string $encoded): string

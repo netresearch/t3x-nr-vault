@@ -60,8 +60,11 @@ Same as ADR-053
 *   **Order of writes.** AWS is written first, then the row. A failed first
     insert removes the AWS secret it just created, unless a row for the
     identifier exists by now. A failed row update moves ``AWSCURRENT`` back to
-    the version it replaced (see below). On delete, AWS is emptied first, then the row, so a
-    half-finished delete can be repeated.
+    the version it replaced when the store implements
+    :php:`AwsVersionedSecretStoreInterface` (the shipped store does) and the
+    policy grants ``secretsmanager:UpdateSecretVersionStage``; otherwise it puts
+    the previous envelope back as a new version (see below). On delete, AWS is
+    emptied first, then the row, so a half-finished delete can be repeated.
 *   **Audit.** Unchanged. :php:`VaultService` audits every operation at its own
     boundary. When the audit write fails after an AWS change, the existing
     compensation restores the previous envelope for create, rotate and delete.
@@ -147,7 +150,8 @@ Transport and names
     says it does not exist (``CreateSecret``); if a concurrent create wins in
     between, the conflict is raised (code ``1794500012``) and nothing is written
     into that writer's secret. A compensation that cannot apply because the
-    secret changed since keeps the row and logs a warning.
+    secret changed since, or whose rollback failed, keeps the row and logs a
+    warning.
 
 Errors
 ------
@@ -200,30 +204,42 @@ only while ``AWSCURRENT`` is still that version.
     that lands after our write keeps its value. No new version is written: the
     previous version is current again, and AWS moves ``AWSPREVIOUS`` to the
     version the rollback removed ``AWSCURRENT`` from.
-*   **After a failed move the store reads** ``AWSCURRENT`` **instead of
-    trusting the error code**, which AWS does not document:
+*   **After a failed move one function decides what the move did**, from
+    ``AWSCURRENT`` instead of the error code, which AWS does not document. It
+    reads until it sees our version or the version moved back to, at most three
+    times with the delay between reads:
 
-    -   Our version: the move is tried once more. Only if that retry is refused
-        for lack of the permission does the store fall back to read-then-write;
-        a retry that fails otherwise while our version is still current is
-        reported as a failed rollback, and nothing is written.
+    -   Our version: the move is tried once more (a conditional move cannot
+        overwrite anything). If it fails again and our version is still
+        current, for example because the version to move back to no longer
+        exists, the store falls back to read-then-write with a warning: the
+        previous document is in hand, so the result is never worse than before
+        the conditional move existed.
     -   The version moved back to: the move applied and only its answer was
-        lost (the SDK's one retry of an applied move is refused). Because a
-        read that has not caught up with our write also shows that version, it
-        is confirmed by a second read after the delay. If the second read shows
-        our version, the move is tried once more as above. If it shows a third
-        version, the outcome is unconfirmed: the rollback counts as skipped and
-        a warning names the secret.
-    -   Any other version: a concurrent writer won, or the secret is gone. The
-        rollback is skipped (false, a warning from the adapter).
-*   **The rollback falls back to read-then-write** when the policy lacks
-    ``secretsmanager:UpdateSecretVersionStage`` (``AccessDeniedException``, or
-    a ``403`` without a readable code; the store logs a warning naming the
-    permission and the secret on every such rollback), and when the store does
-    not implement :php:`AwsVersionedSecretStoreInterface`. The fallback reads
-    the ``AWSCURRENT`` id and, if it is still the write's version, puts the
+        lost (the SDK's one retry of an applied move is refused). A read that
+        has not caught up with our write shows the same version, so it counts
+        as applied only when a second read after the delay shows it again. If
+        the second read shows our version, the move is tried once more as
+        above; if it shows a third version, the outcome is unconfirmed: the
+        rollback counts as skipped and a warning names the secret.
+    -   Any other version, or none: a concurrent writer won, or the secret is
+        gone. The rollback is skipped (false, a warning from the adapter).
+
+    The first failure and the retry's failure go through the same function.
+*   **The rollback falls back to read-then-write** when the move is refused
+    for lack of the permission (``AccessDeniedException``; the warning names
+    ``secretsmanager:UpdateSecretVersionStage`` and the secret), when it is
+    answered with a ``403`` without a readable error code (the warning names
+    the status, not a permission), when the move keeps failing while our
+    version is current (above), and when the store does not implement
+    :php:`AwsVersionedSecretStoreInterface`. The fallback reads the
+    ``AWSCURRENT`` id and, if it is still the write's version, puts the
     previous document back as a new version. A write landing between that read
     and the put is overwritten.
+*   **A rollback that fails is not an applied one.** When the store throws, the
+    adapter logs a warning and reports the rollback as not applied, so the
+    compensation of a create keeps the row: it still points at whatever AWS
+    holds.
 *   **A writer between the adapter's read and its write is still discarded.**
     The adapter reads the previous document, then writes. A writer whose
     version lands between the two is displaced by our write, and the rollback
@@ -252,8 +268,8 @@ models the labels as documented, not against AWS: moto 5.2.5, which the
 functional suite runs against, does not move the default version on a stage
 move, and its IAM user there has no ``UpdateSecretVersionStage`` permission, so
 the functional suite exercises the fallback. Moto answers that denial with an
-XML ``403`` from which the SDK reads no error code; the store takes a ``403``
-without a code as the missing permission.
+XML ``403`` from which the SDK reads no error code; the store falls back to
+read-then-write on a ``403`` without a code and logs the status.
 A failed audit write is compensated by
 :php:`VaultService`: an adapter implementing
 :php:`CreateCompensatingAdapterInterface` destroys a secret the call created and
@@ -384,10 +400,11 @@ The functional suite runs against Moto only. Four things it cannot show:
    (Moto: ``InvalidParameterException``), and the one for a missing
    ``UpdateSecretVersionStage`` permission (``AccessDeniedException`` is
    assumed; Moto answers an XML ``403`` without a readable code, which is
-   treated the same). The first does not decide the outcome, because the store
-   reads ``AWSCURRENT`` after any failed move. The second does: if AWS denies
-   with another code, the store tries the move once more and then reports a
-   failed rollback instead of falling back to read-then-write.
+   treated the same). Neither decides the outcome, because the store reads
+   ``AWSCURRENT`` after any other failed move and falls back to read-then-write
+   when the move keeps failing at our version; with an unexpected denial code
+   the store only tries the move once more first, and the warning says "kept
+   failing" instead of naming the permission.
 
 Alternatives considered
 =======================

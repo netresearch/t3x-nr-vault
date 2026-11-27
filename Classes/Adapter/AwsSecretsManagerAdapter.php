@@ -189,10 +189,11 @@ final readonly class AwsSecretsManagerAdapter implements CreateCompensatingAdapt
 
         $rolledBack = $this->undoJournalled($identifier, $entry);
         if (!$rolledBack) {
-            // The secret is at a version somebody else wrote since. Its row stays,
-            // so the value that writer reported as stored keeps its pointer.
+            // The secret is at a version somebody else wrote since, or the
+            // rollback failed and the value this call wrote is still there. Its
+            // row stays, so whatever AWS holds keeps its pointer.
             $this->logger->warning(
-                'nr-vault: the row was kept because the AWS secret changed since the create that is being compensated.',
+                'nr-vault: the row was kept because the AWS write that is being compensated was not taken back (the secret changed since, or the rollback failed).',
                 ['secret' => $identifier],
             );
 
@@ -315,22 +316,20 @@ final readonly class AwsSecretsManagerAdapter implements CreateCompensatingAdapt
      * while the secret is still at the version this call wrote.
      *
      * @param array<string, mixed>|null $previous
+     *
+     * @return bool True when the write was taken back or there was nothing to take back; false when the
+     *              rollback was skipped or failed, so a caller that removes the row keeps it
      */
     private function undoAwsWrite(string $identifier, #[SensitiveParameter] ?array $previous, ?string $version, ?string $previousVersion = null, bool $rowIsBeingRemoved = false): bool
     {
         try {
-            if ($version === null) {
-                return true;
-            }
-
-            if ($previous !== null) {
+            $applied = true;
+            if ($version !== null && $previous !== null) {
                 $applied = $previousVersion !== null && $this->store instanceof AwsVersionedSecretStoreInterface
                     ? $this->store->restoreToVersionIfCurrent($identifier, $previous, $version, $previousVersion)
                     : $this->store->restoreIfCurrent($identifier, $previous, $version);
-            } elseif ($rowIsBeingRemoved || !$this->registry->exists($identifier)) {
+            } elseif ($version !== null && ($rowIsBeingRemoved || !$this->registry->exists($identifier))) {
                 $applied = $this->store->destroyIfCurrent($identifier, $version);
-            } else {
-                return true;
             }
 
             if (!$applied) {
@@ -342,10 +341,11 @@ final readonly class AwsSecretsManagerAdapter implements CreateCompensatingAdapt
 
             return $applied;
         } catch (Throwable $e) {
-            // The original failure is the one to report.
+            // The original failure is the one to report; a failed rollback is
+            // not an applied one.
             $this->warnRollbackFailed($identifier, $e);
 
-            return true;
+            return false;
         }
     }
 

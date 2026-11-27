@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Unit\Adapter;
 
+use LogicException;
 use Netresearch\NrVault\Adapter\AwsSecretsManagerAdapter;
 use Netresearch\NrVault\Adapter\LocalEncryptionAdapter;
 use Netresearch\NrVault\Configuration\Dto\AwsSecretsConfig;
@@ -74,6 +75,9 @@ final class AwsSecretsManagerAdapterTest extends TestCase
     /** @var list<string> The previous version id each restoreToVersionIfCurrent() was given */
     private array $restoredToVersions = [];
 
+    /** @var array<string, list<string>> Every version id written per secret, oldest first */
+    private array $history = [];
+
     private string $masterKey = '';
 
     private ExternalStoreJournal $journal;
@@ -95,6 +99,7 @@ final class AwsSecretsManagerAdapterTest extends TestCase
         $this->readScript                     = [];
         $this->warnings                       = [];
         $this->restoredToVersions             = [];
+        $this->history                        = [];
         $this->awsWritesAllowed               = null;
         $this->masterKey                      = sodium_crypto_secretbox_keygen();
         $this->journal                        = new ExternalStoreJournal();
@@ -860,6 +865,25 @@ final class AwsSecretsManagerAdapterTest extends TestCase
     }
 
     #[Test]
+    public function aCompensationWhoseRollbackFailsKeepsTheRow(): void
+    {
+        $adapter = $this->adapter();
+        $adapter->store($this->envelopeSecret('api_key'));
+        unset($this->rows['api_key']);
+
+        // Adopted: the compensation has to put the earlier write back.
+        $adapter->store($this->envelopeSecret('api_key', 'adopted'));
+        $this->awsWritesAllowed = 0;
+
+        $adapter->compensateCreate('api_key');
+
+        self::assertArrayHasKey('api_key', $this->rows, 'a failed rollback is not an applied one; the row keeps pointing at what AWS holds');
+        self::assertCount(2, $this->warnings, 'the failed rollback and the kept row are reported');
+        self::assertStringContainsString('RuntimeException', $this->warnings[0]);
+        self::assertStringContainsString('row was kept', $this->warnings[1]);
+    }
+
+    #[Test]
     public function releasingAStoreDropsItsCompensationRecord(): void
     {
         $adapter = $this->adapter();
@@ -1085,8 +1109,9 @@ final class AwsSecretsManagerAdapterTest extends TestCase
             throw new RuntimeException('aws write refused', 4778462884);
         }
 
-        $this->aws[$identifier]      = $data;
-        $this->versions[$identifier] = ($this->versions[$identifier] ?? 0) + 1;
+        $this->aws[$identifier]       = $data;
+        $this->versions[$identifier]  = ($this->versions[$identifier] ?? 0) + 1;
+        $this->history[$identifier][] = $this->awsVersion($identifier);
 
         return $this->awsVersion($identifier);
     }
@@ -1113,8 +1138,20 @@ final class AwsSecretsManagerAdapterTest extends TestCase
 
         $this->aws[$identifier]      = $data;
         $this->versions[$identifier] = 1;
+        $this->history[$identifier]  = ['v1'];
 
         return 'v1';
+    }
+
+    /**
+     * Whether the version is an earlier one of the secret, which a stage move
+     * can make current again.
+     */
+    public function awsHasEarlierVersion(string $identifier, string $versionId): bool
+    {
+        $history = $this->history[$identifier] ?? [];
+
+        return in_array($versionId, $history, true) && $versionId !== $this->awsVersion($identifier);
     }
 
     public function recordRestoreTo(string $previousVersionId): void
@@ -1130,7 +1167,7 @@ final class AwsSecretsManagerAdapterTest extends TestCase
     public function awsDestroy(string $identifier): void
     {
         $this->awsCalls[] = 'destroy:' . $identifier;
-        unset($this->aws[$identifier], $this->versions[$identifier]);
+        unset($this->aws[$identifier], $this->versions[$identifier], $this->history[$identifier]);
     }
 
     /**
@@ -1248,6 +1285,16 @@ final class AwsSecretsManagerAdapterTest extends TestCase
             public function restoreToVersionIfCurrent(string $identifier, array $data, string $versionId, string $previousVersionId): bool
             {
                 $this->test->recordRestoreTo($previousVersionId);
+
+                // A stage move: AWSCURRENT must still be on the version the
+                // write created, and the one to move back to an earlier one.
+                if ($this->test->awsVersion($identifier) !== $versionId) {
+                    return false;
+                }
+
+                if (!$this->test->awsHasEarlierVersion($identifier, $previousVersionId)) {
+                    throw new LogicException('MoveToVersionId ' . $previousVersionId . ' is not an earlier version of ' . $identifier . '.', 1794567010);
+                }
 
                 return $this->restoreIfCurrent($identifier, $data, $versionId);
             }

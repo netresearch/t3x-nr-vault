@@ -779,6 +779,7 @@ Netresearch\NrVault\Exception\AwsSecretsManagerException (class)
   method static requestRejected(string $operation, int $status, string $awsCode): self
   method static transportFailure(string $operation, string $detail): self
   method static unsafeName(string $what): self
+  method static versionMissing(string $operation): self
 
 Netresearch\NrVault\Exception\ConfigurationException (class)
   method static awsSdkMissing(): self

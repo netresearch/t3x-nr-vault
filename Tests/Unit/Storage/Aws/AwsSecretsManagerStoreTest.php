@@ -276,6 +276,19 @@ final class AwsSecretsManagerStoreTest extends TestCase
     }
 
     #[Test]
+    public function readWithVersionRefusesAResponseWithoutAVersionIdWithItsOwnCode(): void
+    {
+        $store = $this->store(self::json(200, ['Name' => 'typo3/api_key', 'SecretString' => '{"k":"v"}']));
+
+        try {
+            $store->readWithVersion('api_key');
+            self::fail('A read without a version id must be refused.');
+        } catch (AwsSecretsManagerException $e) {
+            self::assertSame(1794500015, $e->getCode(), 'not 1794500008, which callers take for a value that is not a JSON object');
+        }
+    }
+
+    #[Test]
     public function restoreIfCurrentPutsTheFieldsBackOnlyWhileTheCurrentVersionIsTheGivenOne(): void
     {
         $store = $this->store(
