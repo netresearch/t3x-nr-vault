@@ -630,9 +630,6 @@ final class DataHandlerHook
     }
 
     /**
-     * Forget one duplicating command of this DataHandler.
-     */
-    /**
      * Delete the secrets of discarded workspace versions that nothing else
      * holds. A version row that still exists (core refused the discard)
      * holds its identifier itself, so its secret is kept.
@@ -698,6 +695,9 @@ final class DataHandlerHook
         return !is_numeric($count) || (int) $count > 0;
     }
 
+    /**
+     * Forget one duplicating command of this DataHandler.
+     */
     private function endDuplicationCommand(DataHandler $dataHandler): void
     {
         $handlerId = spl_object_id($dataHandler);

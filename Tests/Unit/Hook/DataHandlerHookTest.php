@@ -35,6 +35,7 @@ use ReflectionClass;
 use RuntimeException;
 use Stringable;
 use Throwable;
+use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\CMS\Core\Configuration\FlexForm\FlexFormTools;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
@@ -813,6 +814,123 @@ final class DataHandlerHookTest extends TestCase
         $this->vaultService->expects(self::never())->method('delete');
 
         $this->subject->processCmdmap_preProcess('delete', 'tx_test', 42, null, $this->dataHandler, false);
+    }
+
+    /**
+     * A discarded version's secret is deleted once no row holds it any more,
+     * the version row included (#565).
+     */
+    #[Test]
+    public function aDiscardedVersionsSecretNoRowHoldsIsDeleted(): void
+    {
+        $this->mockDiscard(holders: 0);
+        $this->vaultService->expects(self::once())->method('delete')->with(self::EXISTING_UUID, 'Workspace version discarded');
+
+        $this->subject->processCmdmap_discardAction('tx_test', 7, ['uid' => 7, 't3ver_wsid' => 1, 'api_key' => self::EXISTING_UUID]);
+        $this->subject->processCmdmap_postProcess('version', 'tx_test', 7, ['action' => 'clearWSID'], $this->dataHandler, false);
+    }
+
+    /**
+     * The live record, or the version itself after a refused discard, still
+     * holds the identifier: the secret stays.
+     */
+    #[Test]
+    public function aDiscardedVersionsSecretARowStillHoldsIsKept(): void
+    {
+        $this->mockDiscard(holders: 1);
+        $this->vaultService->expects(self::never())->method('delete');
+
+        $this->subject->processCmdmap_discardAction('tx_test', 7, ['uid' => 7, 't3ver_wsid' => 1, 'api_key' => self::EXISTING_UUID]);
+        $this->subject->processCmdmap_postProcess('version', 'tx_test', 7, ['action' => 'clearWSID'], $this->dataHandler, false);
+    }
+
+    /**
+     * A holder count that is not a number proves nothing: the secret stays.
+     */
+    #[Test]
+    public function aDiscardedVersionsSecretIsKeptWhenTheHolderCountIsUnreadable(): void
+    {
+        $this->mockDiscard(holders: false);
+        $this->vaultService->expects(self::never())->method('delete');
+
+        $this->subject->processCmdmap_discardAction('tx_test', 7, ['uid' => 7, 't3ver_wsid' => 1, 'api_key' => self::EXISTING_UUID]);
+        $this->subject->processCmdmap_postProcess('version', 'tx_test', 7, ['action' => 'clearWSID'], $this->dataHandler, false);
+    }
+
+    /**
+     * Core passes the live row when asked to discard by a live uid and then
+     * discards the version of the current workspace: the hook looks it up.
+     */
+    #[Test]
+    public function aDiscardByLiveUidCollectsTheWorkspaceVersion(): void
+    {
+        $this->mockDiscard(holders: 0, version: ['uid' => 8, 't3ver_wsid' => 1, 'api_key' => self::SECOND_UUID]);
+        $backendUser            = $this->createMock(BackendUserAuthentication::class);
+        $backendUser->workspace = 1;
+        $GLOBALS['BE_USER']     = $backendUser;
+        $this->vaultService->expects(self::once())->method('delete')->with(self::SECOND_UUID, self::anything());
+
+        $this->subject->processCmdmap_discardAction('tx_test', 7, ['uid' => 7, 't3ver_wsid' => 0, 'api_key' => self::EXISTING_UUID]);
+        $this->subject->processCmdmap_postProcess('version', 'tx_test', 7, ['action' => 'clearWSID'], $this->dataHandler, false);
+
+        unset($GLOBALS['BE_USER']);
+    }
+
+    #[Test]
+    public function aDiscardOfALiveRowWithoutAWorkspaceVersionCollectsNothing(): void
+    {
+        $this->mockDiscard(holders: 0);
+        $backendUser            = $this->createMock(BackendUserAuthentication::class);
+        $backendUser->workspace = 1;
+        $GLOBALS['BE_USER']     = $backendUser;
+        $this->vaultService->expects(self::never())->method('delete');
+
+        $this->subject->processCmdmap_discardAction('tx_test', 7, ['uid' => 7, 't3ver_wsid' => 0, 'api_key' => self::EXISTING_UUID]);
+        $this->subject->processCmdmap_postProcess('version', 'tx_test', 7, ['action' => 'clearWSID'], $this->dataHandler, false);
+
+        unset($GLOBALS['BE_USER']);
+    }
+
+    #[Test]
+    public function aDiscardOfALiveRowInTheLiveWorkspaceCollectsNothing(): void
+    {
+        $this->mockDiscard(holders: 0, version: ['uid' => 8, 't3ver_wsid' => 1, 'api_key' => self::SECOND_UUID]);
+        unset($GLOBALS['BE_USER']);
+        $this->vaultService->expects(self::never())->method('delete');
+
+        $this->subject->processCmdmap_discardAction('tx_test', 7, ['uid' => 7, 't3ver_wsid' => 0, 'api_key' => self::EXISTING_UUID]);
+        $this->subject->processCmdmap_postProcess('version', 'tx_test', 7, ['action' => 'clearWSID'], $this->dataHandler, false);
+    }
+
+    /**
+     * A delete that fails is reported and logged on the DataHandler.
+     */
+    #[Test]
+    public function aFailedDeleteOfADiscardedVersionsSecretIsReported(): void
+    {
+        $this->mockDiscard(holders: 0);
+        $this->vaultService->method('delete')->willThrowException(new RuntimeException('vault down', 1795000301));
+        $this->failureLogger->expects(self::once())->method('error');
+        $this->dataHandler->expects(self::once())->method('log')
+            ->with('tx_test', 7, 3, null, 1, self::stringContains('Vault error after discarding the workspace version, field "api_key"'));
+
+        $this->subject->processCmdmap_discardAction('tx_test', 7, ['uid' => 7, 't3ver_wsid' => 1, 'api_key' => self::EXISTING_UUID]);
+        $this->subject->processCmdmap_postProcess('version', 'tx_test', 7, ['action' => 'clearWSID'], $this->dataHandler, false);
+    }
+
+    /**
+     * A secret that is already gone is not an error.
+     */
+    #[Test]
+    public function aDiscardedVersionsSecretThatIsAlreadyGoneIsNoError(): void
+    {
+        $this->mockDiscard(holders: 0);
+        $this->vaultService->method('delete')->willThrowException(SecretNotFoundException::forIdentifier(self::EXISTING_UUID));
+        $this->failureLogger->expects(self::never())->method('error');
+        $this->dataHandler->expects(self::never())->method('log');
+
+        $this->subject->processCmdmap_discardAction('tx_test', 7, ['uid' => 7, 't3ver_wsid' => 1, 'api_key' => self::EXISTING_UUID]);
+        $this->subject->processCmdmap_postProcess('version', 'tx_test', 7, ['action' => 'clearWSID'], $this->dataHandler, false);
     }
 
     #[Test]
@@ -2395,5 +2513,31 @@ final class DataHandlerHookTest extends TestCase
         yield 'error/update, exception/blank' => [Error::class, RuntimeException::class, null];
         yield 'exception/update, exception/cleanup' => [RuntimeException::class, null, RuntimeException::class];
         yield 'exception/update, error/cleanup' => [RuntimeException::class, null, Error::class];
+    }
+
+    /**
+     * A vault field on tx_test, the holder count a lookup of the identifier
+     * returns, and the workspace version a live-uid lookup returns.
+     *
+     * @param array<string, mixed>|null $version
+     */
+    private function mockDiscard(int|false $holders, ?array $version = null): void
+    {
+        $this->mockTcaSchemaForTable('tx_test', [
+            'api_key' => ['type' => 'input', 'renderType' => 'vaultSecret'],
+        ]);
+
+        $result = $this->createMock(Result::class);
+        $result->method('fetchOne')->willReturn($holders);
+        $result->method('fetchAssociative')->willReturn($version ?? false);
+
+        $queryBuilder = $this->createMock(QueryBuilder::class);
+        $queryBuilder->method('count')->willReturnSelf();
+        $queryBuilder->method('select')->willReturnSelf();
+        $queryBuilder->method('from')->willReturnSelf();
+        $queryBuilder->method('where')->willReturnSelf();
+        $queryBuilder->method('executeQuery')->willReturn($result);
+
+        $this->connectionPool->method('getQueryBuilderForTable')->willReturn($queryBuilder);
     }
 }
