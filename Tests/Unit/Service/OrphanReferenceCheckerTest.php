@@ -30,6 +30,8 @@ use TYPO3\CMS\Core\Database\Query\Expression\ExpressionBuilder;
 use TYPO3\CMS\Core\Database\Query\QueryBuilder;
 use TYPO3\CMS\Core\Database\Query\Restriction\QueryRestrictionContainerInterface;
 
+use function array_column;
+
 /**
  * What the checker makes of the lookups. The queries themselves run against a
  * real schema in SecretRecordLinkCleanupTest and
@@ -355,6 +357,7 @@ final class OrphanReferenceCheckerTest extends TestCase
                 'field'      => 'api_key',
                 'uid'        => 5,
                 'reason'     => self::UNKNOWN_TABLE,
+                'transient'  => false,
             ],
         );
 
@@ -362,9 +365,25 @@ final class OrphanReferenceCheckerTest extends TestCase
         $checker->isOrphaned($this->reference(), self::IDENTIFIER);
 
         self::assertSame(
-            [['identifier' => self::IDENTIFIER, 'table' => 'tx_table', 'field' => 'api_key', 'uid' => 5, 'reason' => self::UNKNOWN_TABLE]],
+            [['identifier' => self::IDENTIFIER, 'table' => 'tx_table', 'field' => 'api_key', 'uid' => 5, 'reason' => self::UNKNOWN_TABLE, 'transient' => false]],
             $checker->getUnresolvedReferences(),
         );
+    }
+
+    /**
+     * A query or connection error may clear on the next run: the kept
+     * reference is marked transient, which fails the cleanup run. A link
+     * that cannot be checked as it stands is not (#565).
+     */
+    #[Test]
+    public function aFailedLookupIsRecordedAsTransient(): void
+    {
+        $this->schemaManager->method('tablesExist')->willThrowException(new RuntimeException('connection lost', 1795000110));
+
+        $checker = $this->checker();
+        $checker->isOrphaned($this->reference(), self::IDENTIFIER);
+
+        self::assertSame([true], array_column($checker->getUnresolvedReferences(), 'transient'));
     }
 
     #[Test]

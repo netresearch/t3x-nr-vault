@@ -114,6 +114,9 @@ final class VaultMigrateFieldCommandTest extends TestCase
     /** When set, the vault's store() throws it. */
     private ?Throwable $storeFailure = null;
 
+    /** The value whose store() throws, the others are stored. */
+    private ?string $failStoreForValue = null;
+
     /** Set by an UPDATE right after the read-back: an editor saving the row in between. */
     private ?string $editorValueAfterReadBack = null;
 
@@ -898,6 +901,34 @@ final class VaultMigrateFieldCommandTest extends TestCase
     }
 
     /**
+     * A run with a failed record and a record migrated without its link
+     * reports both, each with its own warning, and prints the Next Steps:
+     * the migrated value needs them whatever happened to the other record
+     * (#565).
+     */
+    #[Test]
+    public function aFailedAndAnUnlinkedRecordAreBothReported(): void
+    {
+        $this->mockTableAndFieldExist('api_key');
+        $this->mockQueryReturnsRecords([
+            ['uid' => 1, 'api_key' => 'secret-store-fails'],
+            ['uid' => 2, 'api_key' => 'secret-link-refused'],
+        ]);
+        $this->failStoreForValue = 'secret-store-fails';
+        $this->linkFailure       = new VaultException('missing secret.create permission', 1795000005);
+
+        $this->commandTester->setInputs(['yes']);
+        $exitCode = $this->commandTester->execute(['table' => 'tx_myext_settings', 'field' => 'api_key']);
+
+        self::assertSame(1, $exitCode);
+        $display = $this->normalizedDisplay();
+        self::assertStringContainsString('Migration completed with 1 errors', $display);
+        self::assertStringContainsString('1 record(s) were migrated without their record link', $display);
+        self::assertStringContainsString('Next Steps', $display);
+        self::assertStringNotContainsString('Migration completed successfully', $display);
+    }
+
+    /**
      * A link that was written and could not be taken back may be in the row
      * or not: the report says that instead of claiming the cleanup ignores
      * the secret (#565).
@@ -1496,6 +1527,10 @@ final class VaultMigrateFieldCommandTest extends TestCase
             $failure = $this->storeFailure;
             if ($failure instanceof Throwable) {
                 throw $failure;
+            }
+
+            if ($value === $this->failStoreForValue) {
+                throw new VaultException('Storage failed for one record', 1795000004);
             }
 
             $metadata                   = $this->metadataAfterStore ?? $options['metadata'] ?? [];

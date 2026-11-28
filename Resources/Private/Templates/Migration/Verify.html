@@ -39,6 +39,16 @@
                     </div>
                 </div>
             </f:if>
+            <f:if condition="{totalUnlinked}">
+                <div class="card card-size-fixed-small">
+                    <div class="card-header">
+                        <div class="card-header-body">
+                            <h2 class="card-title text-warning">{totalUnlinked}</h2>
+                            <span class="card-subtitle">{f:translate(key: 'LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.verify.unlinked')}</span>
+                        </div>
+                    </div>
+                </div>
+            </f:if>
         </div>
 
         <!-- Detailed Results -->

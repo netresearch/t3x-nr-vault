@@ -24,8 +24,15 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use ReflectionClass;
 use ReflectionMethod;
+use TYPO3\CMS\Core\Http\ServerRequest;
+use TYPO3\CMS\Core\Localization\LanguageServiceFactory;
+use TYPO3\CMS\Core\Messaging\FlashMessage;
+use TYPO3\CMS\Core\Messaging\FlashMessageService;
+use TYPO3\CMS\Core\Type\ContextualFeedbackSeverity;
 
+use function array_filter;
 use function array_key_exists;
+use function array_values;
 use function is_array;
 use function is_numeric;
 use function is_string;
@@ -209,6 +216,48 @@ final class MigrationRecordLinkPermissionTest extends AbstractVaultFunctionalTes
         self::assertCount(1, $result->failureReasons);
         self::assertStringStartsWith(sprintf('uid %d: migrated, unlinked: the field holds the identifier', $uid), $result->failureReasons[0]);
         self::assertSame(1, substr_count($result->failureReasons[0], 'migrated, unlinked'), 'The label is printed once');
+    }
+
+    /**
+     * The module carries the count of unlinked rows from the run to the
+     * verify step and warns about them there (#565).
+     */
+    #[Test]
+    public function theModuleWarnsAboutUnlinkedRowsOnTheVerifyStep(): void
+    {
+        $connection = $this->getConnectionPool()->getConnectionForTable(self::TABLE);
+        $connection->insert(self::TABLE, ['pid' => 1, 'secret' => 'unlinked-plaintext']);
+
+        $refusingWriter = new class implements SecretRecordLinkWriterInterface {
+            public function linkCreatedSecret(string $identifier, array $createdMetadata, array $link): void
+            {
+                throw new AccessDeniedException('link refused for the test', 1795000202);
+            }
+        };
+        $migrator        = $this->rebuild($this->get(FieldValueMigratorInterface::class), ['recordLinkWriter' => $refusingWriter]);
+        $controller      = $this->rebuild($this->get(MigrationController::class), ['fieldValueMigrator' => $migrator]);
+        $GLOBALS['LANG'] = $this->get(LanguageServiceFactory::class)->create('default');
+
+        /** @phpstan-ignore new.internalClass, method.internalClass */
+        $request = new ServerRequest('https://example.com/typo3/module/admin/vault/migration', 'POST');
+        /** @phpstan-ignore method.internalClass */
+        $request = $request->withParsedBody(['migrations' => [['table' => self::TABLE, 'column' => 'secret', 'identifierPattern' => 'linkflash_{uid}']]]);
+        (new ReflectionMethod(MigrationController::class, 'executeAction'))->invoke($controller, $request);
+
+        $session = $GLOBALS['BE_USER']->getSessionData('vault_migration_results');
+        self::assertIsArray($session);
+        self::assertSame(1, $session['totalUnlinked'] ?? null, 'The count reaches the verify step');
+
+        $queue = $this->get(FlashMessageService::class)->getMessageQueueByIdentifier();
+        $queue->getAllMessagesAndFlush();
+        (new ReflectionMethod(MigrationController::class, 'addResultFlashMessages'))->invoke($controller, 1, 0, 1);
+        $warnings = array_values(array_filter(
+            $queue->getAllMessages(),
+            /** @phpstan-ignore method.internal */
+            static fn (FlashMessage $message): bool => $message->getSeverity() === ContextualFeedbackSeverity::WARNING,
+        ));
+        self::assertCount(1, $warnings);
+        self::assertStringContainsString('1 secret(s) were migrated without their record link', $warnings[0]->getMessage());
     }
 
     #[Test]

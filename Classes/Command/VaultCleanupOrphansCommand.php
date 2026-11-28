@@ -21,6 +21,7 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
+use function array_filter;
 use function array_map;
 use function array_slice;
 use function count;
@@ -106,9 +107,12 @@ final class VaultCleanupOrphansCommand extends Command
 
         $orphans     = $this->findOrphans($io, $secrets, $options['retentionDays'], $options['batchSize']);
         $orphanCount = count($orphans);
-        // Secrets whose record link could not be checked are kept: the run
-        // did not do for them what it was asked, on every path below.
-        $unchecked = count($this->orphanReferenceChecker->getUnresolvedReferences());
+        // Secrets whose check failed on a query or connection error are
+        // kept, and the run did not do for them what it was asked: exit 1 on
+        // every path below. A link that names an unknown table or field is
+        // kept and listed, but never clears on its own, so it does not fail
+        // the run.
+        $unchecked = $this->countTransient($this->orphanReferenceChecker->getUnresolvedReferences());
         if ($orphanCount === 0) {
             if ($unchecked > 0) {
                 return $this->failForUnchecked($io, $unchecked);
@@ -136,14 +140,26 @@ final class VaultCleanupOrphansCommand extends Command
 
         $result = $this->deleteOrphans($io, $orphans);
 
-        return $result === Command::SUCCESS && $unchecked > 0 ? $this->failForUnchecked($io, $unchecked) : $result;
+        // Stated after a failed delete too, so the reason is not lost.
+        return $unchecked > 0 ? $this->failForUnchecked($io, $unchecked) : $result;
     }
 
+    /**
+     * The kept secrets are listed already; this names the exit reason.
+     */
     private function failForUnchecked(SymfonyStyle $io, int $unchecked): int
     {
-        $io->warning(sprintf('%d secret(s) whose record link could not be checked were kept', $unchecked));
+        $io->writeln(sprintf('<error>Exit code 1: the check of %d kept secret(s) failed on a query or connection error; run the cleanup again.</error>', $unchecked));
 
         return Command::FAILURE;
+    }
+
+    /**
+     * @param list<array{identifier: string, table: string, field: string, uid: int, reason: string, transient: bool}> $unresolved
+     */
+    private function countTransient(array $unresolved): int
+    {
+        return count(array_filter($unresolved, static fn (array $entry): bool => $entry['transient']));
     }
 
     /**
@@ -359,7 +375,7 @@ final class VaultCleanupOrphansCommand extends Command
      * Printed after the progress bar, which a warning written while it runs
      * would break.
      *
-     * @param list<array{identifier: string, table: string, field: string, uid: int, reason: string}> $unresolved
+     * @param list<array{identifier: string, table: string, field: string, uid: int, reason: string, transient: bool}> $unresolved
      */
     private function showUnresolvedReferences(SymfonyStyle $io, array $unresolved): void
     {
@@ -375,6 +391,10 @@ final class VaultCleanupOrphansCommand extends Command
                 $unresolved,
             ),
         );
+
+        if (count($unresolved) > $this->countTransient($unresolved)) {
+            $io->text('A link that names no field, an unknown table or an unknown field stays so: delete the secret by hand (vault:delete), or restore the table or field.');
+        }
     }
 
     /**

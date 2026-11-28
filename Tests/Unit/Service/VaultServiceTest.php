@@ -1460,6 +1460,42 @@ final class VaultServiceTest extends TestCase
      * store() would send the value again on a remote adapter and roll back
      * its counters (#565).
      */
+    /**
+     * An audit failure whose take-back fails too leaves the link state
+     * unknown, like any other failure after the write: the audit failure is
+     * chained, so the caller does not report "could not be stored" (#565).
+     */
+    #[Test]
+    public function linkCreatedSecretReportsAnUnknownStateWhenTheAuditAndTheTakeBackFail(): void
+    {
+        $this->adapter->method('retrieve')->willReturn($this->createSecretEntity('link_audit_and_revert_down', 7, metadata: ['migrated_at' => 5]));
+        $this->accessControlService->method('canWrite')->willReturn(true);
+        $metadata = ['migrated_at' => 5];
+        $writes   = 0;
+        $this->adapter->method('updateMetadata')->willReturnCallback(static function (string $identifier, array $merge) use (&$writes, &$metadata): void {
+            if (++$writes > 1) {
+                throw new RuntimeException('registry write failed', 1795000108);
+            }
+
+            $metadata = array_replace($metadata, $merge);
+        });
+        $this->adapter->method('getMetadata')->willReturnCallback(static function () use (&$metadata): array {
+            return ['metadata' => $metadata];
+        });
+        $this->auditLogService->method('log')->willThrowException(new AuditWriteException(self::AUDIT_WRITE_ERROR, 1795000109));
+
+        try {
+            $this->subject->linkCreatedSecret('link_audit_and_revert_down', ['migrated_at' => 5], ['source' => 'migration']);
+            self::fail('A failed audit write must fail the link');
+        } catch (RecordLinkStateUnknownException $e) {
+            self::assertInstanceOf(AuditWriteException::class, $e->getPrevious(), 'The audit failure is chained');
+            self::assertStringContainsString('A step after writing the record link', $e->getMessage());
+            self::assertStringContainsString('could not be taken back (registry write failed)', $e->getMessage());
+        }
+
+        self::assertSame(2, $writes);
+    }
+
     #[Test]
     public function linkCreatedSecretRevertsTheLinkWithATargetedWrite(): void
     {

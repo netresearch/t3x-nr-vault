@@ -47,7 +47,12 @@ interface OrphanReferenceCheckerInterface
     /**
      * The references this run kept because it could not check them.
      *
-     * @return list<array{identifier: string, table: string, field: string, uid: int, reason: string}>
+     * `transient` is true when a query or connection failed: a later run may
+     * succeed. It is false for a link that cannot be checked as it stands
+     * (no field, an unknown table or field), which stays so until the secret
+     * is deleted or the table or field is restored.
+     *
+     * @return list<array{identifier: string, table: string, field: string, uid: int, reason: string, transient: bool}>
      */
     public function getUnresolvedReferences(): array;
 

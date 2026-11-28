@@ -314,6 +314,7 @@ final readonly class MigrationController
         $results       = [];
         $totalMigrated = 0;
         $totalFailed   = 0;
+        $totalUnlinked = 0;
 
         foreach ($migrations as $migration) {
             $result = $this->processMigrationEntry($migration);
@@ -324,9 +325,10 @@ final readonly class MigrationController
             $results[] = $result->toArray();
             $totalMigrated += $result->migrated;
             $totalFailed += $result->failed;
+            $totalUnlinked += $result->unlinked;
         }
 
-        $this->storeMigrationResults($results, $totalMigrated, $totalFailed, $clearOriginals);
+        $this->storeMigrationResults($results, $totalMigrated, $totalFailed, $clearOriginals, $totalUnlinked);
 
         /** @phpstan-ignore new.internalClass, method.internalClass */
         return new RedirectResponse($this->buildUri('verify'));
@@ -398,6 +400,7 @@ final readonly class MigrationController
         int $totalMigrated,
         int $totalFailed,
         bool $clearOriginals,
+        int $totalUnlinked = 0,
     ): void {
         $beUser = $GLOBALS['BE_USER'] ?? null;
         if (is_object($beUser) && method_exists($beUser, 'setAndSaveSessionData')) {
@@ -405,6 +408,7 @@ final readonly class MigrationController
                 'results'        => $results,
                 'totalMigrated'  => $totalMigrated,
                 'totalFailed'    => $totalFailed,
+                'totalUnlinked'  => $totalUnlinked,
                 'clearOriginals' => $clearOriginals,
             ]);
         }
@@ -438,6 +442,8 @@ final readonly class MigrationController
         $totalMigrated     = is_numeric($totalMigratedVal) ? (int) $totalMigratedVal : 0;
         $totalFailedVal    = $sessionData['totalFailed'] ?? 0;
         $totalFailed       = is_numeric($totalFailedVal) ? (int) $totalFailedVal : 0;
+        $totalUnlinkedVal  = $sessionData['totalUnlinked'] ?? 0;
+        $totalUnlinked     = is_numeric($totalUnlinkedVal) ? (int) $totalUnlinkedVal : 0;
         $clearOriginalsVal = $sessionData['clearOriginals'] ?? false;
         $clearOriginals    = is_bool($clearOriginalsVal) ? $clearOriginalsVal : (bool) $clearOriginalsVal;
 
@@ -446,6 +452,21 @@ final readonly class MigrationController
             $beUser->setAndSaveSessionData('vault_migration_results', null);
         }
 
+        $this->addResultFlashMessages($totalMigrated, $totalFailed, $totalUnlinked);
+
+        $moduleTemplate->assignMultiple([
+            'results'        => $results,
+            'totalMigrated'  => $totalMigrated,
+            'totalFailed'    => $totalFailed,
+            'totalUnlinked'  => $totalUnlinked,
+            'clearOriginals' => $clearOriginals,
+        ]);
+
+        return $moduleTemplate->renderResponse('Migration/Verify');
+    }
+
+    private function addResultFlashMessages(int $totalMigrated, int $totalFailed, int $totalUnlinked): void
+    {
         $lang = $this->getLanguageService();
 
         if ($totalMigrated > 0) {
@@ -464,14 +485,15 @@ final readonly class MigrationController
             );
         }
 
-        $moduleTemplate->assignMultiple([
-            'results'        => $results,
-            'totalMigrated'  => $totalMigrated,
-            'totalFailed'    => $totalFailed,
-            'clearOriginals' => $clearOriginals,
-        ]);
-
-        return $moduleTemplate->renderResponse('Migration/Verify');
+        // Migrated, but without the record link orphan cleanup reads: the
+        // link has to be added by hand.
+        if ($totalUnlinked > 0) {
+            $this->addFlashMessage(
+                sprintf($lang->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.unlinked'), $totalUnlinked),
+                $lang->sL('LLL:EXT:nr_vault/Resources/Private/Language/locallang_mod.xlf:migration.unlinked.title'),
+                ContextualFeedbackSeverity::WARNING,
+            );
+        }
     }
 
     /**

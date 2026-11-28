@@ -61,7 +61,7 @@ final class OrphanReferenceChecker implements OrphanReferenceCheckerInterface
      */
     private array $columns = [];
 
-    /** @var list<array{identifier: string, table: string, field: string, uid: int, reason: string}> */
+    /** @var list<array{identifier: string, table: string, field: string, uid: int, reason: string, transient: bool}> */
     private array $unresolved = [];
 
     public function __construct(
@@ -88,7 +88,7 @@ final class OrphanReferenceChecker implements OrphanReferenceCheckerInterface
         try {
             $unresolvable = $this->unresolvableReason($reference, $identifier);
             if ($unresolvable !== null) {
-                $this->keep($reference, $identifier, $unresolvable);
+                $this->keep($reference, $identifier, $unresolvable, false);
 
                 return false;
             }
@@ -103,7 +103,7 @@ final class OrphanReferenceChecker implements OrphanReferenceCheckerInterface
 
             return !$this->databaseFindsHolder($reference, $identifier);
         } catch (Throwable $e) {
-            $this->keep($reference, $identifier, 'could not be resolved: ' . $e->getMessage());
+            $this->keep($reference, $identifier, 'could not be resolved: ' . $e->getMessage(), true);
 
             return false;
         }
@@ -114,7 +114,7 @@ final class OrphanReferenceChecker implements OrphanReferenceCheckerInterface
         return $this->unresolved;
     }
 
-    private function keep(OrphanReference $reference, string $identifier, string $reason): void
+    private function keep(OrphanReference $reference, string $identifier, string $reason, bool $transient): void
     {
         $entry = [
             'identifier' => $identifier,
@@ -122,6 +122,7 @@ final class OrphanReferenceChecker implements OrphanReferenceCheckerInterface
             'field'      => $reference->field,
             'uid'        => $reference->uid,
             'reason'     => $reason,
+            'transient'  => $transient,
         ];
 
         $this->unresolved[] = $entry;

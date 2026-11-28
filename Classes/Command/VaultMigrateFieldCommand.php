@@ -247,25 +247,25 @@ final class VaultMigrateFieldCommand extends Command
 
         if ($failed > 0) {
             $io->warning(sprintf('Migration completed with %d errors', $failed));
-
-            return Command::FAILURE;
         }
 
         // Migrated, but invisible to orphan cleanup until the link is added
         // by hand: not a success to report as one.
         if ($unlinked !== []) {
             $io->warning(sprintf('Migration completed, but %d record(s) were migrated without their record link', count($unlinked)));
-            // The values are migrated all the same: the field needs the
-            // same follow-up.
-            $this->showNextSteps($io);
-
-            return Command::FAILURE;
         }
 
-        $io->success('Migration completed successfully');
-        $this->showNextSteps($io);
+        if ($failed === 0 && $unlinked === []) {
+            $io->success('Migration completed successfully');
+        }
 
-        return Command::SUCCESS;
+        // Every migrated value needs the same follow-up, whatever happened
+        // to the other records.
+        if ($migrated > 0) {
+            $this->showNextSteps($io);
+        }
+
+        return $failed > 0 || $unlinked !== [] ? Command::FAILURE : Command::SUCCESS;
     }
 
     private function showNextSteps(SymfonyStyle $io): void

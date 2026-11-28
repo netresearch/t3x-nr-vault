@@ -137,8 +137,8 @@ final class OrphanCleanupTaskTest extends TestCase
     }
 
     /**
-     * A secret whose record link could not be checked is kept, and the run
-     * reports that it did not do everything it was asked (#565).
+     * A secret whose check failed on a query or connection error is kept, and
+     * the run reports that it did not do everything it was asked (#565).
      */
     #[Test]
     public function returnsFalseWhenASecretCouldNotBeChecked(): void
@@ -152,11 +152,35 @@ final class OrphanCleanupTaskTest extends TestCase
         ]);
         $this->checker->method('isOrphaned')->willReturn(false);
         $this->checker->method('getUnresolvedReferences')->willReturn([
-            ['identifier' => 'tx_gone__api_key__1', 'table' => 'tx_gone', 'field' => 'api_key', 'uid' => 1, 'reason' => 'the table could not be resolved'],
+            ['identifier' => 'tx_gone__api_key__1', 'table' => 'tx_gone', 'field' => 'api_key', 'uid' => 1, 'reason' => 'could not be resolved: connection lost', 'transient' => true],
         ]);
         $this->vaultService->expects($this->never())->method('delete');
 
         self::assertFalse($this->createTask()->execute());
+    }
+
+    /**
+     * A link that names an unknown table or field never clears on its own:
+     * the secret is kept and logged, but the run is no failure, or it would
+     * stay red for good after an extension is uninstalled (#565).
+     */
+    #[Test]
+    public function returnsTrueWhenALinkCannotBeCheckedAsItStands(): void
+    {
+        $this->mockPage([
+            $this->createSecret(
+                'tx_gone__api_key__1',
+                time() - 86400 * 30,
+                ['source' => 'tca_field', 'table' => 'tx_gone', 'field' => 'api_key', 'uid' => 1],
+            ),
+        ]);
+        $this->checker->method('isOrphaned')->willReturn(false);
+        $this->checker->method('getUnresolvedReferences')->willReturn([
+            ['identifier' => 'tx_gone__api_key__1', 'table' => 'tx_gone', 'field' => 'api_key', 'uid' => 1, 'reason' => 'names an unknown table', 'transient' => false],
+        ]);
+        $this->vaultService->expects($this->never())->method('delete');
+
+        self::assertTrue($this->createTask()->execute());
     }
 
     #[Test]
@@ -1008,7 +1032,7 @@ final class OrphanCleanupTaskTest extends TestCase
 
         $task = $this->createTask();
         $task->setTaskParameters(['nr_vault_retention_days' => 0]);
-        self::assertFalse($task->execute(), 'The secret is kept, and the run reports it could not check it.');
+        self::assertTrue($task->execute());
     }
 
     /**
@@ -1169,7 +1193,7 @@ final class OrphanCleanupTaskTest extends TestCase
         $task = $this->createTask();
         $task->setTaskParameters(['nr_vault_retention_days' => 0]);
 
-        self::assertFalse($task->execute(), 'An unresolvable reference keeps the secret and fails the run, so an operator sees it.');
+        self::assertTrue($task->execute(), 'An unresolvable reference is not a task failure, just not a deletion.');
     }
 
     /**
@@ -1194,7 +1218,7 @@ final class OrphanCleanupTaskTest extends TestCase
         $task = $this->createTask();
         $task->setTaskParameters(['nr_vault_retention_days' => 0]);
 
-        self::assertFalse($task->execute(), 'The secret is kept, and the run reports it could not check it.');
+        self::assertFalse($task->execute(), 'A lookup that failed may succeed next time: the run reports it.');
     }
 
     /**
@@ -1230,7 +1254,7 @@ final class OrphanCleanupTaskTest extends TestCase
         $task = $this->createTask($logManager);
         $task->setTaskParameters(['nr_vault_retention_days' => 0]);
 
-        self::assertFalse($task->execute(), 'The secret is kept, and the run reports it could not check it.');
+        self::assertTrue($task->execute());
     }
 
     private function createTask(?LogManager $logManager = null): OrphanCleanupTask

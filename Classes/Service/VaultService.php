@@ -1424,26 +1424,29 @@ final readonly class VaultService implements VaultServiceInterface, SecretRecord
             $this->adapter->updateMetadata($identifier, $values);
         };
 
-        if ($failure instanceof AuditWriteException) {
-            $this->compensateAuditFailure($identifier, $revert, $failure);
+        // Inside the transaction its rollback takes the link back, the audit
+        // entry included.
+        if ($this->mutationTransaction?->isActive() === true) {
+            throw $failure;
         }
 
-        if ($this->mutationTransaction?->isActive() !== true) {
-            try {
-                $revert();
-            } catch (Throwable $revertFailure) {
-                $this->logger?->critical(
-                    'Vault inconsistency: a record link could not be verified and could not be taken back. Manual reconciliation required.',
-                    [
-                        'identifier'    => $identifier,
-                        'error'         => $failure->getMessage(),
-                        'rollbackError' => $revertFailure->getMessage(),
-                    ],
-                );
+        // An audit failure is handled here too, not by
+        // compensateAuditFailure(): a failed take-back must surface as an
+        // unknown link state whatever step failed first.
+        try {
+            $revert();
+        } catch (Throwable $revertFailure) {
+            $this->logger?->critical(
+                'Vault inconsistency: a step after writing a record link failed and the link could not be taken back. Manual reconciliation required.',
+                [
+                    'identifier'    => $identifier,
+                    'error'         => $failure->getMessage(),
+                    'rollbackError' => $revertFailure->getMessage(),
+                ],
+            );
 
-                // The link may or may not be in the row now: say so.
-                throw RecordLinkStateUnknownException::afterFailedTakeBack($identifier, $failure, $revertFailure);
-            }
+            // The link may or may not be in the row now: say so.
+            throw RecordLinkStateUnknownException::afterFailedTakeBack($identifier, $failure, $revertFailure);
         }
 
         throw $failure;

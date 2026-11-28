@@ -14,10 +14,10 @@ use Throwable;
 use function sprintf;
 
 /**
- * A record link was written, a later step failed, and taking the link back
- * failed too: whether the registry row holds the link is unknown. The
- * original failure is the previous exception; the critical log entry names
- * both.
+ * A record link was written, a later step failed (its read-back or its
+ * audit entry), and taking the link back failed too: whether the registry
+ * row holds the link is unknown. The failure of that later step is the
+ * previous exception; the critical log entry names both.
  *
  * @internal
  */
@@ -27,7 +27,7 @@ final class RecordLinkStateUnknownException extends VaultException
     {
         return new self(
             sprintf(
-                'The record link of secret "%s" could not be verified (%s) and could not be taken back (%s)',
+                'A step after writing the record link of secret "%s" failed (%s), and the link could not be taken back (%s)',
                 $identifier,
                 $failure->getMessage(),
                 $revertFailure->getMessage(),

@@ -28,6 +28,8 @@ use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 
 use function sprintf;
+use function str_contains;
+use function substr_count;
 
 #[CoversClass(VaultCleanupOrphansCommand::class)]
 #[AllowMockObjectsWithoutExpectations]
@@ -291,7 +293,7 @@ final class VaultCleanupOrphansCommandTest extends TestCase
                 return true;
             }
 
-            $unresolved[] = ['identifier' => self::IDENTIFIER, 'table' => 'tx_myext', 'field' => 'api_key', 'uid' => 1, 'reason' => 'could not be resolved: connection lost'];
+            $unresolved[] = ['identifier' => self::IDENTIFIER, 'table' => 'tx_myext', 'field' => 'api_key', 'uid' => 1, 'reason' => 'could not be resolved: connection lost', 'transient' => true];
 
             return false;
         });
@@ -312,20 +314,26 @@ final class VaultCleanupOrphansCommandTest extends TestCase
     }
 
     /**
-     * A secret the first pass could not check is kept. Whatever else the
-     * run did, it did not do what it was asked for that secret, so it ends
-     * with exit code 1 on every path (#565).
+     * A secret whose first-pass check failed on a query or connection error
+     * is kept. The run did not do what it was asked for that secret, so it
+     * ends with exit code 1 on every path; a link that names an unknown table
+     * or field never clears on its own, so it is listed but ends with 0
+     * (#565).
      *
-     * @return iterable<string, array{list<bool>, array<string, mixed>, list<string>}>
+     * @return iterable<string, array{list<bool>, array<string, mixed>, list<string>, bool, int}>
      */
     public static function uncheckedFirstPassProvider(): iterable
     {
         // isOrphaned() answers per call: the unchecked secret first, then the
         // other one in the first pass, then the re-check before a delete.
-        yield 'no orphans' => [[false, false], [], []];
-        yield 'dry run' => [[false, true], ['--dry-run' => true], []];
-        yield 'cancelled' => [[false, true], [], ['no']];
-        yield 'deleted' => [[false, true, true], [], ['yes']];
+        yield 'no orphans' => [[false, false], [], [], true, 1];
+        yield 'dry run' => [[false, true], ['--dry-run' => true], [], true, 1];
+        yield 'cancelled' => [[false, true], [], ['no'], true, 1];
+        yield 'deleted' => [[false, true, true], [], ['yes'], true, 1];
+        yield 'structural, no orphans' => [[false, false], [], [], false, 0];
+        yield 'structural, dry run' => [[false, true], ['--dry-run' => true], [], false, 0];
+        yield 'structural, cancelled' => [[false, true], [], ['no'], false, 0];
+        yield 'structural, deleted' => [[false, true, true], [], ['yes'], false, 0];
     }
 
     /**
@@ -335,7 +343,7 @@ final class VaultCleanupOrphansCommandTest extends TestCase
      */
     #[Test]
     #[DataProvider('uncheckedFirstPassProvider')]
-    public function aSecretTheFirstPassCouldNotCheckFailsTheRun(array $answers, array $options, array $inputs): void
+    public function aSecretTheFirstPassCouldNotCheckFailsTheRunOnlyForATransientReason(array $answers, array $options, array $inputs, bool $transient, int $expectedExitCode): void
     {
         $this->vaultService->method('list')->willReturn([
             $this->createSecretMetadata(self::IDENTIFIER_1, time() - 86400 * 30, ['source' => 'tca_field', 'table' => 'tx_gone', 'field' => 'api_key', 'uid' => 1]),
@@ -344,9 +352,11 @@ final class VaultCleanupOrphansCommandTest extends TestCase
 
         $unresolved = [];
         $calls      = 0;
-        $this->checker->method('isOrphaned')->willReturnCallback(static function () use (&$unresolved, &$calls, $answers): bool {
+        $this->checker->method('isOrphaned')->willReturnCallback(static function () use (&$unresolved, &$calls, $answers, $transient): bool {
             if (++$calls === 1) {
-                $unresolved[] = ['identifier' => self::IDENTIFIER_1, 'table' => 'tx_gone', 'field' => 'api_key', 'uid' => 1, 'reason' => 'the table could not be resolved'];
+                $unresolved[] = $transient
+                    ? ['identifier' => self::IDENTIFIER_1, 'table' => 'tx_gone', 'field' => 'api_key', 'uid' => 1, 'reason' => 'could not be resolved: connection lost', 'transient' => true]
+                    : ['identifier' => self::IDENTIFIER_1, 'table' => 'tx_gone', 'field' => 'api_key', 'uid' => 1, 'reason' => 'names an unknown table', 'transient' => false];
             }
 
             return $answers[$calls - 1] ?? false;
@@ -358,10 +368,48 @@ final class VaultCleanupOrphansCommandTest extends TestCase
         $this->commandTester->setInputs($inputs);
         $exitCode = $this->commandTester->execute($options);
 
-        self::assertSame(1, $exitCode, 'A kept, unchecked secret must not end as a success');
+        self::assertSame($expectedExitCode, $exitCode, 'Only a check that may succeed next time fails the run');
         $display = (string) preg_replace('/\s+/', ' ', $this->commandTester->getDisplay());
-        self::assertStringContainsString('1 secret(s) whose record link could not be checked were kept', $display);
-        self::assertStringNotContainsString('No orphaned secrets found', $display);
+        self::assertSame(1, substr_count($display, 'Kept 1 secret(s) whose record link could not be checked'), 'The count is stated once');
+        self::assertSame($transient, str_contains($display, 'Exit code 1: the check of 1 kept secret(s) failed on a query or connection error'));
+    }
+
+    /**
+     * A failed delete exits 1 anyway; the secrets the first pass could not
+     * check are still named as a reason, or the operator would not learn of
+     * them from the result (#565).
+     */
+    #[Test]
+    public function aFailedDeleteStillNamesTheSecretsTheFirstPassCouldNotCheck(): void
+    {
+        $this->vaultService->method('list')->willReturn([
+            $this->createSecretMetadata(self::IDENTIFIER_1, time() - 86400 * 30, ['source' => 'tca_field', 'table' => 'tx_myext', 'field' => 'api_key', 'uid' => 1]),
+            $this->createSecretMetadata(self::IDENTIFIER_2, time() - 86400 * 30, ['source' => 'tca_field', 'table' => 'tx_myext', 'field' => 'api_key', 'uid' => 2]),
+        ]);
+
+        $unresolved = [];
+        $calls      = 0;
+        $this->checker->method('isOrphaned')->willReturnCallback(static function () use (&$unresolved, &$calls): bool {
+            if (++$calls === 1) {
+                $unresolved[] = ['identifier' => self::IDENTIFIER_1, 'table' => 'tx_myext', 'field' => 'api_key', 'uid' => 1, 'reason' => 'could not be resolved: connection lost', 'transient' => true];
+
+                return false;
+            }
+
+            return true;
+        });
+        $this->checker->method('getUnresolvedReferences')->willReturnCallback(static function () use (&$unresolved): array {
+            return $unresolved;
+        });
+        $this->vaultService->method('delete')->willThrowException(new VaultException('Delete failed', 1795000006));
+
+        $this->commandTester->setInputs(['yes']);
+        $exitCode = $this->commandTester->execute([]);
+
+        self::assertSame(1, $exitCode);
+        $display = (string) preg_replace('/\s+/', ' ', $this->commandTester->getDisplay());
+        self::assertStringContainsString('Cleanup completed with 1 errors', $display);
+        self::assertStringContainsString('Exit code 1: the check of 1 kept secret(s) failed on a query or connection error', $display);
     }
 
     #[Test]
@@ -1288,8 +1336,9 @@ final class VaultCleanupOrphansCommandTest extends TestCase
 
         $exitCode = $tester->execute([]);
 
-        self::assertSame(1, $exitCode, 'The secret is kept, and the run reports it could not check it');
-        self::assertStringContainsString('1 secret(s) whose record link could not be checked were kept', (string) preg_replace('/\s+/', ' ', $tester->getDisplay()));
+        self::assertSame(0, $exitCode);
+        self::assertStringContainsString(self::MSG_NO_ORPHANS, $tester->getDisplay());
+        self::assertStringContainsString('delete the secret by hand (vault:delete), or restore the table or field', (string) preg_replace('/\s+/', ' ', $tester->getDisplay()));
     }
 
     /**

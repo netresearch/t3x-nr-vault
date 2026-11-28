@@ -1235,8 +1235,9 @@ Exit codes
 1
    The command refused before migrating anything (an unknown table or field,
    a column too short for an identifier, an unusable ``--uid-field``), a
-   record failed, or a record was migrated without its record link. In the
-   last case the Next Steps are printed too, since the values are migrated.
+   record failed, or a record was migrated without its record link. Each of
+   the last two gets its own warning, and the Next Steps are printed whenever
+   a record was migrated.
 
 The exit code covers only the records this run handled. Records a previous
 run left unlinked are skipped as already migrated and do not change it.
@@ -1332,17 +1333,24 @@ Exit codes
 ----------
 
 0
-   Every candidate was checked: each orphan was deleted (or listed, with
-   ``--dry-run``), or there was nothing to delete, or the deletion was
-   cancelled.
+   Every orphan was deleted (or listed, with ``--dry-run``), or there was
+   nothing to delete, or the deletion was cancelled. Secrets whose link names
+   no field, an unknown table or an unknown field are kept and listed with a
+   warning, but do not change the exit code: they stay so on every run.
 
 1
-   A delete failed, or a secret was kept because its record link could not
-   be checked, in the first pass or in the re-check before its delete. This
-   holds on every path, ``--dry-run`` and a cancelled deletion included.
+   A delete failed, or the check of a kept secret failed on a query or
+   connection error, in the first pass or in the re-check before its delete.
+   This holds on every path, ``--dry-run`` and a cancelled deletion included;
+   running the cleanup again may succeed.
 
 The :guilabel:`Vault Orphan Cleanup` scheduler task reports a failed run in
 the same cases.
+
+A secret kept for a link that names an unknown table or field, for example
+after an extension was uninstalled, is never deleted by the cleanup. Delete
+it by hand with :ref:`vault:delete <command-delete>`, or restore the table or
+field, which makes the next run check it again.
 
 .. _command-audit-migrate-hmac:
 
