@@ -335,10 +335,10 @@
         <source>%d secret(s) failed to migrate.</source>
       </trans-unit>
       <trans-unit id="migration.unlinked">
-        <source>%d secret(s) were migrated without their record link, so orphan cleanup will not consider them. The rows needing attention are listed below.</source>
+        <source>%d secret(s) were migrated with their record link missing or of unknown state. The rows needing attention are listed below.</source>
       </trans-unit>
       <trans-unit id="migration.unlinked.title">
-        <source>Record Links Missing</source>
+        <source>Record Links Missing or Unknown</source>
       </trans-unit>
 
       <!-- Overview page -->
@@ -1016,7 +1016,7 @@
         <source>Failed</source>
       </trans-unit>
       <trans-unit id="migration.verify.unlinked">
-        <source>Migrated without record link</source>
+        <source>Record link missing or unknown</source>
       </trans-unit>
       <trans-unit id="migration.verify.details.title">
         <source>Migration Details</source>

@@ -892,9 +892,10 @@ final class VaultMigrateFieldCommandTest extends TestCase
         self::assertStringContainsString('Migrated, unlinked UID 1: the field holds the identifier', $display);
         self::assertStringContainsString('the record link could not be stored (missing secret.create permission)', $display);
         self::assertSame(1, substr_count(strtolower($display), 'migrated, unlinked'), 'The label is printed once');
-        self::assertStringContainsString('1 record(s) were migrated without their record link', $display);
+        self::assertStringContainsString('1 record(s) were migrated with their record link missing or of unknown state', $display);
         self::assertStringNotContainsString('Migration completed successfully', $display);
         self::assertStringContainsString('Next Steps', $display, 'The migrated values need the same follow-up');
+        self::assertStringNotContainsString('Fix and re-run the failed records', $display, 'No record failed');
         self::assertMatchesRegularExpression('/Successfully migrated\s*\|?\s*1/', $display);
         self::assertSame([], $this->linkedMetadata);
         self::assertSame(['migrated_at'], array_keys($this->linkRequests[$this->storeCall($calls, 0)['identifier']] ?? []), 'The writer is asked with the metadata the creation stored');
@@ -923,8 +924,10 @@ final class VaultMigrateFieldCommandTest extends TestCase
         self::assertSame(1, $exitCode);
         $display = $this->normalizedDisplay();
         self::assertStringContainsString('Migration completed with 1 errors', $display);
-        self::assertStringContainsString('1 record(s) were migrated without their record link', $display);
+        self::assertStringContainsString('1 record(s) were migrated with their record link missing or of unknown state', $display);
         self::assertStringContainsString('Next Steps', $display);
+        self::assertMatchesRegularExpression('/Next Steps\W+Fix and re-run the failed records before you change the TCA configuration/', $display, 'With failed records, fixing them comes first');
+        self::assertStringNotContainsString('The field now holds the vault identifier', $display, 'Not every record holds it');
         self::assertStringNotContainsString('Migration completed successfully', $display);
     }
 

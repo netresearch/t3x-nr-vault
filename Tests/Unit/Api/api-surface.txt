@@ -867,6 +867,7 @@ Netresearch\NrVault\Exception\OAuthException (class)
   property oauthError: ?string
 
 Netresearch\NrVault\Exception\RecordLinkStateUnknownException (class)
+  method getTakeBackFailure(): ?Throwable
   method static afterFailedTakeBack(string $identifier, Throwable $failure, Throwable $revertFailure): self
 
 Netresearch\NrVault\Exception\RequestCancelledException (class)

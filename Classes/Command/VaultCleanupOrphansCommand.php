@@ -138,10 +138,7 @@ final class VaultCleanupOrphansCommand extends Command
             return $unchecked > 0 ? $this->failForUnchecked($io, $unchecked) : Command::SUCCESS;
         }
 
-        $result = $this->deleteOrphans($io, $orphans);
-
-        // Stated after a failed delete too, so the reason is not lost.
-        return $unchecked > 0 ? $this->failForUnchecked($io, $unchecked) : $result;
+        return $this->deleteOrphans($io, $orphans, $unchecked);
     }
 
     /**
@@ -259,19 +256,24 @@ final class VaultCleanupOrphansCommand extends Command
 
     /**
      * Delete the confirmed orphan list, printing a summary table. Returns
-     * FAILURE if any deletion threw; the rest still proceed (best-effort
-     * cleanup — vault state is consistent either way).
+     * FAILURE if any deletion threw, or if the check of a kept secret failed
+     * on a query or connection error, in the first pass ($uncheckedFirstPass)
+     * or the re-check; the rest still proceed (best-effort cleanup — vault
+     * state is consistent either way).
      *
      * @param list<array{identifier: string, table: string, field: string, uid: int, created_at: int, reference: OrphanReference}> $orphans
      */
-    private function deleteOrphans(SymfonyStyle $io, array $orphans): int
+    private function deleteOrphans(SymfonyStyle $io, array $orphans, int $uncheckedFirstPass): int
     {
         $io->section('Deleting orphaned secrets...');
         $deleted   = 0;
         $failed    = 0;
         $kept      = 0;
         $unchecked = [];
-        $errors    = [];
+        // Re-checks that failed on a query or connection error: they may
+        // succeed on the next run, like the first pass's.
+        $uncheckedTransient = 0;
+        $errors             = [];
 
         foreach ($orphans as $orphan) {
             // The list was built before the confirmation prompt, which can
@@ -285,6 +287,7 @@ final class VaultCleanupOrphansCommand extends Command
                     ++$kept;
                 } else {
                     $unchecked[] = sprintf('%s: %s', $orphan['identifier'], $unresolved[0]['reason']);
+                    $uncheckedTransient += $this->countTransient($unresolved) > 0 ? 1 : 0;
                 }
 
                 continue;
@@ -321,15 +324,17 @@ final class VaultCleanupOrphansCommand extends Command
 
         if ($failed > 0) {
             $io->warning(sprintf('Cleanup completed with %d errors', $failed));
-
-            return Command::FAILURE;
         }
 
-        // A secret whose re-check failed is kept; the run did not do what it
-        // was asked for it.
-        if ($unchecked !== []) {
-            $io->warning(sprintf('Cleanup completed, but %d secret(s) could not be checked again and were kept', count($unchecked)));
+        // Kept secrets whose check, in the first pass or the re-check, failed
+        // on a query or connection error: the run did not do what it was
+        // asked for them. Stated after a failed delete too.
+        $uncheckedTotal = $uncheckedFirstPass + $uncheckedTransient;
+        if ($uncheckedTotal > 0) {
+            return $this->failForUnchecked($io, $uncheckedTotal);
+        }
 
+        if ($failed > 0) {
             return Command::FAILURE;
         }
 

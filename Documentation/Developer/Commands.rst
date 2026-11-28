@@ -1235,9 +1235,11 @@ Exit codes
 1
    The command refused before migrating anything (an unknown table or field,
    a column too short for an identifier, an unusable ``--uid-field``), a
-   record failed, or a record was migrated without its record link. Each of
-   the last two gets its own warning, and the Next Steps are printed whenever
-   a record was migrated.
+   record failed, or a record was migrated with its record link missing or
+   of unknown state. Each of the last two gets its own warning, and the Next
+   Steps are printed whenever a record was migrated. When records failed,
+   the first step is to fix and re-run them before the TCA is changed:
+   they still hold their plaintext.
 
 The exit code covers only the records this run handled. Records a previous
 run left unlinked are skipped as already migrated and do not change it.

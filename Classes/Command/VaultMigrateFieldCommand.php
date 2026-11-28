@@ -252,7 +252,7 @@ final class VaultMigrateFieldCommand extends Command
         // Migrated, but invisible to orphan cleanup until the link is added
         // by hand: not a success to report as one.
         if ($unlinked !== []) {
-            $io->warning(sprintf('Migration completed, but %d record(s) were migrated without their record link', count($unlinked)));
+            $io->warning(sprintf('Migration completed, but %d record(s) were migrated with their record link missing or of unknown state', count($unlinked)));
         }
 
         if ($failed === 0 && $unlinked === []) {
@@ -262,21 +262,28 @@ final class VaultMigrateFieldCommand extends Command
         // Every migrated value needs the same follow-up, whatever happened
         // to the other records.
         if ($migrated > 0) {
-            $this->showNextSteps($io);
+            $this->showNextSteps($io, $failed > 0);
         }
 
         return $failed > 0 || $unlinked !== [] ? Command::FAILURE : Command::SUCCESS;
     }
 
-    private function showNextSteps(SymfonyStyle $io): void
+    private function showNextSteps(SymfonyStyle $io, bool $someFailed): void
     {
+        // Failed records still hold their plaintext: a TCA switch now would
+        // treat that plaintext as an identifier.
+        $steps = $someFailed
+            ? ['Fix and re-run the failed records before you change the TCA configuration']
+            : [];
+        $steps[] = 'Update TCA configuration to use renderType => "vaultSecret" for this field';
+        $steps[] = 'Test that the field displays correctly in the TYPO3 backend';
+        $steps[] = 'Update any code that reads this field to use VaultFieldResolver::resolveFields()';
+        $steps[] = $someFailed
+            ? 'The migrated records now hold the vault identifier instead of the plaintext value; the failed ones do not'
+            : 'The field now holds the vault identifier instead of the plaintext value';
+
         $io->section('Next Steps');
-        $io->listing([
-            'Update TCA configuration to use renderType => "vaultSecret" for this field',
-            'Test that the field displays correctly in the TYPO3 backend',
-            'Update any code that reads this field to use VaultFieldResolver::resolveFields()',
-            'The field now holds the vault identifier instead of the plaintext value',
-        ]);
+        $io->listing($steps);
     }
 
     /**

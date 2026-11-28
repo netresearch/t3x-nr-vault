@@ -1483,12 +1483,28 @@ final class VaultServiceTest extends TestCase
             return ['metadata' => $metadata];
         });
         $this->auditLogService->method('log')->willThrowException(new AuditWriteException(self::AUDIT_WRITE_ERROR, 1795000109));
+        $logger = $this->createMock(LoggerInterface::class);
+        $logger->expects(self::once())->method('critical')->with(
+            self::stringContains('without an audit record'),
+            self::callback(static fn (array $context): bool => ($context['exception'] ?? null) instanceof RuntimeException
+                && $context['exception']->getMessage() === 'registry write failed'),
+        );
+        $subject = new VaultService(
+            $this->adapter,
+            $this->encryptionService,
+            $this->accessControlService,
+            $this->auditLogService,
+            $this->configuration,
+            $this->httpClientFactory,
+            logger: $logger,
+        );
 
         try {
-            $this->subject->linkCreatedSecret('link_audit_and_revert_down', ['migrated_at' => 5], ['source' => 'migration']);
+            $subject->linkCreatedSecret('link_audit_and_revert_down', ['migrated_at' => 5], ['source' => 'migration']);
             self::fail('A failed audit write must fail the link');
         } catch (RecordLinkStateUnknownException $e) {
             self::assertInstanceOf(AuditWriteException::class, $e->getPrevious(), 'The audit failure is chained');
+            self::assertSame('registry write failed', $e->getTakeBackFailure()?->getMessage(), 'The take-back failure is kept as a Throwable');
             self::assertStringContainsString('A step after writing the record link', $e->getMessage());
             self::assertStringContainsString('could not be taken back (registry write failed)', $e->getMessage());
         }
@@ -1580,9 +1596,10 @@ final class VaultServiceTest extends TestCase
         $this->adapter->method('getMetadata')->willThrowException(new RuntimeException('registry read timed out', 1795000105));
         $logger = $this->createMock(LoggerInterface::class);
         $logger->expects(self::once())->method('critical')
-            ->with(self::stringContains('could not be taken back'), self::callback(
+            ->with(self::logicalAnd(self::stringContains('could not be taken back'), self::logicalNot(self::stringContains('without an audit record'))), self::callback(
                 static fn (array $context): bool => ($context['identifier'] ?? null) === 'link_both_down'
-                    && ($context['rollbackError'] ?? null) === 'registry write failed',
+                    && ($context['rollbackError'] ?? null) === 'registry write failed'
+                    && ($context['exception'] ?? null) instanceof RuntimeException,
             ));
         $subject = new VaultService(
             $this->adapter,
@@ -1600,6 +1617,7 @@ final class VaultServiceTest extends TestCase
         } catch (RecordLinkStateUnknownException $e) {
             self::assertStringContainsString('could not be taken back (registry write failed)', $e->getMessage());
             self::assertSame('registry read timed out', $e->getPrevious()?->getMessage(), 'The original failure is chained');
+            self::assertSame('registry write failed', $e->getTakeBackFailure()?->getMessage());
         }
 
         self::assertSame(2, $writes);

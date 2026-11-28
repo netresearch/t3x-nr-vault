@@ -375,7 +375,7 @@ final class BackendThemeMarkupTest extends FunctionalTestCase
         self::assertSame('badge badge-warning', $this->badgeClassFor($html, 'Partial'));
         self::assertStringNotContainsString('badge badge-success', $html, 'No Complete badge');
         self::assertStringContainsString('<tr class="table-warning">', $html);
-        self::assertMatchesRegularExpression('/<h2 class="card-title text-warning">1<\/h2>\s*<span class="card-subtitle">Migrated without record link<\/span>/', $html, 'A summary card counts them');
+        self::assertMatchesRegularExpression('/<h2 class="card-title text-warning">1<\/h2>\s*<span class="card-subtitle">Record link missing or unknown<\/span>/', $html, 'A summary card counts them');
     }
 
     public function testTheAuditLogUsesCoreBadgesForCountsAndActions(): void

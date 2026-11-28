@@ -97,6 +97,12 @@ An unaudited disable is therefore a silent revocation of access that looks exact
 It carries the same two gates as the other mutations (the per-secret ``canWrite()`` tier plus ``secret.manage_policy``), and it sets an ABSOLUTE state rather than toggling: two concurrent toggles cancel out and leave two entries claiming opposite outcomes, whereas two concurrent ``setEnabled($id, false)`` calls converge on the state their caller asked for.
 Setting the state a secret already has writes nothing and audits nothing — there is no mutation — while a refusal is audited either way.
 
+The record link of a migrated secret (``VaultService::linkCreatedSecret()``, used by ``vault:migrate-field`` and the migration module) follows the same pattern with its own take-back.
+It writes the link into the metadata column, reads it back from the registry row and audits it as a ``MetadataUpdate``.
+Inside the mutation transaction of the local adapter, a failed read-back or audit write rolls everything back.
+Outside it (HashiCorp Vault, AWS Secrets Manager, legacy constructions), any failure after the write takes the link back with a targeted metadata write that resets each link key, never with a whole-entity ``store()``.
+When that take-back fails too, the link state is unknown: the failure is logged at ``CRITICAL`` (as a write "without an audit record" when the audit write failed), and ``RecordLinkStateUnknownException`` is thrown with the first failure as ``previous`` and the take-back failure on ``getTakeBackFailure()``.
+
 Three properties make it a control rather than a gesture:
 
 -  **One failure type.**
@@ -246,7 +252,7 @@ References
 -  :ref:`adr-018-flexform-secret-lifecycle` — the FlexForm counterpart
 -  :ref:`adr-034-audit-chain-tip-anchor` — what the chain proves once complete
 -  :ref:`tca-record-operations` — record copy/delete semantics and their residuals
--  ``Classes/Service/VaultService.php`` — ``compensateAuditFailure()``, ``setEnabled()``
+-  ``Classes/Service/VaultService.php`` — ``compensateAuditFailure()``, ``setEnabled()``, ``linkCreatedSecret()``
 -  ``Classes/Hook/SecretTcaHook.php`` — snapshot, restore and purge
 -  ``Classes/Audit/AuditChainLockTrait.php`` — why one shared transaction is impossible
 -  ``Tests/Functional/Hook/SecretTcaHookAuditAtomicityTest.php``

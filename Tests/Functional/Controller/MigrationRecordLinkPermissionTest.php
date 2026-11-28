@@ -22,8 +22,11 @@ use Netresearch\NrVault\Service\VaultServiceInterface;
 use Netresearch\NrVault\Tests\Functional\AbstractVaultFunctionalTestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
+use Psr\Log\AbstractLogger;
+use Psr\Log\LogLevel;
 use ReflectionClass;
 use ReflectionMethod;
+use Stringable;
 use TYPO3\CMS\Core\Http\ServerRequest;
 use TYPO3\CMS\Core\Localization\LanguageServiceFactory;
 use TYPO3\CMS\Core\Messaging\FlashMessage;
@@ -31,6 +34,7 @@ use TYPO3\CMS\Core\Messaging\FlashMessageService;
 use TYPO3\CMS\Core\Type\ContextualFeedbackSeverity;
 
 use function array_filter;
+use function array_intersect_key;
 use function array_key_exists;
 use function array_values;
 use function is_array;
@@ -219,6 +223,53 @@ final class MigrationRecordLinkPermissionTest extends AbstractVaultFunctionalTes
     }
 
     /**
+     * Failed rows are capped in the report, unlinked rows are not: a re-run
+     * skips them, so the report and one warning log entry per row are the
+     * only places that name them (#565).
+     */
+    #[Test]
+    public function everyUnlinkedRowIsReportedAndLogged(): void
+    {
+        $connection = $this->getConnectionPool()->getConnectionForTable(self::TABLE);
+        $uids       = [];
+        for ($row = 1; $row <= 12; ++$row) {
+            $connection->insert(self::TABLE, ['pid' => 1, 'secret' => 'unlinked-plaintext-' . $row]);
+            $uids[] = (int) $connection->lastInsertId();
+        }
+
+        $refusingWriter = new class implements SecretRecordLinkWriterInterface {
+            public function linkCreatedSecret(string $identifier, array $createdMetadata, array $link): void
+            {
+                throw new AccessDeniedException('link refused for the test', 1795000203);
+            }
+        };
+        $logger = new class extends AbstractLogger {
+            /** @var list<array{mixed, string, array<mixed>}> */
+            public array $records = [];
+
+            public function log($level, string|Stringable $message, array $context = []): void
+            {
+                $this->records[] = [$level, (string) $message, $context];
+            }
+        };
+        $migrator   = $this->rebuild($this->get(FieldValueMigratorInterface::class), ['recordLinkWriter' => $refusingWriter]);
+        $controller = $this->rebuild($this->get(MigrationController::class), ['fieldValueMigrator' => $migrator, 'logger' => $logger]);
+
+        $result = (new ReflectionMethod(MigrationController::class, 'migrateColumn'))
+            ->invoke($controller, self::TABLE, 'secret', 'linkmany_{uid}');
+        self::assertInstanceOf(MigrationResult::class, $result);
+
+        self::assertSame(12, $result->unlinked);
+        self::assertCount(12, $result->failureReasons, 'No cap for unlinked rows');
+        $logged = array_values(array_filter($logger->records, static fn (array $record): bool => $record[0] === LogLevel::WARNING));
+        self::assertCount(12, $logged, 'One warning per unlinked row');
+        self::assertSame(
+            ['identifier' => 'linkmany_' . $uids[11], 'table' => self::TABLE, 'uid' => $uids[11]],
+            array_intersect_key($logged[11][2], ['identifier' => true, 'table' => true, 'uid' => true]),
+        );
+    }
+
+    /**
      * The module carries the count of unlinked rows from the run to the
      * verify step and warns about them there (#565).
      */
@@ -257,7 +308,7 @@ final class MigrationRecordLinkPermissionTest extends AbstractVaultFunctionalTes
             static fn (FlashMessage $message): bool => $message->getSeverity() === ContextualFeedbackSeverity::WARNING,
         ));
         self::assertCount(1, $warnings);
-        self::assertStringContainsString('1 secret(s) were migrated without their record link', $warnings[0]->getMessage());
+        self::assertStringContainsString('1 secret(s) were migrated with their record link missing or of unknown state', $warnings[0]->getMessage());
     }
 
     #[Test]

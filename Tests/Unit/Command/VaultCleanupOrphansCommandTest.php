@@ -310,7 +310,7 @@ final class VaultCleanupOrphansCommandTest extends TestCase
         self::assertMatchesRegularExpression('/Kept \(referenced again\)\s*\|?\s*0/', $display);
         self::assertMatchesRegularExpression('/Kept \(could not be checked\)\s*\|?\s*1/', $display);
         self::assertStringContainsString('Kept ' . self::IDENTIFIER . ': could not be resolved: connection lost', $display);
-        self::assertStringContainsString('1 secret(s) could not be checked again and were kept', $display);
+        self::assertStringContainsString('Exit code 1: the check of 1 kept secret(s) failed on a query or connection error', $display);
     }
 
     /**
@@ -372,6 +372,9 @@ final class VaultCleanupOrphansCommandTest extends TestCase
         $display = (string) preg_replace('/\s+/', ' ', $this->commandTester->getDisplay());
         self::assertSame(1, substr_count($display, 'Kept 1 secret(s) whose record link could not be checked'), 'The count is stated once');
         self::assertSame($transient, str_contains($display, 'Exit code 1: the check of 1 kept secret(s) failed on a query or connection error'));
+        if ($transient) {
+            self::assertStringNotContainsString('[OK]', $display, 'No success banner for a run that exits 1');
+        }
     }
 
     /**
@@ -410,6 +413,55 @@ final class VaultCleanupOrphansCommandTest extends TestCase
         $display = (string) preg_replace('/\s+/', ' ', $this->commandTester->getDisplay());
         self::assertStringContainsString('Cleanup completed with 1 errors', $display);
         self::assertStringContainsString('Exit code 1: the check of 1 kept secret(s) failed on a query or connection error', $display);
+    }
+
+    /**
+     * The re-check before a delete counts like the first pass: a failure that
+     * may clear next time fails the run and is counted in the exit reason; a
+     * link that cannot be checked as it stands is kept without failing it
+     * (#565).
+     *
+     * @return iterable<string, array{bool, int}>
+     */
+    public static function recheckProvider(): iterable
+    {
+        yield 'transient' => [true, 1];
+        yield 'structural' => [false, 0];
+    }
+
+    #[Test]
+    #[DataProvider('recheckProvider')]
+    public function aFailedRecheckFailsTheRunOnlyForATransientReason(bool $transient, int $expectedExitCode): void
+    {
+        $this->vaultService->method('list')->willReturn([
+            $this->createSecretMetadata(self::IDENTIFIER, time() - 86400 * 30, ['source' => 'tca_field', 'table' => 'tx_myext', 'field' => 'api_key', 'uid' => 1]),
+        ]);
+
+        $unresolved = [];
+        $calls      = 0;
+        $this->checker->method('isOrphaned')->willReturnCallback(static function () use (&$unresolved, &$calls, $transient): bool {
+            if (++$calls === 1) {
+                return true;
+            }
+
+            $unresolved[] = $transient
+                ? ['identifier' => self::IDENTIFIER, 'table' => 'tx_myext', 'field' => 'api_key', 'uid' => 1, 'reason' => 'could not be resolved: connection lost', 'transient' => true]
+                : ['identifier' => self::IDENTIFIER, 'table' => 'tx_myext', 'field' => 'api_key', 'uid' => 1, 'reason' => 'names an unknown table', 'transient' => false];
+
+            return false;
+        });
+        $this->checker->method('getUnresolvedReferences')->willReturnCallback(static function () use (&$unresolved): array {
+            return $unresolved;
+        });
+        $this->vaultService->expects(self::never())->method('delete');
+
+        $this->commandTester->setInputs(['yes']);
+        $exitCode = $this->commandTester->execute([]);
+
+        self::assertSame($expectedExitCode, $exitCode);
+        $display = (string) preg_replace('/\s+/', ' ', $this->commandTester->getDisplay());
+        self::assertMatchesRegularExpression('/Kept \(could not be checked\)\s*\|?\s*1/', $display);
+        self::assertSame($transient, str_contains($display, 'Exit code 1: the check of 1 kept secret(s)'));
     }
 
     #[Test]

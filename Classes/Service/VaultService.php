@@ -1437,11 +1437,14 @@ final readonly class VaultService implements VaultServiceInterface, SecretRecord
             $revert();
         } catch (Throwable $revertFailure) {
             $this->logger?->critical(
-                'Vault inconsistency: a step after writing a record link failed and the link could not be taken back. Manual reconciliation required.',
+                $failure instanceof AuditWriteException
+                    ? 'Vault inconsistency: a record link was written without an audit record, and taking it back failed. Manual reconciliation required.'
+                    : 'Vault inconsistency: a step after writing a record link failed and the link could not be taken back. Manual reconciliation required.',
                 [
                     'identifier'    => $identifier,
                     'error'         => $failure->getMessage(),
                     'rollbackError' => $revertFailure->getMessage(),
+                    'exception'     => $revertFailure,
                 ],
             );
 

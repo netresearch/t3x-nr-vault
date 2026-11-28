@@ -154,11 +154,13 @@ final class OrphanCleanupTask extends AbstractTask
         // Only a check that failed on a query or connection error fails the
         // run: a link that names an unknown table or field is kept and logged
         // as a warning, but never clears on its own.
-        $unchecked = count(array_filter($checker->getUnresolvedReferences(), static fn (array $entry): bool => $entry['transient']));
+        $unresolved = $checker->getUnresolvedReferences();
+        $unchecked  = count(array_filter($unresolved, static fn (array $entry): bool => $entry['transient']));
         $logger->info('Orphan check complete', [
-            'secretsChecked'   => $checked,
-            'orphansFound'     => $orphansFound,
-            'secretsUnchecked' => $unchecked,
+            'secretsChecked'            => $checked,
+            'orphansFound'              => $orphansFound,
+            'secretsUncheckedTransient' => $unchecked,
+            'secretsUncheckedPermanent' => count($unresolved) - $unchecked,
         ]);
 
         return $success && $unchecked === 0;

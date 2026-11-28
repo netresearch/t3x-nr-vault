@@ -21,6 +21,7 @@ use Netresearch\NrVault\Service\SecretDetectionService;
 use Netresearch\NrVault\Utility\IdentifierValidator;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
+use Psr\Log\LoggerInterface;
 use TYPO3\CMS\Backend\Attribute\AsController;
 use TYPO3\CMS\Backend\Routing\UriBuilder;
 use TYPO3\CMS\Backend\Template\Components\ButtonBar;
@@ -85,6 +86,7 @@ final readonly class MigrationController
         private PageRenderer $pageRenderer,
         private ModuleAccessGuard $accessGuard,
         private FieldValueMigratorInterface $fieldValueMigrator,
+        private LoggerInterface $logger,
     ) {}
 
     /**
@@ -509,6 +511,9 @@ final readonly class MigrationController
         $skipped  = 0;
         $unlinked = 0;
         $errors   = [];
+        // Every unlinked row is reported, never capped: a re-run skips it,
+        // so this list is the only place it is named.
+        $unlinkedReasons = [];
 
         // Validate table and column names against database schema to prevent SQL injection
         try {
@@ -574,7 +579,13 @@ final readonly class MigrationController
                     ++$migrated;
                     if ($outcome->message !== null) {
                         ++$unlinked;
-                        $errors[] = sprintf('uid %d: migrated, unlinked: %s', $uid, $outcome->message);
+                        $unlinkedReasons[] = sprintf('uid %d: migrated, unlinked: %s', $uid, $outcome->message);
+                        $this->logger->warning('Migrated a value whose record link is missing or of unknown state', [
+                            'identifier' => str_replace('{uid}', (string) $uid, $identifierPattern),
+                            'table'      => $table,
+                            'uid'        => $uid,
+                            'reason'     => $outcome->message,
+                        ]);
                     }
                 } else {
                     ++$failed;
@@ -587,10 +598,14 @@ final readonly class MigrationController
 
         // The reasons name any secret kept as the only copy of a value. They
         // describe rows; `error` stays for a failure of the whole column.
+        // Failed rows are capped (a re-run retries them); unlinked rows are
+        // all listed.
         $failureReasons = array_slice($errors, 0, self::MAX_REPORTED_ERRORS);
         if (count($errors) > self::MAX_REPORTED_ERRORS) {
-            $failureReasons[] = sprintf('and %d more', count($errors) - self::MAX_REPORTED_ERRORS);
+            $failureReasons[] = sprintf('and %d more failed rows', count($errors) - self::MAX_REPORTED_ERRORS);
         }
+
+        $failureReasons = [...$failureReasons, ...$unlinkedReasons];
 
         return new MigrationResult($table, $column, $migrated, $failed, $skipped, failureReasons: $failureReasons, unlinked: $unlinked);
     }

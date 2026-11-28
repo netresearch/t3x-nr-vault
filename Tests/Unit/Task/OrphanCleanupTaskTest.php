@@ -454,6 +454,39 @@ final class OrphanCleanupTaskTest extends TestCase
         self::assertTrue($result);
     }
 
+    /**
+     * The summary names both kinds of kept secrets: those whose check may
+     * succeed next time, and those whose link cannot be checked as it stands
+     * (#565).
+     */
+    #[Test]
+    public function theSummaryLogCountsBothKindsOfUncheckedSecrets(): void
+    {
+        $this->mockPage([
+            $this->createSecret('tx_a__api_key__1', time() - 86400 * 30, ['source' => 'tca_field', 'table' => 'tx_a', 'field' => 'api_key', 'uid' => 1]),
+        ]);
+        $this->checker->method('isOrphaned')->willReturn(false);
+        $this->checker->method('getUnresolvedReferences')->willReturn([
+            ['identifier' => 'a', 'table' => 'tx_a', 'field' => 'api_key', 'uid' => 1, 'reason' => 'could not be resolved: connection lost', 'transient' => true],
+            ['identifier' => 'b', 'table' => 'tx_gone', 'field' => 'api_key', 'uid' => 2, 'reason' => 'names an unknown table', 'transient' => false],
+            ['identifier' => 'c', 'table' => 'tx_gone', 'field' => 'api_key', 'uid' => 3, 'reason' => 'names an unknown table', 'transient' => false],
+        ]);
+        $summary = null;
+        $this->logger->method('info')->willReturnCallback(static function (string $message, array $context = []) use (&$summary): void {
+            if ($message === 'Orphan check complete') {
+                $summary = $context;
+            }
+        });
+
+        $logManager = $this->createMock(LogManager::class);
+        $logManager->method('getLogger')->willReturn($this->logger);
+        $this->createTask($logManager)->execute();
+
+        self::assertIsArray($summary);
+        self::assertSame(1, $summary['secretsUncheckedTransient'] ?? null);
+        self::assertSame(2, $summary['secretsUncheckedPermanent'] ?? null);
+    }
+
     #[Test]
     public function logsCleanupProgress(): void
     {
