@@ -336,6 +336,11 @@ final class BackendThemeMarkupTest extends FunctionalTestCase
         self::assertSame('badge badge-warning', $this->badgeClassFor($html, 'Partial'));
         self::assertSame('badge badge-success', $this->badgeClassFor($html, 'Complete'));
         $this->assertNoFixedColourBadge($html);
+        // The row highlight was an inline f:if nested without braces, which
+        // Fluid printed as text instead of a class.
+        self::assertSame(1, substr_count($html, '<tr class="table-danger">'));
+        self::assertSame(1, substr_count($html, '<tr class="table-warning">'));
+        self::assertStringNotContainsString('f:if(', $html);
     }
 
     public function testTheAuditLogUsesCoreBadgesForCountsAndActions(): void

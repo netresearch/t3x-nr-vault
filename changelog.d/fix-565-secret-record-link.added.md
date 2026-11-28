@@ -1,0 +1,1 @@
+- `SecretRecordLink` (`Netresearch\NrVault\Domain\Dto`) builds the record link a caller passes as the `metadata` option of `VaultServiceInterface::store()` so that orphan cleanup can find the secret, and holds the list of sources the cleanup considers.

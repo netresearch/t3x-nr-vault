@@ -10,6 +10,7 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Hook;
 
 use Exception;
+use Netresearch\NrVault\Domain\Dto\SecretRecordLink;
 use Netresearch\NrVault\Exception\SecretNotFoundException;
 use Netresearch\NrVault\Hook\Dto\FlexFormPendingSecret;
 use Netresearch\NrVault\Service\VaultServiceInterface;
@@ -86,6 +87,7 @@ final class FlexFormVaultHook
         private readonly FlashMessageService $flashMessageService,
         private readonly VaultFailureReporter $failureReporter,
         private readonly TranslationSharedSecretResolver $translationSharedSecretResolver,
+        private readonly ?RecordLinkFactory $recordLinkFactory = null,
     ) {}
 
     /**
@@ -715,11 +717,13 @@ final class FlexFormVaultHook
                         $newIdentifier,
                         $secretValue,
                         [
-                            'table'       => $table,
-                            'flexField'   => $flexFieldName,
-                            'uid'         => $newUid,
-                            'source'      => 'flexform_record_copy',
-                            'copied_from' => $sourceIdentifier,
+                            'metadata' => $this->getRecordLinkFactory()->forFlexField(
+                                SecretRecordLink::SOURCE_FLEXFORM_RECORD_COPY,
+                                $table,
+                                $flexFieldName,
+                                $newUid,
+                                ['copied_from' => $sourceIdentifier],
+                            ),
                         ],
                     );
                     $clonedIdentifiers[] = $newIdentifier;
@@ -1293,12 +1297,13 @@ final class FlexFormVaultHook
                 }
             } elseif ($pending->isNew) {
                 $this->vaultService->store($pending->identifier, $pending->value, [
-                    'table'     => $table,
-                    'flexField' => $pending->flexField,
-                    'sheet'     => $pending->sheet,
-                    'fieldPath' => $pending->fieldPath,
-                    'uid'       => $uid,
-                    'source'    => 'flexform_field',
+                    'metadata' => $this->getRecordLinkFactory()->forFlexField(
+                        SecretRecordLink::SOURCE_FLEXFORM_FIELD,
+                        $table,
+                        $pending->flexField,
+                        $uid,
+                        ['sheet' => $pending->sheet, 'fieldPath' => $pending->fieldPath],
+                    ),
                 ]);
             } else {
                 $this->vaultService->rotate($pending->identifier, $pending->value, 'FlexForm field updated');
@@ -1776,5 +1781,10 @@ final class FlexFormVaultHook
             1,
             'Vault error during delete for FlexForm field: ' . $userMessage,
         );
+    }
+
+    private function getRecordLinkFactory(): RecordLinkFactory
+    {
+        return $this->recordLinkFactory ?? new RecordLinkFactory($this->connectionPool, $this->tcaSchemaFactory);
     }
 }

@@ -57,7 +57,12 @@
                 </thead>
                 <tbody>
                     <f:for each="{results}" as="result">
-                        <tr class="{f:if(condition: result.error, then: 'table-danger', else: f:if(condition: result.failed, then: 'table-warning'))}">
+                        <f:variable name="rowClass" value="" />
+                        <f:if condition="{result.error}">
+                            <f:then><f:variable name="rowClass" value="table-danger" /></f:then>
+                            <f:else if="{result.failed}"><f:variable name="rowClass" value="table-warning" /></f:else>
+                        </f:if>
+                        <tr class="{rowClass}">
                             <td><code>{result.table}</code></td>
                             <td><code>{result.column}</code></td>
                             <td>{result.migrated}</td>

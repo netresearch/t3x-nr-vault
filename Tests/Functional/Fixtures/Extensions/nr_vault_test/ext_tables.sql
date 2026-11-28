@@ -26,3 +26,8 @@ CREATE TABLE tx_nrvaulttest_mixed (
     api_key varchar(255) DEFAULT '' NOT NULL,
     settings mediumtext
 );
+
+CREATE TABLE tx_nrvaulttest_versioned (
+    title varchar(255) DEFAULT '' NOT NULL,
+    api_key varchar(255) DEFAULT '' NOT NULL
+);

@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Functional\Task;
 
+use Netresearch\NrVault\Domain\Dto\SecretRecordLink;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Netresearch\NrVault\Task\OrphanCleanupTask;
 use Netresearch\NrVault\Tests\Functional\AbstractVaultFunctionalTestCase;
@@ -64,14 +65,10 @@ final class OrphanCleanupTaskTest extends AbstractVaultFunctionalTestCase
 
         // Store a secret with tca_field source metadata
         $identifier = $this->generateUuidV7();
-        // Store it with metadata indicating it belongs to a TCA record
+        // Store it with the record link the TCA hook writes (#565): a real
+        // column of an existing table, a record uid that does not exist.
         $vaultService->store($identifier, 'orphan_value', [
-            'metadata' => [
-                'table'  => 'be_users',
-                'field'  => 'some_field',
-                'uid'    => 99999, // non-existent UID
-                'source' => 'tca_field',
-            ],
+            'metadata' => SecretRecordLink::forField(SecretRecordLink::SOURCE_TCA_FIELD, 'be_users', 'username', 99999),
         ]);
 
         // Artificially back-date the created_at time so retention period has passed
@@ -129,12 +126,7 @@ final class OrphanCleanupTaskTest extends AbstractVaultFunctionalTestCase
         // Store a secret with tca_field source for a non-existent record
         $identifier = $this->generateUuidV7();
         $vaultService->store($identifier, 'freshorphan_value', [
-            'metadata' => [
-                'table'  => 'be_users',
-                'field'  => 'some_field',
-                'uid'    => 99999, // non-existent UID
-                'source' => 'tca_field',
-            ],
+            'metadata' => SecretRecordLink::forField(SecretRecordLink::SOURCE_TCA_FIELD, 'be_users', 'username', 99999),
         ]);
 
         // Run with 30 day retention — secret is new, should NOT be deleted

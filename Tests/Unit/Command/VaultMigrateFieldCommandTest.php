@@ -31,6 +31,7 @@ use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Database\Query\Expression\ExpressionBuilder;
 use TYPO3\CMS\Core\Database\Query\QueryBuilder;
 
+use function array_keys;
 use function is_int;
 use function sprintf;
 
@@ -175,10 +176,10 @@ final class VaultMigrateFieldCommandTest extends TestCase
                     return true;
                 }),
                 'secret123',
-                self::callback(static fn (array $metadata): bool => $metadata['table'] === 'tx_myext_settings'
-                    && $metadata['field'] === 'api_key'
-                    && $metadata['uid'] === 1
-                    && $metadata['source'] === 'migration'),
+                self::callback(static fn (array $options): bool => $options['metadata']['table'] === 'tx_myext_settings'
+                    && $options['metadata']['field'] === 'api_key'
+                    && $options['metadata']['uid'] === 1
+                    && $options['metadata']['source'] === 'migration'),
             );
 
         $this->commandTester->setInputs(['yes']);
@@ -553,7 +554,7 @@ final class VaultMigrateFieldCommandTest extends TestCase
             ->with(
                 self::isString(),
                 '',                                 // null cast to empty string
-                self::callback(static fn (array $metadata): bool => $metadata['uid'] === 7),
+                self::callback(static fn (array $options): bool => $options['metadata']['uid'] === 7),
             );
 
         $this->commandTester->setInputs(['yes']);
@@ -585,14 +586,49 @@ final class VaultMigrateFieldCommandTest extends TestCase
             ->with(
                 self::isString(),
                 'secret-str-uid',
-                self::callback(static fn (array $metadata): bool => $metadata['uid'] === 42
-                    && is_int($metadata['uid'])),
+                self::callback(static fn (array $options): bool => $options['metadata']['uid'] === 42
+                    && is_int($options['metadata']['uid'])),
             );
 
         $this->commandTester->setInputs(['yes']);
         $exitCode = $this->commandTester->execute([
             'table' => 'tx_myext_settings',
             'field' => 'api_key',
+        ]);
+
+        self::assertSame(0, $exitCode);
+    }
+
+    /**
+     * Orphan cleanup looks a linked record up by its `uid` column. A value
+     * read from another --uid-field column would name the wrong record, so
+     * such a secret is stored without a record link (#565).
+     */
+    #[Test]
+    public function storesNoRecordLinkWhenTheUidFieldIsNotUid(): void
+    {
+        $vaultService = $this->useStrictVaultServiceMock();
+        $this->mockTableAndFieldExist('api_key');
+        $this->mockQueryReturnsRecords([
+            ['legacy_id' => 42, 'api_key' => 'secret-legacy-id'],
+        ]);
+
+        $vaultService
+            ->expects(self::once())
+            ->method('store')
+            ->with(
+                self::isString(),
+                'secret-legacy-id',
+                self::callback(static fn (array $options): bool => array_keys($options) === ['metadata']
+                    && is_array($options['metadata'])
+                    && array_keys($options['metadata']) === ['migrated_at']),
+            );
+
+        $this->commandTester->setInputs(['yes']);
+        $exitCode = $this->commandTester->execute([
+            'table'       => 'tx_myext_settings',
+            'field'       => 'api_key',
+            '--uid-field' => 'legacy_id',
         ]);
 
         self::assertSame(0, $exitCode);

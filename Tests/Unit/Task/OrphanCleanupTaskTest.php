@@ -11,6 +11,7 @@ namespace Netresearch\NrVault\Tests\Unit\Task;
 
 use Doctrine\DBAL\Result;
 use Doctrine\DBAL\Schema\AbstractSchemaManager;
+use Netresearch\NrVault\Domain\Dto\SecretRecordLink;
 use Netresearch\NrVault\Domain\Model\Secret;
 use Netresearch\NrVault\Domain\Repository\SecretRepositoryInterface;
 use Netresearch\NrVault\Exception\VaultException;
@@ -20,6 +21,7 @@ use Netresearch\NrVault\Tests\Unit\Fixtures\SecretFixtureBuilder;
 use Netresearch\NrVault\Tests\Unit\TestCase;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
 use Psr\Log\LoggerInterface;
@@ -39,6 +41,20 @@ use function array_key_exists;
 #[AllowMockObjectsWithoutExpectations]
 final class OrphanCleanupTaskTest extends TestCase
 {
+    /**
+     * Columns the mocked schema reports, keyed like listTableColumns(): every
+     * field name the fixtures link to, so the checker's column check passes.
+     */
+    private const LINKED_COLUMNS = [
+        'api_key'         => null,
+        'k'               => null,
+        'key'             => null,
+        'secret'          => null,
+        'x'               => null,
+        'pi_flexform'     => null,
+        'settings.apikey' => null,
+    ];
+
     private const CLEANUP_REASON = 'Scheduler orphan cleanup';
 
     protected bool $resetSingletonInstances = true;
@@ -663,6 +679,42 @@ final class OrphanCleanupTaskTest extends TestCase
     }
 
     /**
+     * The task and `vault:cleanup-orphans` read one source list
+     * (SecretRecordLink::ORPHAN_CLEANUP_SOURCES); before #565 the task
+     * ignored FlexForm and copied secrets entirely.
+     */
+    #[Test]
+    #[DataProvider('cleanupSourceProvider')]
+    public function executeDeletesOrphansOfEverySharedCleanupSource(string $source): void
+    {
+        $this->mockPage([
+            $this->createSecret(
+                'linked',
+                time() - 86400 * 30,
+                ['source' => $source, 'table' => 'tx_myext', 'field' => 'api_key', 'uid' => 1],
+            ),
+        ]);
+        $this->mockRecordExists(1, false);
+
+        $this->vaultService->expects($this->once())->method('delete')->with('linked');
+
+        $task = $this->createTask();
+        $task->setTaskParameters(['nr_vault_retention_days' => 0]);
+
+        self::assertTrue($task->execute());
+    }
+
+    /**
+     * @return iterable<string, array{string}>
+     */
+    public static function cleanupSourceProvider(): iterable
+    {
+        foreach (SecretRecordLink::ORPHAN_CLEANUP_SOURCES as $source) {
+            yield $source => [$source];
+        }
+    }
+
+    /**
      * Kill Ternary on getAdditionalInformation — includes the table filter label
      * when it's set.
      */
@@ -863,35 +915,6 @@ final class OrphanCleanupTaskTest extends TestCase
         $this->mockRecordExists(1, false);
 
         $this->vaultService->expects($this->once())->method('delete');
-
-        $task = $this->createTask();
-        $task->setTaskParameters(['nr_vault_retention_days' => 0]);
-        self::assertTrue($task->execute());
-    }
-
-    /**
-     * Kill Coalesce on the parseMetadataReference fallbacks — the
-     * `$metadata['X'] ?? default` fallbacks. Test that a missing field-key
-     * yields empty string, not null/error.
-     */
-    #[Test]
-    public function parseMetadataReferenceMissingFieldAndFlexFieldDefaultsToEmptyString(): void
-    {
-        $identifier = 'ident1';
-        $this->mockPage([
-            $this->createSecret(
-                $identifier,
-                time() - 86400 * 30,
-                ['source' => 'tca_field', 'table' => 'tx_myext', 'uid' => 1],
-                // No 'field' and no 'flexField' keys.
-            ),
-        ]);
-        $this->mockRecordExists(1, false);
-
-        $this->vaultService
-            ->expects($this->once())
-            ->method('delete')
-            ->with($identifier);
 
         $task = $this->createTask();
         $task->setTaskParameters(['nr_vault_retention_days' => 0]);
@@ -1156,7 +1179,7 @@ final class OrphanCleanupTaskTest extends TestCase
         $connection->method('createSchemaManager')->willReturn($schemaManager);
 
         $this->connectionPool
-            ->method('getConnectionByName')
+            ->method('getConnectionForTable')
             ->willReturn($connection);
 
         // Reaching the query builder at all would mean the task queried a
@@ -1177,7 +1200,7 @@ final class OrphanCleanupTaskTest extends TestCase
             ->willThrowException(new RuntimeException('connection lost', 1754000001));
 
         $this->connectionPool
-            ->method('getConnectionByName')
+            ->method('getConnectionForTable')
             ->willReturn($connection);
     }
 
@@ -1185,12 +1208,13 @@ final class OrphanCleanupTaskTest extends TestCase
     {
         $schemaManager = $this->createMock(AbstractSchemaManager::class);
         $schemaManager->method('tablesExist')->willReturn(true);
+        $schemaManager->method('listTableColumns')->willReturn(self::LINKED_COLUMNS);
 
         $connection = $this->createMock(Connection::class);
         $connection->method('createSchemaManager')->willReturn($schemaManager);
 
         $this->connectionPool
-            ->method('getConnectionByName')
+            ->method('getConnectionForTable')
             ->willReturn($connection);
 
         $result = $this->createMock(Result::class);

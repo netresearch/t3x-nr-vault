@@ -146,6 +146,17 @@ final class MigrationControllerTest extends AbstractVaultFunctionalTestCase
         self::assertTrue($vaultService->exists($expectedIdentifier));
         self::assertSame('plaintext-api-key', $vaultService->retrieve($expectedIdentifier));
 
+        // The record link is stored under metadata with the keys orphan
+        // cleanup reads (#565), not as originalTable/originalColumn/originalUid.
+        $metadataJson = $connectionPool->getConnectionForTable('tx_nrvault_secret')
+            ->select(['metadata'], 'tx_nrvault_secret', ['identifier' => $expectedIdentifier])
+            ->fetchOne();
+        self::assertIsString($metadataJson);
+        self::assertSame(
+            ['source' => 'migration', 'table' => self::FIXTURE_TABLE, 'field' => self::FIXTURE_COLUMN, 'uid' => $uid],
+            json_decode($metadataJson, true),
+        );
+
         $vaultService->delete($expectedIdentifier, 'test cleanup');
     }
 

@@ -38,6 +38,7 @@ use TYPO3\CMS\Core\Schema\Field\FieldTypeInterface;
 use TYPO3\CMS\Core\Schema\TcaSchema;
 use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 
+use function array_keys;
 use function is_string;
 use function sprintf;
 
@@ -932,11 +933,11 @@ final class FlexFormVaultHookTest extends TestCase
             ->with(
                 self::matchesRegularExpression(self::UUID_PATTERN),
                 'the-secret-value',
-                self::callback(static fn (array $options): bool => $options['table'] === 'tt_content'
-                    && $options['flexField'] === 'pi_flexform'
-                    && $options['uid'] === 100
-                    && $options['source'] === 'flexform_record_copy'
-                    && $options['copied_from'] === $sourceUuid),
+                self::callback(static fn (array $options): bool => $options['metadata']['table'] === 'tt_content'
+                    && $options['metadata']['flexField'] === 'pi_flexform'
+                    && $options['metadata']['uid'] === 100
+                    && $options['metadata']['source'] === 'flexform_record_copy'
+                    && $options['metadata']['copied_from'] === $sourceUuid),
             );
 
         $connection
@@ -1148,7 +1149,7 @@ final class FlexFormVaultHookTest extends TestCase
             ->with(
                 self::anything(),
                 'my-secret',
-                self::callback(static fn (array $opts): bool => $opts['table'] === 'tt_content' && $opts['uid'] === 5),
+                self::callback(static fn (array $opts): bool => $opts['metadata']['table'] === 'tt_content' && $opts['metadata']['uid'] === 5),
             );
 
         $this->subject->processDatamap_afterDatabaseOperations('update', 'tt_content', 5, [], $this->dataHandler);
@@ -1616,7 +1617,7 @@ final class FlexFormVaultHookTest extends TestCase
         $this->vaultService
             ->method('store')
             ->willReturnCallback(static function (string $ident, string $val, array $opts) use (&$capturedUid): void {
-                $capturedUid = $opts['uid'] ?? null;
+                $capturedUid = $opts['metadata']['uid'] ?? null;
             });
 
         $this->subject->processDatamap_afterDatabaseOperations($status, 'tt_content', $id, [], $this->dataHandler);
@@ -1653,7 +1654,9 @@ final class FlexFormVaultHookTest extends TestCase
         $this->vaultService
             ->method('store')
             ->willReturnCallback(static function (string $id, string $v, array $opts) use (&$capturedOptions): void {
-                $capturedOptions = $opts;
+                // The record link goes under `metadata` (#565).
+                self::assertSame(['metadata'], array_keys($opts));
+                $capturedOptions = $opts['metadata'];
             });
 
         $this->subject->processDatamap_afterDatabaseOperations('update', 'tt_content', 5, [], $this->dataHandler);
@@ -1691,7 +1694,9 @@ final class FlexFormVaultHookTest extends TestCase
         $this->vaultService
             ->method('store')
             ->willReturnCallback(static function (string $id, string $v, array $opts) use (&$capturedOptions): void {
-                $capturedOptions = $opts;
+                // The record link goes under `metadata` (#565).
+                self::assertSame(['metadata'], array_keys($opts));
+                $capturedOptions = $opts['metadata'];
             });
 
         $this->subject->processCmdmap_postProcess('copy', 'tt_content', 42, null, $this->dataHandler, false);
@@ -1781,7 +1786,7 @@ final class FlexFormVaultHookTest extends TestCase
         $this->vaultService
             ->method('store')
             ->willReturnCallback(static function (string $id, string $v, array $opts) use (&$capturedUid): void {
-                $capturedUid = $opts['uid'] ?? null;
+                $capturedUid = $opts['metadata']['uid'] ?? null;
             });
 
         $this->subject->processDatamap_afterDatabaseOperations('update', 'tt_content', 77, [], $this->dataHandler);

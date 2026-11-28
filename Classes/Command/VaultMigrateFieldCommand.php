@@ -9,9 +9,12 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Command;
 
+use Netresearch\NrVault\Domain\Dto\SecretRecordLink;
 use Netresearch\NrVault\Exception\VaultException;
+use Netresearch\NrVault\Hook\RecordLinkFactory;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Netresearch\NrVault\Utility\IdentifierValidator;
+use SensitiveParameter;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Helper\ProgressBar;
@@ -50,6 +53,7 @@ final class VaultMigrateFieldCommand extends Command
     public function __construct(
         private readonly VaultServiceInterface $vaultService,
         private readonly ConnectionPool $connectionPool,
+        private readonly ?RecordLinkFactory $recordLinkFactory = null,
     ) {
         parent::__construct();
     }
@@ -240,6 +244,7 @@ final class VaultMigrateFieldCommand extends Command
      * @return array{migrated: int, failed: int, errors: list<string>}
      */
     private function migrateRecords(
+        #[SensitiveParameter]
         array $records,
         int $batchSize,
         string $table,
@@ -266,13 +271,14 @@ final class VaultMigrateFieldCommand extends Command
                 try {
                     $identifier = IdentifierValidator::generateUuid();
 
-                    // Store in vault
+                    // Store in vault. The record link names the `uid` column,
+                    // which orphan cleanup looks the record up by; a value from
+                    // another --uid-field column would point it at the wrong
+                    // record, so such a secret gets no link.
                     $this->vaultService->store($identifier, $valueStr, [
-                        'table'       => $table,
-                        'field'       => $field,
-                        'uid'         => $uidInt,
-                        'source'      => 'migration',
-                        'migrated_at' => time(),
+                        'metadata' => $uidField === 'uid'
+                            ? $this->recordLink($table, $field, $uidInt)
+                            : ['migrated_at' => time()],
                     ]);
 
                     // Optionally clear source field
@@ -382,6 +388,7 @@ final class VaultMigrateFieldCommand extends Command
      */
     private function showDryRunResults(
         SymfonyStyle $io,
+        #[SensitiveParameter]
         array $records,
         string $field,
         string $uidField,
@@ -408,7 +415,7 @@ final class VaultMigrateFieldCommand extends Command
         }
     }
 
-    private function truncateValue(mixed $value, int $maxLength): string
+    private function truncateValue(#[SensitiveParameter] mixed $value, int $maxLength): string
     {
         if (!is_string($value)) {
             return '(non-string)';
@@ -419,6 +426,21 @@ final class VaultMigrateFieldCommand extends Command
         }
 
         return str_repeat('*', $maxLength - 3) . '...';
+    }
+
+    /**
+     * The record link of a migrated value. A workspace version is linked
+     * through its live uid, like the vault field hooks link it.
+     *
+     * @return array<string, mixed>
+     */
+    private function recordLink(string $table, string $field, int $uid): array
+    {
+        $extra = ['migrated_at' => time()];
+
+        return $this->recordLinkFactory instanceof RecordLinkFactory
+            ? $this->recordLinkFactory->forField(SecretRecordLink::SOURCE_MIGRATION, $table, $field, $uid, $extra)
+            : SecretRecordLink::forField(SecretRecordLink::SOURCE_MIGRATION, $table, $field, $uid, $extra);
     }
 
     private function clearSourceField(string $table, string $field, string $uidField, int $uid): void
