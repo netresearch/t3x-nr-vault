@@ -572,6 +572,9 @@ top level of ``$options`` are not metadata; the service ignores them.
 The vault field hooks (TCA and FlexForm fields, record copies) and both
 migration paths write this link themselves. Inside a workspace the hooks link
 the live record, never the uid of a workspace version.
+Discarding a workspace version deletes a secret entered on that version once
+no row of the table holds the identifier any more; a version that shares the
+live record's secret leaves it alone.
 
 .. _api-example-retrieving:
 

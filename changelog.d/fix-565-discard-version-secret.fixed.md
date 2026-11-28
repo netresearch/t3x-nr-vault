@@ -1,0 +1,1 @@
+- Discarding a workspace version deletes the secret entered on that version once no row of the table holds the identifier any more: the version row is gone and no other row, such as the live record, holds it. Before, the version row went away without DataHandler's delete command, so its secret stayed in the vault referenced by nothing (#565).

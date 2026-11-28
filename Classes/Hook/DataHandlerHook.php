@@ -27,6 +27,7 @@ use TYPO3\CMS\Core\DataHandling\DataHandler;
 
 use function in_array;
 use function is_array;
+use function is_numeric;
 use function is_string;
 use function sprintf;
 
@@ -102,6 +103,15 @@ final class DataHandlerHook
      * @var array<string, array<int, true>>
      */
     private array $deniedDeletions = [];
+
+    /**
+     * Vault fields of workspace versions a discard was asked for, collected in
+     * processCmdmap_discardAction() and settled in processCmdmap_postProcess(),
+     * once core has decided whether it removed the version.
+     *
+     * @var array<string, array<int, array<string, string>>> table => version uid => field => identifier
+     */
+    private array $discardedVersionSecrets = [];
 
     public function __construct(
         private readonly ConnectionPool $connectionPool,
@@ -441,6 +451,55 @@ final class DataHandlerHook
     }
 
     /**
+     * Called for every record core is asked to discard from a workspace.
+     *
+     * Core calls this hook before its own checks (workspace, edit and delete
+     * access), with the live row when it is asked to discard by a live uid; it
+     * then discards that row's version in the current workspace without
+     * calling the hook again, so the version is looked up here. Nothing is
+     * deleted here: the vault fields of a version row are only collected, and
+     * processCmdmap_postProcess() deletes a secret once no row of the table
+     * holds the identifier any more, the version row included. A version that
+     * shares the live record's secret therefore leaves it alone, and so does
+     * a discard core refused.
+     *
+     * @param array<string, mixed> $record
+     */
+    public function processCmdmap_discardAction(// NOSONAR: TYPO3 DataHandler hook method name (fixed API contract)
+        string $table,
+        int $uid,
+        array $record,
+    ): void {
+        $vaultFields = $this->getVaultFieldNames($table);
+        if ($vaultFields === []) {
+            return;
+        }
+
+        $workspace = $record['t3ver_wsid'] ?? 0;
+        if (!is_numeric($workspace) || (int) $workspace <= 0) {
+            // The live row: core discards the version of the current
+            // workspace, which it looks up after this hook. Look it up the
+            // same way; without a workspace there is nothing to discard.
+            $record = $this->workspaceVersionOf($table, $uid);
+            if ($record === null) {
+                return;
+            }
+        }
+
+        $versionUid = $record['uid'] ?? null;
+        if (!is_numeric($versionUid)) {
+            return;
+        }
+
+        foreach ($vaultFields as $fieldName) {
+            $identifier = $record[$fieldName] ?? '';
+            if (is_string($identifier) && $identifier !== '') {
+                $this->discardedVersionSecrets[$table][(int) $versionUid][$fieldName] = $identifier;
+            }
+        }
+    }
+
+    /**
      * Cancels a record delete whose vault-secret cleanup failed in
      * processCmdmap_preProcess(). Setting $commandIsProcessed = true makes
      * core skip its own deleteAction() (DataHandler runs this hook before the
@@ -493,6 +552,10 @@ final class DataHandlerHook
         DataHandler $dataHandler,
         bool|array $pasteUpdate,
     ): void {
+        if ($this->discardedVersionSecrets !== []) {
+            $this->deleteSecretsOfDiscardedVersions($dataHandler);
+        }
+
         if (!in_array($command, self::DUPLICATION_COMMANDS, true)) {
             return;
         }
@@ -534,6 +597,116 @@ final class DataHandlerHook
             // scalar vault value of a later, unrelated write in this request.
             $this->endDuplicationCommand($dataHandler);
         }
+    }
+
+    /**
+     * The version of a live record in the current backend user's workspace,
+     * or null in the live workspace or when there is none.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function workspaceVersionOf(string $table, int $liveUid): ?array
+    {
+        $backendUser = $GLOBALS['BE_USER'] ?? null;
+        $workspace   = $backendUser instanceof BackendUserAuthentication ? $backendUser->workspace : 0;
+        if ($workspace <= 0) {
+            return null;
+        }
+
+        $queryBuilder = $this->connectionPool->getQueryBuilderForTable($table);
+        $queryBuilder->getRestrictions()->removeAll();
+
+        $row = $queryBuilder
+            ->select('*')
+            ->from($table)
+            ->where(
+                $queryBuilder->expr()->eq('t3ver_oid', $queryBuilder->createNamedParameter($liveUid, Connection::PARAM_INT)),
+                $queryBuilder->expr()->eq('t3ver_wsid', $queryBuilder->createNamedParameter($workspace, Connection::PARAM_INT)),
+            )
+            ->executeQuery()
+            ->fetchAssociative();
+
+        return is_array($row) ? $row : null;
+    }
+
+    /**
+     * Delete the secrets of discarded workspace versions that nothing else
+     * holds. A version row that still exists (core refused the discard)
+     * holds its identifier itself, so its secret is kept.
+     */
+    private function deleteSecretsOfDiscardedVersions(DataHandler $dataHandler): void
+    {
+        $candidates                    = $this->discardedVersionSecrets;
+        $this->discardedVersionSecrets = [];
+
+        foreach ($candidates as $table => $versions) {
+            foreach ($versions as $versionUid => $fields) {
+                foreach ($fields as $fieldName => $identifier) {
+                    $this->deleteSecretOfDiscardedVersion($dataHandler, $table, $versionUid, $fieldName, $identifier);
+                }
+            }
+        }
+    }
+
+    /**
+     * Delete one discarded version's secret unless a row still holds it. A
+     * failure is reported and logged on the DataHandler.
+     */
+    private function deleteSecretOfDiscardedVersion(
+        DataHandler $dataHandler,
+        string $table,
+        int $versionUid,
+        string $fieldName,
+        string $identifier,
+    ): void {
+        try {
+            // A lookup that fails proves nothing: it throws, and the secret
+            // is kept.
+            if ($this->fieldHoldsIdentifier($table, $fieldName, $identifier)) {
+                return;
+            }
+
+            $this->vaultService->delete($identifier, 'Workspace version discarded');
+        } catch (SecretNotFoundException) {
+            return;
+        } catch (Throwable $e) {
+            $userMessage = $this->failureReporter->report($e, [
+                'table'      => $table,
+                'field'      => $fieldName,
+                'uid'        => $versionUid,
+                'identifier' => $identifier,
+                'operation'  => 'discard',
+            ]);
+
+            /** @phpstan-ignore method.internal */
+            $dataHandler->log(
+                $table,
+                $versionUid,
+                3,
+                null,
+                1,
+                'Vault error after discarding the workspace version, field "' . $fieldName . '": ' . $userMessage,
+            );
+        }
+    }
+
+    /**
+     * Does any row of the table, deleted rows and other versions included,
+     * hold the identifier in this field?
+     */
+    private function fieldHoldsIdentifier(string $table, string $fieldName, string $identifier): bool
+    {
+        $queryBuilder = $this->connectionPool->getQueryBuilderForTable($table);
+        $queryBuilder->getRestrictions()->removeAll();
+
+        $count = $queryBuilder
+            ->count('uid')
+            ->from($table)
+            ->where($queryBuilder->expr()->eq($fieldName, $queryBuilder->createNamedParameter($identifier)))
+            ->executeQuery()
+            ->fetchOne();
+
+        return !is_numeric($count) || (int) $count > 0;
     }
 
     /**
