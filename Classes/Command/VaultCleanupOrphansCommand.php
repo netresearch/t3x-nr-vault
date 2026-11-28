@@ -106,7 +106,14 @@ final class VaultCleanupOrphansCommand extends Command
 
         $orphans     = $this->findOrphans($io, $secrets, $options['retentionDays'], $options['batchSize']);
         $orphanCount = count($orphans);
+        // Secrets whose record link could not be checked are kept: the run
+        // did not do for them what it was asked, on every path below.
+        $unchecked = count($this->orphanReferenceChecker->getUnresolvedReferences());
         if ($orphanCount === 0) {
+            if ($unchecked > 0) {
+                return $this->failForUnchecked($io, $unchecked);
+            }
+
             $io->success('No orphaned secrets found');
 
             return Command::SUCCESS;
@@ -118,16 +125,25 @@ final class VaultCleanupOrphansCommand extends Command
             $io->section('Orphaned secrets that would be deleted:');
             $this->showOrphanTable($io, $orphans);
 
-            return Command::SUCCESS;
+            return $unchecked > 0 ? $this->failForUnchecked($io, $unchecked) : Command::SUCCESS;
         }
 
         if (!$io->confirm(sprintf('Delete %d orphaned secrets?', $orphanCount), false)) {
             $io->warning('Cleanup cancelled');
 
-            return Command::SUCCESS;
+            return $unchecked > 0 ? $this->failForUnchecked($io, $unchecked) : Command::SUCCESS;
         }
 
-        return $this->deleteOrphans($io, $orphans);
+        $result = $this->deleteOrphans($io, $orphans);
+
+        return $result === Command::SUCCESS && $unchecked > 0 ? $this->failForUnchecked($io, $unchecked) : $result;
+    }
+
+    private function failForUnchecked(SymfonyStyle $io, int $unchecked): int
+    {
+        $io->warning(sprintf('%d secret(s) whose record link could not be checked were kept', $unchecked));
+
+        return Command::FAILURE;
     }
 
     /**

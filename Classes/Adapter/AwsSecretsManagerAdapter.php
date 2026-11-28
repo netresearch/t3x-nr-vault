@@ -52,7 +52,7 @@ use function is_string;
  * overwrites. A delete removes the AWS secret first and the row second, so a
  * delete that fails half-way can be repeated.
  */
-final readonly class AwsSecretsManagerAdapter implements CreateCompensatingAdapterInterface, VaultAdapterInterface
+final readonly class AwsSecretsManagerAdapter implements CreateCompensatingAdapterInterface, RegistryRowReaderInterface, VaultAdapterInterface
 {
     public const IDENTIFIER = 'aws';
 
@@ -219,6 +219,12 @@ final readonly class AwsSecretsManagerAdapter implements CreateCompensatingAdapt
     public function retrieveIncludingDisabled(string $identifier): ?Secret
     {
         return $this->withBackingEnvelope($this->registry->retrieveIncludingDisabled($identifier), false);
+    }
+
+    public function retrieveRegistryRow(string $identifier): ?Secret
+    {
+        // The row alone: no read of the backing object.
+        return $this->registry->retrieveIncludingDisabled($identifier);
     }
 
     public function setHidden(int $uid, bool $hidden): void

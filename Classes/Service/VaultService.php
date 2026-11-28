@@ -12,6 +12,7 @@ namespace Netresearch\NrVault\Service;
 use DateTimeInterface;
 use Netresearch\NrVault\Adapter\CreateCompensatingAdapterInterface;
 use Netresearch\NrVault\Adapter\LocalEncryptionAdapter;
+use Netresearch\NrVault\Adapter\RegistryRowReaderInterface;
 use Netresearch\NrVault\Adapter\VaultAdapterInterface;
 use Netresearch\NrVault\Audit\AuditAction;
 use Netresearch\NrVault\Audit\AuditLogService;
@@ -34,6 +35,7 @@ use Netresearch\NrVault\Event\SecretUpdatedEvent;
 use Netresearch\NrVault\Exception\AccessDeniedException;
 use Netresearch\NrVault\Exception\AuditWriteException;
 use Netresearch\NrVault\Exception\EncryptionException;
+use Netresearch\NrVault\Exception\RecordLinkStateUnknownException;
 use Netresearch\NrVault\Exception\SecretExpiredException;
 use Netresearch\NrVault\Exception\SecretNotFoundException;
 use Netresearch\NrVault\Exception\ValidationException;
@@ -960,8 +962,8 @@ final readonly class VaultService implements VaultServiceInterface, SecretRecord
             // two concurrent migrations generating the same identifier
             // would otherwise overwrite each other. A create racing this
             // check fails on the unique key instead. Checked after the write
-            // permission, so an actor without it learns nothing about which
-            // identifiers exist.
+            // permission, so an actor who may not write is refused the same
+            // way, and audited the same way, with or without createOnly.
             if (($options['createOnly'] ?? false) === true && $existing instanceof Secret) {
                 throw ValidationException::invalidOption('createOnly', 'a secret with this identifier already exists');
             }
@@ -1325,7 +1327,13 @@ final readonly class VaultService implements VaultServiceInterface, SecretRecord
      */
     private function doLinkCreatedSecret(string $identifier, array $createdMetadata, array $link): void
     {
-        $secret = $this->adapter->retrieveIncludingDisabled($identifier);
+        // The link lives in the registry row alone, and so do the owner,
+        // groups and metadata the checks below read: a remote adapter's
+        // backend is not contacted, so its outage cannot leave the row
+        // unlinked for good.
+        $secret = $this->adapter instanceof RegistryRowReaderInterface
+            ? $this->adapter->retrieveRegistryRow($identifier)
+            : $this->adapter->retrieveIncludingDisabled($identifier);
         if (!$secret instanceof Secret) {
             throw SecretNotFoundException::forIdentifier($identifier);
         }
@@ -1359,7 +1367,7 @@ final readonly class VaultService implements VaultServiceInterface, SecretRecord
             // Verified by reading the value back, not by the absence of an
             // error: an adapter whose lookup skips the secret writes nothing
             // and does not say so. Read from the registry row, where the
-            // metadata lives; the envelope of a remote adapter plays no part.
+            // metadata lives, not through a fetch of a remote backend.
             $row      = $this->adapter->getMetadata($identifier);
             $metadata = is_array($row) && is_array($row['metadata'] ?? null) ? $row['metadata'] : [];
             $stored   = array_intersect_key($metadata, $link);
@@ -1432,6 +1440,9 @@ final readonly class VaultService implements VaultServiceInterface, SecretRecord
                         'rollbackError' => $revertFailure->getMessage(),
                     ],
                 );
+
+                // The link may or may not be in the row now: say so.
+                throw RecordLinkStateUnknownException::afterFailedTakeBack($identifier, $failure, $revertFailure);
             }
         }
 

@@ -136,6 +136,29 @@ final class OrphanCleanupTaskTest extends TestCase
         self::assertTrue($result);
     }
 
+    /**
+     * A secret whose record link could not be checked is kept, and the run
+     * reports that it did not do everything it was asked (#565).
+     */
+    #[Test]
+    public function returnsFalseWhenASecretCouldNotBeChecked(): void
+    {
+        $this->mockPage([
+            $this->createSecret(
+                'tx_gone__api_key__1',
+                time() - 86400 * 30,
+                ['source' => 'tca_field', 'table' => 'tx_gone', 'field' => 'api_key', 'uid' => 1],
+            ),
+        ]);
+        $this->checker->method('isOrphaned')->willReturn(false);
+        $this->checker->method('getUnresolvedReferences')->willReturn([
+            ['identifier' => 'tx_gone__api_key__1', 'table' => 'tx_gone', 'field' => 'api_key', 'uid' => 1, 'reason' => 'the table could not be resolved'],
+        ]);
+        $this->vaultService->expects($this->never())->method('delete');
+
+        self::assertFalse($this->createTask()->execute());
+    }
+
     #[Test]
     public function skipsNonTcaSecrets(): void
     {
@@ -985,7 +1008,7 @@ final class OrphanCleanupTaskTest extends TestCase
 
         $task = $this->createTask();
         $task->setTaskParameters(['nr_vault_retention_days' => 0]);
-        self::assertTrue($task->execute());
+        self::assertFalse($task->execute(), 'The secret is kept, and the run reports it could not check it.');
     }
 
     /**
@@ -1146,7 +1169,7 @@ final class OrphanCleanupTaskTest extends TestCase
         $task = $this->createTask();
         $task->setTaskParameters(['nr_vault_retention_days' => 0]);
 
-        self::assertTrue($task->execute(), 'An unresolvable reference is not a task failure, just not a deletion.');
+        self::assertFalse($task->execute(), 'An unresolvable reference keeps the secret and fails the run, so an operator sees it.');
     }
 
     /**
@@ -1171,7 +1194,7 @@ final class OrphanCleanupTaskTest extends TestCase
         $task = $this->createTask();
         $task->setTaskParameters(['nr_vault_retention_days' => 0]);
 
-        self::assertTrue($task->execute());
+        self::assertFalse($task->execute(), 'The secret is kept, and the run reports it could not check it.');
     }
 
     /**
@@ -1207,7 +1230,7 @@ final class OrphanCleanupTaskTest extends TestCase
         $task = $this->createTask($logManager);
         $task->setTaskParameters(['nr_vault_retention_days' => 0]);
 
-        self::assertTrue($task->execute());
+        self::assertFalse($task->execute(), 'The secret is kept, and the run reports it could not check it.');
     }
 
     private function createTask(?LogManager $logManager = null): OrphanCleanupTask

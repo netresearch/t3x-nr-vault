@@ -311,6 +311,59 @@ final class VaultCleanupOrphansCommandTest extends TestCase
         self::assertStringContainsString('1 secret(s) could not be checked again and were kept', $display);
     }
 
+    /**
+     * A secret the first pass could not check is kept. Whatever else the
+     * run did, it did not do what it was asked for that secret, so it ends
+     * with exit code 1 on every path (#565).
+     *
+     * @return iterable<string, array{list<bool>, array<string, mixed>, list<string>}>
+     */
+    public static function uncheckedFirstPassProvider(): iterable
+    {
+        // isOrphaned() answers per call: the unchecked secret first, then the
+        // other one in the first pass, then the re-check before a delete.
+        yield 'no orphans' => [[false, false], [], []];
+        yield 'dry run' => [[false, true], ['--dry-run' => true], []];
+        yield 'cancelled' => [[false, true], [], ['no']];
+        yield 'deleted' => [[false, true, true], [], ['yes']];
+    }
+
+    /**
+     * @param list<bool>           $answers
+     * @param array<string, mixed> $options
+     * @param list<string>         $inputs
+     */
+    #[Test]
+    #[DataProvider('uncheckedFirstPassProvider')]
+    public function aSecretTheFirstPassCouldNotCheckFailsTheRun(array $answers, array $options, array $inputs): void
+    {
+        $this->vaultService->method('list')->willReturn([
+            $this->createSecretMetadata(self::IDENTIFIER_1, time() - 86400 * 30, ['source' => 'tca_field', 'table' => 'tx_gone', 'field' => 'api_key', 'uid' => 1]),
+            $this->createSecretMetadata(self::IDENTIFIER_2, time() - 86400 * 30, ['source' => 'tca_field', 'table' => 'tx_myext', 'field' => 'api_key', 'uid' => 2]),
+        ]);
+
+        $unresolved = [];
+        $calls      = 0;
+        $this->checker->method('isOrphaned')->willReturnCallback(static function () use (&$unresolved, &$calls, $answers): bool {
+            if (++$calls === 1) {
+                $unresolved[] = ['identifier' => self::IDENTIFIER_1, 'table' => 'tx_gone', 'field' => 'api_key', 'uid' => 1, 'reason' => 'the table could not be resolved'];
+            }
+
+            return $answers[$calls - 1] ?? false;
+        });
+        $this->checker->method('getUnresolvedReferences')->willReturnCallback(static function () use (&$unresolved): array {
+            return $unresolved;
+        });
+
+        $this->commandTester->setInputs($inputs);
+        $exitCode = $this->commandTester->execute($options);
+
+        self::assertSame(1, $exitCode, 'A kept, unchecked secret must not end as a success');
+        $display = (string) preg_replace('/\s+/', ' ', $this->commandTester->getDisplay());
+        self::assertStringContainsString('1 secret(s) whose record link could not be checked were kept', $display);
+        self::assertStringNotContainsString('No orphaned secrets found', $display);
+    }
+
     #[Test]
     public function handlesDeleteFailures(): void
     {
@@ -1235,8 +1288,8 @@ final class VaultCleanupOrphansCommandTest extends TestCase
 
         $exitCode = $tester->execute([]);
 
-        self::assertSame(0, $exitCode);
-        self::assertStringContainsString(self::MSG_NO_ORPHANS, $tester->getDisplay());
+        self::assertSame(1, $exitCode, 'The secret is kept, and the run reports it could not check it');
+        self::assertStringContainsString('1 secret(s) whose record link could not be checked were kept', (string) preg_replace('/\s+/', ' ', $tester->getDisplay()));
     }
 
     /**

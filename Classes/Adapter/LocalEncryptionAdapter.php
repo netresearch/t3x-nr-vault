@@ -18,7 +18,7 @@ use TYPO3\CMS\Core\Database\Connection;
 /**
  * Local database adapter with envelope encryption.
  */
-final readonly class LocalEncryptionAdapter implements VaultAdapterInterface
+final readonly class LocalEncryptionAdapter implements RegistryRowReaderInterface, VaultAdapterInterface
 {
     public function __construct(
         private SecretRepositoryInterface $secretRepository,
@@ -47,6 +47,12 @@ final readonly class LocalEncryptionAdapter implements VaultAdapterInterface
 
     public function retrieveIncludingDisabled(string $identifier): ?Secret
     {
+        return $this->secretRepository->findByIdentifierIncludingDisabled($identifier);
+    }
+
+    public function retrieveRegistryRow(string $identifier): ?Secret
+    {
+        // The row is all this adapter has: the encrypted value lives in it.
         return $this->secretRepository->findByIdentifierIncludingDisabled($identifier);
     }
 

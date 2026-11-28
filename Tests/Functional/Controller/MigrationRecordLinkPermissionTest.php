@@ -205,6 +205,7 @@ final class MigrationRecordLinkPermissionTest extends AbstractVaultFunctionalTes
         self::assertInstanceOf(MigrationResult::class, $result);
 
         self::assertSame(1, $result->migrated);
+        self::assertSame(1, $result->unlinked, 'The verify page shows the column as Partial');
         self::assertCount(1, $result->failureReasons);
         self::assertStringStartsWith(sprintf('uid %d: migrated, unlinked: the field holds the identifier', $uid), $result->failureReasons[0]);
         self::assertSame(1, substr_count($result->failureReasons[0], 'migrated, unlinked'), 'The label is printed once');

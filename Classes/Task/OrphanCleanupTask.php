@@ -150,12 +150,16 @@ final class OrphanCleanupTask extends AbstractTask
             }
         } while (count($page) === self::PAGE_SIZE);
 
+        $unchecked = count($checker->getUnresolvedReferences());
         $logger->info('Orphan check complete', [
-            'secretsChecked' => $checked,
-            'orphansFound'   => $orphansFound,
+            'secretsChecked'   => $checked,
+            'orphansFound'     => $orphansFound,
+            'secretsUnchecked' => $unchecked,
         ]);
 
-        return $success;
+        // A secret whose record link could not be checked is kept; the run
+        // did not do for it what it was asked.
+        return $success && $unchecked === 0;
     }
 
     /**

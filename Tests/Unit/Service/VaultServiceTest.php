@@ -12,6 +12,7 @@ namespace Netresearch\NrVault\Tests\Unit\Service;
 use ArrayObject;
 use DateTimeImmutable;
 use Netresearch\NrVault\Adapter\CreateCompensatingAdapterInterface;
+use Netresearch\NrVault\Adapter\RegistryRowReaderInterface;
 use Netresearch\NrVault\Adapter\VaultAdapterInterface;
 use Netresearch\NrVault\Audit\AuditAction;
 use Netresearch\NrVault\Audit\AuditLogServiceInterface;
@@ -23,6 +24,7 @@ use Netresearch\NrVault\Domain\Model\Secret;
 use Netresearch\NrVault\Exception\AccessDeniedException;
 use Netresearch\NrVault\Exception\AuditWriteException;
 use Netresearch\NrVault\Exception\EncryptionException;
+use Netresearch\NrVault\Exception\RecordLinkStateUnknownException;
 use Netresearch\NrVault\Exception\SecretExpiredException;
 use Netresearch\NrVault\Exception\SecretNotFoundException;
 use Netresearch\NrVault\Exception\ValidationException;
@@ -1559,11 +1561,48 @@ final class VaultServiceTest extends TestCase
         try {
             $subject->linkCreatedSecret('link_both_down', ['migrated_at' => 5], ['source' => 'migration']);
             self::fail('A failed read-back must fail the link');
-        } catch (RuntimeException $e) {
-            self::assertSame('registry read timed out', $e->getMessage());
+        } catch (RecordLinkStateUnknownException $e) {
+            self::assertStringContainsString('could not be taken back (registry write failed)', $e->getMessage());
+            self::assertSame('registry read timed out', $e->getPrevious()?->getMessage(), 'The original failure is chained');
         }
 
         self::assertSame(2, $writes);
+    }
+
+    /**
+     * The first lookup needs the registry row alone: owner, groups and
+     * metadata. An adapter that can return the row without its remote
+     * backend is asked for that, so a backend outage does not leave the row
+     * unlinked (#565).
+     */
+    #[Test]
+    public function linkCreatedSecretChecksTheRegistryRowWithoutTheBackend(): void
+    {
+        $metadata = ['migrated_at' => 5];
+        $adapter  = $this->createMockForIntersectionOfInterfaces([VaultAdapterInterface::class, RegistryRowReaderInterface::class]);
+        $adapter->method('retrieveRegistryRow')->willReturn($this->createSecretEntity('link_backend_down', 7, metadata: $metadata));
+        $adapter->method('retrieveIncludingDisabled')->willThrowException(new RuntimeException('KV GET returned 503', 1795000106));
+        $adapter->method('retrieve')->willThrowException(new RuntimeException('KV GET returned 503', 1795000107));
+        $adapter->method('updateMetadata')->willReturnCallback(static function (string $identifier, array $merge) use (&$metadata): void {
+            $metadata = array_replace($metadata, $merge);
+        });
+        $adapter->method('getMetadata')->willReturnCallback(static function () use (&$metadata): array {
+            return ['metadata' => $metadata];
+        });
+        $this->accessControlService->method('canWrite')->willReturn(true);
+        $this->auditLogService->expects(self::once())->method('log');
+        $subject = new VaultService(
+            $adapter,
+            $this->encryptionService,
+            $this->accessControlService,
+            $this->auditLogService,
+            $this->configuration,
+            $this->httpClientFactory,
+        );
+
+        $subject->linkCreatedSecret('link_backend_down', ['migrated_at' => 5], ['source' => 'migration']);
+
+        self::assertSame(['migrated_at' => 5, 'source' => 'migration'], $metadata);
     }
 
     /**

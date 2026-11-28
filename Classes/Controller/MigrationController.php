@@ -485,6 +485,7 @@ final readonly class MigrationController
         $migrated = 0;
         $failed   = 0;
         $skipped  = 0;
+        $unlinked = 0;
         $errors   = [];
 
         // Validate table and column names against database schema to prevent SQL injection
@@ -550,6 +551,7 @@ final readonly class MigrationController
                 } elseif ($outcome->migrated) {
                     ++$migrated;
                     if ($outcome->message !== null) {
+                        ++$unlinked;
                         $errors[] = sprintf('uid %d: migrated, unlinked: %s', $uid, $outcome->message);
                     }
                 } else {
@@ -568,7 +570,7 @@ final readonly class MigrationController
             $failureReasons[] = sprintf('and %d more', count($errors) - self::MAX_REPORTED_ERRORS);
         }
 
-        return new MigrationResult($table, $column, $migrated, $failed, $skipped, failureReasons: $failureReasons);
+        return new MigrationResult($table, $column, $migrated, $failed, $skipped, failureReasons: $failureReasons, unlinked: $unlinked);
     }
 
     /**

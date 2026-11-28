@@ -255,6 +255,17 @@ final class LocalEncryptionAdapterTest extends TestCase
      * (#565).
      */
     #[Test]
+    public function retrieveRegistryRowReturnsTheRowDisabledOnesIncluded(): void
+    {
+        $secret     = new Secret(identifier: 'disabled');
+        $repository = $this->createMock(SecretRepositoryInterface::class);
+        $repository->expects(self::never())->method('findByIdentifier');
+        $repository->method('findByIdentifierIncludingDisabled')->willReturn($secret);
+
+        self::assertSame($secret, (new LocalEncryptionAdapter($repository))->retrieveRegistryRow('disabled'));
+    }
+
+    #[Test]
     public function getMetadataReadsADisabledSecret(): void
     {
         $repository = $this->createMock(SecretRepositoryInterface::class);

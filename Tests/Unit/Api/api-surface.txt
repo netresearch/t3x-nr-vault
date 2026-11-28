@@ -2,6 +2,9 @@ Netresearch\NrVault\Adapter\CreateCompensatingAdapterInterface (interface)
   method compensateCreate(string $identifier): void
   method releaseStore(string $identifier): void
 
+Netresearch\NrVault\Adapter\RegistryRowReaderInterface (interface)
+  method retrieveRegistryRow(string $identifier): ?Netresearch\NrVault\Domain\Model\Secret
+
 Netresearch\NrVault\Adapter\VaultAdapterInterface (interface, extension point)
   method delete(string $identifier): void
   method exists(string $identifier): bool
@@ -532,7 +535,7 @@ Netresearch\NrVault\Domain\Dto\FieldMigrationOutcome (class)
   property readonly migrated: bool
 
 Netresearch\NrVault\Domain\Dto\MigrationResult (class)
-  constructor(string $table, string $column, int $migrated, int $failed, int $skipped, ?string $error = …, array $failureReasons = …)
+  constructor(string $table, string $column, int $migrated, int $failed, int $skipped, ?string $error = …, array $failureReasons = …, int $unlinked = …)
   method getTotal(): int
   method hasError(): bool
   method isSuccess(): bool
@@ -547,6 +550,7 @@ Netresearch\NrVault\Domain\Dto\MigrationResult (class)
   property readonly migrated: int
   property readonly skipped: int
   property readonly table: string
+  property readonly unlinked: int
 
 Netresearch\NrVault\Domain\Dto\OrphanReference (class)
   constructor(string $table, string $field, int $uid, bool $flexForm = …)
@@ -861,6 +865,9 @@ Netresearch\NrVault\Exception\OAuthException (class)
   method static tokenRequestFailed(int $statusCode, ?string $oauthError = …): self
   property httpStatus: ?int
   property oauthError: ?string
+
+Netresearch\NrVault\Exception\RecordLinkStateUnknownException (class)
+  method static afterFailedTakeBack(string $identifier, Throwable $failure, Throwable $revertFailure): self
 
 Netresearch\NrVault\Exception\RequestCancelledException (class)
 

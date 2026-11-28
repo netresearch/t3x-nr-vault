@@ -50,7 +50,7 @@ use function is_int;
  * overwrites. Delete order is the reverse of what would be convenient: Vault
  * first, then the row, so a delete that fails half-way can be repeated.
  */
-final readonly class HashiCorpAdapter implements CreateCompensatingAdapterInterface, VaultAdapterInterface
+final readonly class HashiCorpAdapter implements CreateCompensatingAdapterInterface, RegistryRowReaderInterface, VaultAdapterInterface
 {
     public const IDENTIFIER = 'hashicorp';
 
@@ -200,6 +200,12 @@ final readonly class HashiCorpAdapter implements CreateCompensatingAdapterInterf
     public function retrieveIncludingDisabled(string $identifier): ?Secret
     {
         return $this->withBackingEnvelope($this->registry->retrieveIncludingDisabled($identifier), false);
+    }
+
+    public function retrieveRegistryRow(string $identifier): ?Secret
+    {
+        // The row alone: no read of the backing object.
+        return $this->registry->retrieveIncludingDisabled($identifier);
     }
 
     public function setHidden(int $uid, bool $hidden): void

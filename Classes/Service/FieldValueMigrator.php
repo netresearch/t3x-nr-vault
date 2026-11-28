@@ -17,6 +17,7 @@ use Netresearch\NrVault\Adapter\VaultAdapterInterface;
 use Netresearch\NrVault\Domain\Dto\FieldMigrationOutcome;
 use Netresearch\NrVault\Domain\Dto\SecretRecordLink;
 use Netresearch\NrVault\Domain\Model\Secret;
+use Netresearch\NrVault\Exception\RecordLinkStateUnknownException;
 use Throwable;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Database\Query\QueryBuilder;
@@ -253,6 +254,14 @@ final readonly class FieldValueMigrator implements FieldValueMigratorInterface
                 $field,
                 (int) $key,
                 ['migrated_at' => $migratedAt],
+            ));
+        } catch (RecordLinkStateUnknownException $e) {
+            // The link was written and could not be taken back: it may be
+            // there or not.
+            return FieldMigrationOutcome::migratedUnlinked(sprintf(
+                'the field holds the identifier %s, but the state of its record link is unknown (%s); see the critical log',
+                $identifier,
+                $e->getMessage(),
             ));
         } catch (Throwable $e) {
             // The value is migrated: the row holds the identifier. Only the

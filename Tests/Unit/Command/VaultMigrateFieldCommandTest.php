@@ -19,6 +19,7 @@ use Doctrine\DBAL\Types\Types;
 use Netresearch\NrVault\Adapter\VaultAdapterInterface;
 use Netresearch\NrVault\Command\VaultMigrateFieldCommand;
 use Netresearch\NrVault\Domain\Model\Secret;
+use Netresearch\NrVault\Exception\RecordLinkStateUnknownException;
 use Netresearch\NrVault\Exception\VaultException;
 use Netresearch\NrVault\Service\FieldValueMigrator;
 use Netresearch\NrVault\Service\SecretRecordLinkWriterInterface;
@@ -890,9 +891,39 @@ final class VaultMigrateFieldCommandTest extends TestCase
         self::assertSame(1, substr_count(strtolower($display), 'migrated, unlinked'), 'The label is printed once');
         self::assertStringContainsString('1 record(s) were migrated without their record link', $display);
         self::assertStringNotContainsString('Migration completed successfully', $display);
+        self::assertStringContainsString('Next Steps', $display, 'The migrated values need the same follow-up');
         self::assertMatchesRegularExpression('/Successfully migrated\s*\|?\s*1/', $display);
         self::assertSame([], $this->linkedMetadata);
         self::assertSame(['migrated_at'], array_keys($this->linkRequests[$this->storeCall($calls, 0)['identifier']] ?? []), 'The writer is asked with the metadata the creation stored');
+    }
+
+    /**
+     * A link that was written and could not be taken back may be in the row
+     * or not: the report says that instead of claiming the cleanup ignores
+     * the secret (#565).
+     */
+    #[Test]
+    public function aRecordLinkInAnUnknownStateIsReportedAsSuch(): void
+    {
+        $vaultService = $this->useStrictVaultServiceMock();
+        $this->mockTableAndFieldExist('api_key');
+        $this->mockQueryReturnsRecords([['uid' => 1, 'api_key' => 'secret-link-unknown']]);
+        $this->linkFailure = RecordLinkStateUnknownException::afterFailedTakeBack(
+            'some-id',
+            new VaultException('registry read timed out', 1795000002),
+            new VaultException('registry write failed', 1795000003),
+        );
+
+        $this->recordStores($vaultService, 1);
+
+        $this->commandTester->setInputs(['yes']);
+        $exitCode = $this->commandTester->execute(['table' => 'tx_myext_settings', 'field' => 'api_key']);
+
+        self::assertSame(1, $exitCode);
+        $display = $this->normalizedDisplay();
+        self::assertStringContainsString('but the state of its record link is unknown', $display);
+        self::assertStringContainsString('see the critical log', $display);
+        self::assertStringNotContainsString('orphan cleanup will not consider this secret', $display);
     }
 
     /**

@@ -232,4 +232,18 @@ final class MigrationResultTest extends TestCase
 
         self::assertArrayNotHasKey('error', $subject->toArray());
     }
+
+    /**
+     * Rows migrated without their record link need attention: the result is
+     * no success, and the verify page receives the count (#565).
+     */
+    #[Test]
+    public function unlinkedRowsAreCountedAndNoSuccess(): void
+    {
+        $subject = new MigrationResult('tx_test', 'secret', 2, 0, 0, unlinked: 1);
+
+        self::assertFalse($subject->isSuccess());
+        self::assertSame(1, $subject->toArray()['unlinked'] ?? null);
+        self::assertArrayNotHasKey('unlinked', MigrationResult::success('tx_test', 'secret', 2)->toArray());
+    }
 }

@@ -233,7 +233,8 @@ final class SecretRecordLinkCleanupTest extends AbstractVaultFunctionalTestCase
             'metadata' => SecretRecordLink::forField(SecretRecordLink::SOURCE_TCA_FIELD, self::TABLE, 'no_such_column', 99999),
         ]);
 
-        $this->runTask();
+        // Kept, and the run reports the secret it could not check.
+        $this->runTask(expectSuccess: false);
 
         self::assertTrue($vaultService->exists($identifier));
     }
@@ -716,7 +717,7 @@ final class SecretRecordLinkCleanupTest extends AbstractVaultFunctionalTestCase
         return $this->getConnectionPool()->getConnectionForTable('tx_nrvault_secret')->count('*', 'tx_nrvault_secret', []);
     }
 
-    private function runTask(bool $backdate = true): void
+    private function runTask(bool $backdate = true, bool $expectSuccess = true): void
     {
         // The secrets were created a moment ago; the cleanup only deletes
         // what is older than the minimum age, even with 0 retention days.
@@ -730,7 +731,7 @@ final class SecretRecordLinkCleanupTest extends AbstractVaultFunctionalTestCase
         );
         $task->setTaskParameters(['nr_vault_retention_days' => 0]);
 
-        self::assertTrue($task->execute());
+        self::assertSame($expectSuccess, $task->execute(), 'A secret kept unchecked fails the run, any other run succeeds');
     }
 
     /**

@@ -255,13 +255,21 @@ final class VaultMigrateFieldCommand extends Command
         // by hand: not a success to report as one.
         if ($unlinked !== []) {
             $io->warning(sprintf('Migration completed, but %d record(s) were migrated without their record link', count($unlinked)));
+            // The values are migrated all the same: the field needs the
+            // same follow-up.
+            $this->showNextSteps($io);
 
             return Command::FAILURE;
         }
 
         $io->success('Migration completed successfully');
+        $this->showNextSteps($io);
 
-        // Show next steps
+        return Command::SUCCESS;
+    }
+
+    private function showNextSteps(SymfonyStyle $io): void
+    {
         $io->section('Next Steps');
         $io->listing([
             'Update TCA configuration to use renderType => "vaultSecret" for this field',
@@ -269,8 +277,6 @@ final class VaultMigrateFieldCommand extends Command
             'Update any code that reads this field to use VaultFieldResolver::resolveFields()',
             'The field now holds the vault identifier instead of the plaintext value',
         ]);
-
-        return Command::SUCCESS;
     }
 
     /**

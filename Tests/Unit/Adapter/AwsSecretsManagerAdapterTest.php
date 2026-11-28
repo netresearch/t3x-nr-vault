@@ -160,6 +160,26 @@ final class AwsSecretsManagerAdapterTest extends TestCase
         self::assertSame(self::BINARY_VALUE, $secret?->getEncryptedValue());
     }
 
+    /**
+     * The registry row alone, for the operations that only need the row (the
+     * record link): AWS is not contacted, so its outage cannot fail them
+     * (#565).
+     */
+    #[Test]
+    public function retrieveRegistryRowNeverCallsAws(): void
+    {
+        $adapter = $this->adapter();
+        $adapter->store($this->envelopeSecret('api_key'));
+
+        $this->awsCalls = [];
+
+        $row = $adapter->retrieveRegistryRow('api_key');
+
+        self::assertSame('api_key', $row?->getIdentifier());
+        self::assertNull($row->getEncryptedValue(), 'the row holds no envelope');
+        self::assertSame([], $this->awsCalls);
+    }
+
     #[Test]
     public function retrieveOfAnUnknownSecretNeverCallsAws(): void
     {

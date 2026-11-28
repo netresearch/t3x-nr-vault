@@ -1114,9 +1114,12 @@ The value is never left without a copy:
    with its metadata-update audit entry, after the value was stored. The
    external adapters (HashiCorp Vault, AWS Secrets Manager) have no such
    transaction: when the read-back or the audit entry fails after the write,
-   a targeted metadata write takes the link back by resetting its keys. A record whose link could not be added is
-   listed as migrated, unlinked: a re-run skips it, so the link has to be
-   added by hand.
+   a targeted metadata write takes the link back by resetting its keys.
+   Adding the link reads only the registry row, never the remote backend.
+   A record whose link could not be added is listed as migrated, unlinked:
+   a re-run skips it, so the link has to be added by hand. When taking the
+   link back failed too, the record says its link state is unknown and a
+   critical log entry names the secret.
 *  The update names the value the row held when the command read it. A value
    an editor saved in between is not overwritten; the record fails and the
    new secret is deleted again.
@@ -1220,6 +1223,24 @@ Example
    # Migrate records keyed by another column (stored without a record link)
    vendor/bin/typo3 vault:migrate-field tx_myext_settings api_key --uid-field=id
 
+.. _command-migrate-field-exit-codes:
+
+Exit codes
+----------
+
+0
+   Every record this run handled was migrated with its record link, or
+   skipped, or there was nothing to migrate.
+
+1
+   The command refused before migrating anything (an unknown table or field,
+   a column too short for an identifier, an unusable ``--uid-field``), a
+   record failed, or a record was migrated without its record link. In the
+   last case the Next Steps are printed too, since the values are migrated.
+
+The exit code covers only the records this run handled. Records a previous
+run left unlinked are skipped as already migrated and do not change it.
+
 .. _command-cleanup-orphans:
 
 vault:cleanup-orphans
@@ -1248,9 +1269,9 @@ following hold:
    the linked field (for a FlexForm field: no FlexForm value of that column
    contains it), compared the way the database compares (its collation
    decides, as for every lookup that resolves the secret). Whether the linked
-   record itself still exists does not matter: a published workspace version moves the identifier to the live
-   record, a translation can share it, and a discarded workspace version
-   leaves a live record that never held it.
+   record itself still exists does not matter: a published workspace version
+   moves the identifier to the live record, a translation can share it, and a
+   discarded workspace version leaves a live record that never held it.
 
 A table, connection or column the command cannot resolve keeps the secret; the
 command lists such secrets after the check, and the scheduler task logs them.
@@ -1304,6 +1325,24 @@ Example
 
    # Clean up orphans for specific table only
    vendor/bin/typo3 vault:cleanup-orphans --table=tx_myext_settings
+
+.. _command-cleanup-orphans-exit-codes:
+
+Exit codes
+----------
+
+0
+   Every candidate was checked: each orphan was deleted (or listed, with
+   ``--dry-run``), or there was nothing to delete, or the deletion was
+   cancelled.
+
+1
+   A delete failed, or a secret was kept because its record link could not
+   be checked, in the first pass or in the re-check before its delete. This
+   holds on every path, ``--dry-run`` and a cancelled deletion included.
+
+The :guilabel:`Vault Orphan Cleanup` scheduler task reports a failed run in
+the same cases.
 
 .. _command-audit-migrate-hmac:
 

@@ -354,7 +354,27 @@ final class BackendThemeMarkupTest extends FunctionalTestCase
         ]);
 
         self::assertSame('badge badge-warning', $this->badgeClassFor($html, 'Partial'));
+        self::assertStringContainsString('<tr class="table-warning">', $html, 'The row is highlighted');
         self::assertSame(1, preg_match('/<p[^>]*id="(failure-reasons-0)"[^>]*>\s*Rows needing attention:\s*<\/p>\s*<ul[^>]*aria-labelledby="\1"[^>]*>\s*<li>uid 7: the value is kept in the secret tx_demo__7<\/li>/', $html), $html);
+    }
+
+    /**
+     * A column whose rows all migrated but some without their record link is
+     * Partial, like the CLI run that exits 1 for it (#565).
+     */
+    public function testMigrationVerifyShowsUnlinkedRowsAsPartial(): void
+    {
+        $html = $this->renderTemplate('Migration/Verify', [
+            'totalMigrated' => 1, 'totalFailed' => 0, 'clearOriginals' => false,
+            'results'       => [[
+                'table'          => 'tx_demo', 'column' => 'secret', 'migrated' => 1, 'skipped' => 0, 'failed' => 0, 'unlinked' => 1,
+                'failureReasons' => ['uid 7: migrated, unlinked: the field holds the identifier x'],
+            ]],
+        ]);
+
+        self::assertSame('badge badge-warning', $this->badgeClassFor($html, 'Partial'));
+        self::assertStringNotContainsString('badge badge-success', $html, 'No Complete badge');
+        self::assertStringContainsString('<tr class="table-warning">', $html);
     }
 
     public function testTheAuditLogUsesCoreBadgesForCountsAndActions(): void

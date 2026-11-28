@@ -109,6 +109,11 @@ interface VaultAdapterInterface
     /**
      * Get metadata for a secret without decrypting value.
      *
+     * Disabled secrets included, like {@see retrieveIncludingDisabled()}: the
+     * metadata of a disabled secret is still administrable, and
+     * {@see updateMetadata()} merges into it. Null only for a secret that does
+     * not exist or was removed for good.
+     *
      * @return array<string, mixed>|null
      */
     public function getMetadata(string $identifier): ?array;

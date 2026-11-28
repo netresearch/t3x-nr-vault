@@ -31,6 +31,7 @@ readonly class MigrationResult
          * @var list<string>
          */
         public array $failureReasons = [],
+        public int $unlinked = 0,
     ) {}
 
     /**
@@ -81,7 +82,7 @@ readonly class MigrationResult
      */
     public function isSuccess(): bool
     {
-        return $this->error === null && $this->failed === 0;
+        return $this->error === null && $this->failed === 0 && $this->unlinked === 0;
     }
 
     /**
@@ -103,7 +104,7 @@ readonly class MigrationResult
     /**
      * Convert to array for JSON serialization.
      *
-     * @return array{table: string, column: string, migrated: int, failed: int, skipped: int, error?: string, failureReasons?: list<string>}
+     * @return array{table: string, column: string, migrated: int, failed: int, skipped: int, error?: string, failureReasons?: list<string>, unlinked?: int}
      */
     public function toArray(): array
     {
@@ -121,6 +122,10 @@ readonly class MigrationResult
 
         if ($this->failureReasons !== []) {
             $result['failureReasons'] = $this->failureReasons;
+        }
+
+        if ($this->unlinked > 0) {
+            $result['unlinked'] = $this->unlinked;
         }
 
         return $result;
