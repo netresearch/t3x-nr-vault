@@ -29,8 +29,8 @@ use function json_decode;
  * the version row (EXT:workspaces `version_swap()`). A record link naming the
  * version uid would therefore point at a missing row while the live record
  * holds the secret, and the orphan cleanup would delete a secret in use
- * (#565). The link names the live uid instead, and the cleanup also keeps any
- * secret another row still holds.
+ * (#565). The link names the live uid instead, so the cleanup keeps the
+ * secret while the live record exists.
  */
 #[CoversClass(RecordLinkFactory::class)]
 #[CoversClass(OrphanReferenceChecker::class)]
