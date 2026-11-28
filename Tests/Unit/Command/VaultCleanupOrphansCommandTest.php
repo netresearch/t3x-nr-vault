@@ -412,7 +412,7 @@ final class VaultCleanupOrphansCommandTest extends TestCase
         self::assertSame(1, $exitCode);
         $display = (string) preg_replace('/\s+/', ' ', $this->commandTester->getDisplay());
         self::assertStringContainsString('Cleanup completed with 1 errors', $display);
-        self::assertStringContainsString('Exit code 1: the check of 1 kept secret(s) failed on a query or connection error', $display);
+        self::assertStringContainsString('Exit code 1: 1 delete(s) failed, and the check of 1 kept secret(s) failed on a query or connection error', $display, 'Both reasons are named');
     }
 
     /**

@@ -144,9 +144,11 @@ final class VaultCleanupOrphansCommand extends Command
     /**
      * The kept secrets are listed already; this names the exit reason.
      */
-    private function failForUnchecked(SymfonyStyle $io, int $unchecked): int
+    private function failForUnchecked(SymfonyStyle $io, int $unchecked, int $failedDeletes = 0): int
     {
-        $io->writeln(sprintf('<error>Exit code 1: the check of %d kept secret(s) failed on a query or connection error; run the cleanup again.</error>', $unchecked));
+        $io->writeln($failedDeletes > 0
+            ? sprintf('<error>Exit code 1: %d delete(s) failed, and the check of %d kept secret(s) failed on a query or connection error; run the cleanup again.</error>', $failedDeletes, $unchecked)
+            : sprintf('<error>Exit code 1: the check of %d kept secret(s) failed on a query or connection error; run the cleanup again.</error>', $unchecked));
 
         return Command::FAILURE;
     }
@@ -331,7 +333,7 @@ final class VaultCleanupOrphansCommand extends Command
         // asked for them. Stated after a failed delete too.
         $uncheckedTotal = $uncheckedFirstPass + $uncheckedTransient;
         if ($uncheckedTotal > 0) {
-            return $this->failForUnchecked($io, $uncheckedTotal);
+            return $this->failForUnchecked($io, $uncheckedTotal, $failed);
         }
 
         if ($failed > 0) {

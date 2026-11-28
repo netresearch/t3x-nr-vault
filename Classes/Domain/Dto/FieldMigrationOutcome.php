@@ -23,6 +23,7 @@ final readonly class FieldMigrationOutcome
     private function __construct(
         public bool $migrated,
         public ?string $message,
+        public bool $secretKept = false,
     ) {}
 
     public static function migrated(): self
@@ -38,5 +39,16 @@ final readonly class FieldMigrationOutcome
     public static function failed(string $reason): self
     {
         return new self(false, $reason);
+    }
+
+    /**
+     * The record failed and the secret just stored was kept, because the row
+     * could not be shown to hold its plaintext: the secret may be the only
+     * copy of the value. A re-run cannot recover such a row (the identifier
+     * is in use), so callers report it in full.
+     */
+    public static function failedKeepingSecret(string $reason): self
+    {
+        return new self(false, $reason, true);
     }
 }

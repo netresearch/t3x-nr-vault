@@ -511,9 +511,12 @@ final readonly class MigrationController
         $skipped  = 0;
         $unlinked = 0;
         $errors   = [];
-        // Every unlinked row is reported, never capped: a re-run skips it,
-        // so this list is the only place it is named.
+        // Rows a re-run cannot recover are reported in full, never capped,
+        // and logged: an unlinked row (a re-run skips it) and a failed row
+        // whose secret was kept as the possible only copy of its value (its
+        // identifier is in use). This list and the log name them.
         $unlinkedReasons = [];
+        $keptReasons     = [];
 
         // Validate table and column names against database schema to prevent SQL injection
         try {
@@ -580,13 +583,12 @@ final readonly class MigrationController
                     if ($outcome->message !== null) {
                         ++$unlinked;
                         $unlinkedReasons[] = sprintf('uid %d: migrated, unlinked: %s', $uid, $outcome->message);
-                        $this->logger->warning('Migrated a value whose record link is missing or of unknown state', [
-                            'identifier' => str_replace('{uid}', (string) $uid, $identifierPattern),
-                            'table'      => $table,
-                            'uid'        => $uid,
-                            'reason'     => $outcome->message,
-                        ]);
+                        $this->logRow('Migrated a value whose record link is missing or of unknown state', $table, $column, $uid, $identifierPattern, $outcome->message);
                     }
+                } elseif ($outcome->secretKept) {
+                    ++$failed;
+                    $keptReasons[] = sprintf('uid %d: %s', $uid, (string) $outcome->message);
+                    $this->logRow('A row failed to migrate and its value was kept in a secret', $table, $column, $uid, $identifierPattern, (string) $outcome->message);
                 } else {
                     ++$failed;
                     $errors[] = sprintf('uid %d: %s', $uid, (string) $outcome->message);
@@ -598,16 +600,31 @@ final readonly class MigrationController
 
         // The reasons name any secret kept as the only copy of a value. They
         // describe rows; `error` stays for a failure of the whole column.
-        // Failed rows are capped (a re-run retries them); unlinked rows are
-        // all listed.
+        // Ordinary failed rows are capped (the row still holds its value, and
+        // a re-run retries it); rows a re-run cannot recover are all listed.
         $failureReasons = array_slice($errors, 0, self::MAX_REPORTED_ERRORS);
         if (count($errors) > self::MAX_REPORTED_ERRORS) {
             $failureReasons[] = sprintf('and %d more failed rows', count($errors) - self::MAX_REPORTED_ERRORS);
         }
 
-        $failureReasons = [...$failureReasons, ...$unlinkedReasons];
+        $failureReasons = [...$failureReasons, ...$keptReasons, ...$unlinkedReasons];
 
         return new MigrationResult($table, $column, $migrated, $failed, $skipped, failureReasons: $failureReasons, unlinked: $unlinked);
+    }
+
+    /**
+     * One warning per row a re-run cannot recover, with what is needed to
+     * find it.
+     */
+    private function logRow(string $message, string $table, string $column, int $uid, string $identifierPattern, string $reason): void
+    {
+        $this->logger->warning($message, [
+            'identifier' => str_replace('{uid}', (string) $uid, $identifierPattern),
+            'table'      => $table,
+            'field'      => $column,
+            'uid'        => $uid,
+            'reason'     => $reason,
+        ]);
     }
 
     /**

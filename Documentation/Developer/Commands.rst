@@ -1131,10 +1131,14 @@ The value is never left without a copy:
    identifier (a truncating column), the command writes the original value
    back, again only over the value it read, and reads it back. Only then does
    it delete the secret. If that fails, or the read-back shows another value
-   than a truncated identifier, the secret is kept and named in the error
-   list: it holds the value.
+   than a truncated identifier, the secret is kept and named: it holds the
+   value.
 *  When the update changed more than one row, or the read-back fails, the
    record counts as failed and the secret is kept and named.
+*  A re-run cannot recover a record whose secret was kept, because its
+   identifier is in use. Such records are listed in full, beyond the first
+   ten ordinary errors, and each is logged as a warning with identifier,
+   table, field and uid, like each record migrated without its link.
 
 Hidden and time-restricted records are migrated too; deleted records are not.
 The deleted check follows the table's TCA ``ctrl.delete`` column; a table

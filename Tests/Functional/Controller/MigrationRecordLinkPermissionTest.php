@@ -9,8 +9,10 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Functional\Controller;
 
+use Doctrine\DBAL\Schema\Column;
 use Netresearch\NrVault\Audit\AuditAction;
 use Netresearch\NrVault\Controller\MigrationController;
+use Netresearch\NrVault\Domain\Dto\FieldMigrationOutcome;
 use Netresearch\NrVault\Domain\Dto\MigrationResult;
 use Netresearch\NrVault\Exception\AccessDeniedException;
 use Netresearch\NrVault\Exception\ValidationException;
@@ -27,6 +29,7 @@ use Psr\Log\LogLevel;
 use ReflectionClass;
 use ReflectionMethod;
 use Stringable;
+use TYPO3\CMS\Core\Database\Query\QueryBuilder;
 use TYPO3\CMS\Core\Http\ServerRequest;
 use TYPO3\CMS\Core\Localization\LanguageServiceFactory;
 use TYPO3\CMS\Core\Messaging\FlashMessage;
@@ -37,11 +40,13 @@ use function array_filter;
 use function array_intersect_key;
 use function array_key_exists;
 use function array_values;
+use function in_array;
 use function is_array;
 use function is_numeric;
 use function is_string;
 use function json_decode;
 use function sprintf;
+use function str_contains;
 use function substr_count;
 
 /**
@@ -264,8 +269,92 @@ final class MigrationRecordLinkPermissionTest extends AbstractVaultFunctionalTes
         $logged = array_values(array_filter($logger->records, static fn (array $record): bool => $record[0] === LogLevel::WARNING));
         self::assertCount(12, $logged, 'One warning per unlinked row');
         self::assertSame(
-            ['identifier' => 'linkmany_' . $uids[11], 'table' => self::TABLE, 'uid' => $uids[11]],
-            array_intersect_key($logged[11][2], ['identifier' => true, 'table' => true, 'uid' => true]),
+            ['identifier' => 'linkmany_' . $uids[11], 'table' => self::TABLE, 'field' => 'secret', 'uid' => $uids[11]],
+            array_intersect_key($logged[11][2], ['identifier' => true, 'table' => true, 'field' => true, 'uid' => true]),
+        );
+    }
+
+    /**
+     * A failed row whose secret was kept as the possible only copy of its
+     * value cannot be recovered by a re-run (its identifier is in use): every
+     * one is listed after the ten ordinary failures and logged as a warning.
+     * Ordinary failures, whose row still holds its value, stay capped (#565).
+     */
+    #[Test]
+    public function everyRowWhoseSecretWasKeptIsReportedAndLogged(): void
+    {
+        $connection = $this->getConnectionPool()->getConnectionForTable(self::TABLE);
+        $kept       = [];
+        for ($row = 1; $row <= 24; ++$row) {
+            $connection->insert(self::TABLE, ['pid' => 1, 'secret' => 'kept-plaintext-' . $row]);
+            if ($row % 2 === 0) {
+                $kept[] = (int) $connection->lastInsertId();
+            }
+        }
+
+        $real     = $this->get(FieldValueMigratorInterface::class);
+        $migrator = new class ($real, $kept) implements FieldValueMigratorInterface {
+            /**
+             * @param list<int> $kept
+             */
+            public function __construct(private readonly FieldValueMigratorInterface $real, private readonly array $kept) {}
+
+            public function findColumn(string $table, string $field): ?Column
+            {
+                return $this->real->findColumn($table, $field);
+            }
+
+            public function columnProblem(Column $column, int $identifierLength): ?string
+            {
+                return $this->real->columnProblem($column, $identifierLength);
+            }
+
+            public function countRowsWithDuplicateKey(string $table, string $keyField): ?int
+            {
+                return $this->real->countRowsWithDuplicateKey($table, $keyField);
+            }
+
+            public function restrictToMigratableRows(QueryBuilder $queryBuilder, string $table): void
+            {
+                $this->real->restrictToMigratableRows($queryBuilder, $table);
+            }
+
+            public function identifierInUse(string $identifier): bool
+            {
+                return $this->real->identifierInUse($identifier);
+            }
+
+            public function migrate(string $table, string $field, string $keyField, string $key, string $value, string $identifier): FieldMigrationOutcome
+            {
+                return in_array((int) $key, $this->kept, true)
+                    ? FieldMigrationOutcome::failedKeepingSecret('the field could not be read back; the secret ' . $identifier . ' was kept')
+                    : FieldMigrationOutcome::failed('the value could not be stored');
+            }
+        };
+        $logger = new class extends AbstractLogger {
+            /** @var list<array{mixed, string, array<mixed>}> */
+            public array $records = [];
+
+            public function log($level, string|Stringable $message, array $context = []): void
+            {
+                $this->records[] = [$level, (string) $message, $context];
+            }
+        };
+        $controller = $this->rebuild($this->get(MigrationController::class), ['fieldValueMigrator' => $migrator, 'logger' => $logger]);
+
+        $result = (new ReflectionMethod(MigrationController::class, 'migrateColumn'))
+            ->invoke($controller, self::TABLE, 'secret', 'linkkept_{uid}');
+        self::assertInstanceOf(MigrationResult::class, $result);
+
+        self::assertSame(24, $result->failed);
+        self::assertCount(10 + 1 + 12, $result->failureReasons, 'Ten ordinary failures, the rest counted, every kept secret listed');
+        self::assertSame('and 2 more failed rows', $result->failureReasons[10]);
+        self::assertCount(12, array_filter($result->failureReasons, static fn (string $reason): bool => str_contains($reason, 'was kept')));
+        $logged = array_values(array_filter($logger->records, static fn (array $record): bool => $record[0] === LogLevel::WARNING));
+        self::assertCount(12, $logged, 'One warning per kept secret');
+        self::assertSame(
+            ['identifier' => 'linkkept_' . $kept[11], 'table' => self::TABLE, 'field' => 'secret', 'uid' => $kept[11]],
+            array_intersect_key($logged[11][2], ['identifier' => true, 'table' => true, 'field' => true, 'uid' => true]),
         );
     }
 

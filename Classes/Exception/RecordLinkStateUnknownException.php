@@ -23,12 +23,22 @@ use function sprintf;
  */
 final class RecordLinkStateUnknownException extends VaultException
 {
-    /** Why taking the link back failed; the step that failed first is the previous exception. */
-    private ?Throwable $takeBackFailure = null;
+    /**
+     * @param Throwable $takeBackFailure why taking the link back failed; the
+     *                                   step that failed first is $previous
+     */
+    private function __construct(
+        string $message,
+        int $code,
+        Throwable $previous,
+        private readonly Throwable $takeBackFailure,
+    ) {
+        parent::__construct($message, $code, $previous);
+    }
 
     public static function afterFailedTakeBack(string $identifier, Throwable $failure, Throwable $revertFailure): self
     {
-        $exception = new self(
+        return new self(
             sprintf(
                 'A step after writing the record link of secret "%s" failed (%s), and the link could not be taken back (%s)',
                 $identifier,
@@ -37,13 +47,11 @@ final class RecordLinkStateUnknownException extends VaultException
             ),
             1795855061,
             $failure,
+            $revertFailure,
         );
-        $exception->takeBackFailure = $revertFailure;
-
-        return $exception;
     }
 
-    public function getTakeBackFailure(): ?Throwable
+    public function getTakeBackFailure(): Throwable
     {
         return $this->takeBackFailure;
     }

@@ -529,10 +529,12 @@ Netresearch\NrVault\Crypto\ReEncryptedDek (class)
 
 Netresearch\NrVault\Domain\Dto\FieldMigrationOutcome (class)
   method static failed(string $reason): self
+  method static failedKeepingSecret(string $reason): self
   method static migrated(): self
   method static migratedUnlinked(string $message): self
   property readonly message: ?string
   property readonly migrated: bool
+  property readonly secretKept: bool
 
 Netresearch\NrVault\Domain\Dto\MigrationResult (class)
   constructor(string $table, string $column, int $migrated, int $failed, int $skipped, ?string $error = …, array $failureReasons = …, int $unlinked = …)
@@ -867,7 +869,7 @@ Netresearch\NrVault\Exception\OAuthException (class)
   property oauthError: ?string
 
 Netresearch\NrVault\Exception\RecordLinkStateUnknownException (class)
-  method getTakeBackFailure(): ?Throwable
+  method getTakeBackFailure(): Throwable
   method static afterFailedTakeBack(string $identifier, Throwable $failure, Throwable $revertFailure): self
 
 Netresearch\NrVault\Exception\RequestCancelledException (class)

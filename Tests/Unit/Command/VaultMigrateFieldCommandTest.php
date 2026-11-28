@@ -31,7 +31,10 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\MockObject\Stub;
+use Psr\Log\AbstractLogger;
+use Psr\Log\LogLevel;
 use RuntimeException;
+use Stringable;
 use Symfony\Component\Console\Application;
 use Symfony\Component\Console\Tester\CommandTester;
 use Throwable;
@@ -40,7 +43,10 @@ use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Database\Query\Expression\ExpressionBuilder;
 use TYPO3\CMS\Core\Database\Query\QueryBuilder;
 
+use function array_filter;
+use function array_intersect_key;
 use function array_keys;
+use function array_values;
 use function is_array;
 use function is_int;
 use function is_scalar;
@@ -87,6 +93,9 @@ final class VaultMigrateFieldCommandTest extends TestCase
     /** When set, the read-back throws it. */
     private ?Throwable $readBackFailure = null;
 
+    /** The key whose read-back alone fails, when set. */
+    private ?string $readBackFailsForKey = null;
+
     /** Rows each mocked UPDATE reports as changed. */
     private int $affectedRows = 1;
 
@@ -114,6 +123,9 @@ final class VaultMigrateFieldCommandTest extends TestCase
     /** When set, the vault's store() throws it. */
     private ?Throwable $storeFailure = null;
 
+    /** @var ArrayObject<int, array{mixed, string, array<mixed>}> what the command logged */
+    private ArrayObject $logRecords;
+
     /** The value whose store() throws, the others are stored. */
     private ?string $failStoreForValue = null;
 
@@ -138,6 +150,7 @@ final class VaultMigrateFieldCommandTest extends TestCase
 
         $this->vaultService   = $this->createStub(VaultServiceInterface::class);
         $this->connectionPool = $this->createStub(ConnectionPool::class);
+        $this->logRecords     = new ArrayObject();
         $this->registerStores($this->vaultService);
 
         $this->rebuildCommandTester();
@@ -763,6 +776,7 @@ final class VaultMigrateFieldCommandTest extends TestCase
 
         $this->commandTester->setInputs(['yes']);
         $exitCode = $this->commandTester->execute(['table' => 'tx_myext_settings', 'field' => 'api_key']);
+        self::assertStringNotContainsString('Failed, secret kept', $this->normalizedDisplay(), 'No secret was kept');
 
         self::assertSame(1, $exitCode);
         self::assertStringContainsString('does not hold the identifier after the update; the original value was written back; the stored secret was deleted again', $this->normalizedDisplay());
@@ -787,6 +801,7 @@ final class VaultMigrateFieldCommandTest extends TestCase
 
         $this->commandTester->setInputs(['yes']);
         $exitCode = $this->commandTester->execute(['table' => 'tx_myext_settings', 'field' => 'api_key']);
+        self::assertSame(1, substr_count($this->normalizedDisplay(), 'Failed, secret kept'), 'Listed among the records whose secret was kept');
 
         self::assertSame(1, $exitCode);
         self::assertStringContainsString('could not be written back; the value is kept in the secret ' . $this->storeCall($calls, 0)['identifier'], $this->normalizedDisplay());
@@ -812,6 +827,7 @@ final class VaultMigrateFieldCommandTest extends TestCase
 
         $this->commandTester->setInputs(['yes']);
         $exitCode = $this->commandTester->execute(['table' => 'tx_myext_settings', 'field' => 'api_key']);
+        self::assertSame(1, substr_count($this->normalizedDisplay(), 'Failed, secret kept'), 'Listed among the records whose secret was kept');
 
         self::assertSame(1, $exitCode);
         self::assertStringContainsString('so the row was left as it is', $this->normalizedDisplay());
@@ -902,6 +918,92 @@ final class VaultMigrateFieldCommandTest extends TestCase
     }
 
     /**
+     * A failed record whose secret was kept as the possible only copy of its
+     * value cannot be recovered by a re-run: every one is listed, beyond the
+     * ten ordinary errors, and logged as a warning with identifier, table,
+     * field and uid. The Next Steps then ask to check each failed record
+     * (#565).
+     */
+    #[Test]
+    public function everyRecordWhoseSecretWasKeptIsListedAndLogged(): void
+    {
+        $vaultService = $this->useStrictVaultServiceMock();
+        $this->mockTableAndFieldExist('api_key');
+        $records = [];
+        for ($uid = 1; $uid <= 12; ++$uid) {
+            $records[] = ['uid' => $uid, 'api_key' => 'secret-kept-' . $uid];
+        }
+
+        $this->mockQueryReturnsRecords($records);
+        $this->readBackFailure = new class ('connection lost') extends RuntimeException implements DbalException {};
+        $calls                 = $this->recordStores($vaultService, 12);
+        $vaultService->expects(self::never())->method('delete');
+
+        $this->commandTester->setInputs(['yes']);
+        $exitCode = $this->commandTester->execute(['table' => 'tx_myext_settings', 'field' => 'api_key']);
+
+        self::assertSame(1, $exitCode);
+        $display = $this->normalizedDisplay();
+        self::assertSame(12, substr_count($display, 'could not be read back (connection lost)'), 'No cap for records whose secret was kept');
+        self::assertStringNotContainsString('more errors', $display);
+        $warnings = array_values(array_filter($this->logRecords->getArrayCopy(), static fn (array $record): bool => $record[0] === LogLevel::WARNING));
+        self::assertCount(12, $warnings, 'One warning per record');
+        self::assertSame(
+            ['identifier' => $this->storeCall($calls, 11)['identifier'], 'table' => 'tx_myext_settings', 'field' => 'api_key', 'uid' => '12'],
+            array_intersect_key($warnings[11][2], ['identifier' => true, 'table' => true, 'field' => true, 'uid' => true]),
+        );
+    }
+
+    /**
+     * A failed record whose secret was kept may hold the identifier or
+     * another value: the Next Steps ask to check each failed record instead
+     * of saying none holds it (#565).
+     */
+    #[Test]
+    public function theNextStepsAskToCheckFailedRecordsWhoseSecretWasKept(): void
+    {
+        $vaultService = $this->useStrictVaultServiceMock();
+        $this->mockTableAndFieldExist('api_key');
+        $this->mockQueryReturnsRecords([['uid' => 1, 'api_key' => 'secret-migrates'], ['uid' => 2, 'api_key' => 'secret-read-back-fails']]);
+        $this->readBackFailsForKey = '2';
+        $this->recordStores($vaultService, 2);
+
+        $this->commandTester->setInputs(['yes']);
+        $exitCode = $this->commandTester->execute(['table' => 'tx_myext_settings', 'field' => 'api_key']);
+
+        self::assertSame(1, $exitCode);
+        $display = $this->normalizedDisplay();
+        self::assertStringContainsString('check each failed record, which may hold the identifier or another value', $display);
+        self::assertStringNotContainsString('the failed ones do not', $display);
+    }
+
+    /**
+     * A record migrated without its link is logged with the same context
+     * (#565).
+     */
+    #[Test]
+    public function anUnlinkedRecordIsLogged(): void
+    {
+        $vaultService = $this->useStrictVaultServiceMock();
+        $this->mockTableAndFieldExist('api_key');
+        $this->mockQueryReturnsRecords([['uid' => 3, 'api_key' => 'secret-link-refused']]);
+        $this->linkFailure = new VaultException('missing secret.create permission', 1795000007);
+        $calls             = $this->recordStores($vaultService, 1);
+
+        $this->commandTester->setInputs(['yes']);
+        $this->commandTester->execute(['table' => 'tx_myext_settings', 'field' => 'api_key']);
+
+        $records = $this->logRecords->getArrayCopy();
+        self::assertCount(1, $records);
+        [$level, , $context] = $records[0];
+        self::assertSame(LogLevel::WARNING, $level);
+        self::assertSame(
+            ['identifier' => $this->storeCall($calls, 0)['identifier'], 'table' => 'tx_myext_settings', 'field' => 'api_key', 'uid' => '3'],
+            array_intersect_key($context, ['identifier' => true, 'table' => true, 'field' => true, 'uid' => true]),
+        );
+    }
+
+    /**
      * A run with a failed record and a record migrated without its link
      * reports both, each with its own warning, and prints the Next Steps:
      * the migrated value needs them whatever happened to the other record
@@ -928,6 +1030,7 @@ final class VaultMigrateFieldCommandTest extends TestCase
         self::assertStringContainsString('Next Steps', $display);
         self::assertMatchesRegularExpression('/Next Steps\W+Fix and re-run the failed records before you change the TCA configuration/', $display, 'With failed records, fixing them comes first');
         self::assertStringNotContainsString('The field now holds the vault identifier', $display, 'Not every record holds it');
+        self::assertStringContainsString('the failed ones do not', $display, 'An ordinary failure leaves the row without the identifier');
         self::assertStringNotContainsString('Migration completed successfully', $display);
     }
 
@@ -1040,6 +1143,7 @@ final class VaultMigrateFieldCommandTest extends TestCase
 
         $this->commandTester->setInputs(['yes']);
         $exitCode = $this->commandTester->execute(['table' => 'tx_myext_settings', 'field' => 'api_key']);
+        self::assertSame(1, substr_count($this->normalizedDisplay(), 'Failed, secret kept'), 'Listed among the records whose secret was kept');
 
         self::assertSame(1, $exitCode);
         self::assertStringContainsString('the secret ' . $this->storeCall($calls, 0)['identifier'] . ' was kept', $this->normalizedDisplay());
@@ -1063,6 +1167,7 @@ final class VaultMigrateFieldCommandTest extends TestCase
 
         $this->commandTester->setInputs(['yes']);
         $exitCode = $this->commandTester->execute(['table' => 'tx_myext_settings', 'field' => 'api_key']);
+        self::assertStringNotContainsString('Failed, secret kept', $this->normalizedDisplay(), 'No secret was kept');
 
         self::assertSame(1, $exitCode);
         self::assertStringContainsString('no row with this key holds the value read before the update (the row changed or is gone); the stored secret was deleted again', $this->normalizedDisplay());
@@ -1085,6 +1190,7 @@ final class VaultMigrateFieldCommandTest extends TestCase
 
         $this->commandTester->setInputs(['yes']);
         $exitCode = $this->commandTester->execute(['table' => 'tx_myext_settings', 'field' => 'api_key']);
+        self::assertSame(1, substr_count($this->normalizedDisplay(), 'Failed, secret kept'), 'Listed among the records whose secret was kept');
 
         self::assertSame(1, $exitCode);
         self::assertStringContainsString('the update changed 2 rows', $this->normalizedDisplay());
@@ -1199,6 +1305,7 @@ final class VaultMigrateFieldCommandTest extends TestCase
 
         $this->commandTester->setInputs(['yes']);
         $exitCode = $this->commandTester->execute(['table' => 'tx_myext_settings', 'field' => 'api_key', '--uid-field' => 'legacy_id']);
+        self::assertStringNotContainsString('Failed, secret kept', $this->normalizedDisplay(), 'No secret was kept');
 
         self::assertSame(1, $exitCode);
         self::assertStringContainsString('the stored secret was deleted again', $this->commandTester->getDisplay());
@@ -1223,6 +1330,7 @@ final class VaultMigrateFieldCommandTest extends TestCase
 
         $this->commandTester->setInputs(['yes']);
         $exitCode = $this->commandTester->execute(['table' => 'tx_myext_settings', 'field' => 'api_key']);
+        self::assertSame(1, substr_count($this->normalizedDisplay(), 'Failed, secret kept'), 'Listed among the records whose secret was kept');
 
         self::assertSame(1, $exitCode);
         self::assertStringContainsString('so the secret ' . $this->storeCall($calls, 0)['identifier'] . ' was kept', $this->normalizedDisplay());
@@ -1280,7 +1388,18 @@ final class VaultMigrateFieldCommandTest extends TestCase
      */
     private function rebuildCommandTester(): void
     {
-        $command = new VaultMigrateFieldCommand($this->connectionPool, $this->migrator());
+        $logger = new class ($this->logRecords) extends AbstractLogger {
+            /**
+             * @param ArrayObject<int, array{mixed, string, array<mixed>}> $records
+             */
+            public function __construct(private readonly ArrayObject $records) {}
+
+            public function log($level, string|Stringable $message, array $context = []): void
+            {
+                $this->records[] = [$level, (string) $message, $context];
+            }
+        };
+        $command = new VaultMigrateFieldCommand($this->connectionPool, $this->migrator(), $logger);
 
         $application = new Application();
         $application->addCommand($command);
@@ -1338,6 +1457,10 @@ final class VaultMigrateFieldCommandTest extends TestCase
         $result->method('fetchOne')->willReturnCallback(function (): mixed {
             if ($this->readBackFailure instanceof Throwable) {
                 throw $this->readBackFailure;
+            }
+
+            if ($this->readBackFailsForKey !== null && $this->keyOfQuery() === $this->readBackFailsForKey) {
+                throw new class ('connection lost for one record', 6515316942) extends RuntimeException implements DbalException {};
             }
 
             if ($this->readBackOverride !== null) {

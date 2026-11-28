@@ -219,22 +219,22 @@ final readonly class FieldValueMigrator implements FieldValueMigratorInterface
         }
 
         if ($affected !== 1) {
-            return sprintf(
+            return FieldMigrationOutcome::failedKeepingSecret(sprintf(
                 'the update changed %d rows; the secret %s was kept, check the rows with this key',
                 $affected,
                 $identifier,
-            );
+            ));
         }
 
         // Non-strict SQL truncates silently: read the field back.
         try {
             $written = $this->readField($table, $field, $keyField, $key);
         } catch (DbalException $e) {
-            return sprintf(
+            return FieldMigrationOutcome::failedKeepingSecret(sprintf(
                 'the field could not be read back (%s); the secret %s was kept, check whether the row holds it',
                 $e->getMessage(),
                 $identifier,
-            );
+            ));
         }
 
         if (!$this->holdsIdentifier($written, $identifier)) {
@@ -292,7 +292,7 @@ final readonly class FieldValueMigrator implements FieldValueMigratorInterface
         string $identifier,
         array $created,
         mixed $written,
-    ): string {
+    ): FieldMigrationOutcome|string {
         $reason = 'the field does not hold the identifier after the update';
 
         // A truncating column leaves a prefix of the identifier. Any other
@@ -301,11 +301,11 @@ final readonly class FieldValueMigrator implements FieldValueMigratorInterface
         $truncated = is_scalar($written) && rtrim((string) $written, ' ') !== ''
             && str_starts_with($identifier, rtrim((string) $written, ' '));
         if (!$truncated) {
-            return sprintf(
+            return FieldMigrationOutcome::failedKeepingSecret(sprintf(
                 '%s but another value, so the row was left as it is; the value read before the update is kept in the secret %s',
                 $reason,
                 $identifier,
-            );
+            ));
         }
 
         try {
@@ -318,11 +318,11 @@ final readonly class FieldValueMigrator implements FieldValueMigratorInterface
         }
 
         if (!$restored) {
-            return sprintf(
+            return FieldMigrationOutcome::failedKeepingSecret(sprintf(
                 '%s and the original value could not be written back; the value is kept in the secret %s',
                 $reason,
                 $identifier,
-            );
+            ));
         }
 
         return $this->discard($identifier, $created, $reason . '; the original value was written back');
@@ -344,7 +344,7 @@ final readonly class FieldValueMigrator implements FieldValueMigratorInterface
         string $identifier,
         array $created,
         string $error,
-    ): string {
+    ): FieldMigrationOutcome|string {
         $reason = 'the field could not be updated: ' . $error;
 
         try {
@@ -357,7 +357,7 @@ final readonly class FieldValueMigrator implements FieldValueMigratorInterface
             return $this->discard($identifier, $created, $reason);
         }
 
-        return sprintf('%s; the row could not be confirmed to hold its original value, so the secret %s was kept', $reason, $identifier);
+        return FieldMigrationOutcome::failedKeepingSecret(sprintf('%s; the row could not be confirmed to hold its original value, so the secret %s was kept', $reason, $identifier));
     }
 
     /**

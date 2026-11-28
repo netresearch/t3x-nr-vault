@@ -1436,20 +1436,24 @@ final readonly class VaultService implements VaultServiceInterface, SecretRecord
         try {
             $revert();
         } catch (Throwable $revertFailure) {
+            // The link may or may not be in the row now: say so. The
+            // exception chains the first failure; the take-back failure is
+            // on it and in the context.
+            $stateUnknown = RecordLinkStateUnknownException::afterFailedTakeBack($identifier, $failure, $revertFailure);
             $this->logger?->critical(
                 $failure instanceof AuditWriteException
                     ? 'Vault inconsistency: a record link was written without an audit record, and taking it back failed. Manual reconciliation required.'
                     : 'Vault inconsistency: a step after writing a record link failed and the link could not be taken back. Manual reconciliation required.',
                 [
-                    'identifier'    => $identifier,
-                    'error'         => $failure->getMessage(),
-                    'rollbackError' => $revertFailure->getMessage(),
-                    'exception'     => $revertFailure,
+                    'identifier'      => $identifier,
+                    'error'           => $failure->getMessage(),
+                    'rollbackError'   => $revertFailure->getMessage(),
+                    'takeBackFailure' => $revertFailure,
+                    'exception'       => $stateUnknown,
                 ],
             );
 
-            // The link may or may not be in the row now: say so.
-            throw RecordLinkStateUnknownException::afterFailedTakeBack($identifier, $failure, $revertFailure);
+            throw $stateUnknown;
         }
 
         throw $failure;

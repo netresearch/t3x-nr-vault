@@ -12,6 +12,8 @@ namespace Netresearch\NrVault\Command;
 use Doctrine\DBAL\Schema\Column;
 use Netresearch\NrVault\Service\FieldValueMigratorInterface;
 use Netresearch\NrVault\Utility\IdentifierValidator;
+use Psr\Log\LoggerInterface;
+use Psr\Log\NullLogger;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Helper\ProgressBar;
@@ -54,6 +56,7 @@ final class VaultMigrateFieldCommand extends Command
     public function __construct(
         private readonly ConnectionPool $connectionPool,
         private readonly FieldValueMigratorInterface $migrator,
+        private readonly LoggerInterface $logger = new NullLogger(),
     ) {
         parent::__construct();
     }
@@ -210,7 +213,7 @@ final class VaultMigrateFieldCommand extends Command
         $progressBar = $io->createProgressBar($totalRecords);
         $progressBar->start();
 
-        ['migrated' => $migrated, 'failed' => $failed, 'errors' => $errors, 'skipped' => $skipped, 'unlinked' => $unlinked] = $this->migrateRecords(
+        ['migrated' => $migrated, 'failed' => $failed, 'errors' => $errors, 'kept' => $kept, 'skipped' => $skipped, 'unlinked' => $unlinked] = $this->migrateRecords(
             $records,
             $batchSize,
             $table,
@@ -245,6 +248,16 @@ final class VaultMigrateFieldCommand extends Command
 
         $this->reportErrors($io, $errors);
 
+        // Failed records whose secret was kept as the possible only copy of
+        // the value: a re-run cannot recover them (the identifier is in
+        // use), so every one is listed.
+        if ($kept !== []) {
+            $io->section('Failed, secret kept');
+            foreach ($kept as $note) {
+                $io->text('<error>✗</error> ' . $note);
+            }
+        }
+
         if ($failed > 0) {
             $io->warning(sprintf('Migration completed with %d errors', $failed));
         }
@@ -262,13 +275,13 @@ final class VaultMigrateFieldCommand extends Command
         // Every migrated value needs the same follow-up, whatever happened
         // to the other records.
         if ($migrated > 0) {
-            $this->showNextSteps($io, $failed > 0);
+            $this->showNextSteps($io, $failed > 0, $kept !== []);
         }
 
         return $failed > 0 || $unlinked !== [] ? Command::FAILURE : Command::SUCCESS;
     }
 
-    private function showNextSteps(SymfonyStyle $io, bool $someFailed): void
+    private function showNextSteps(SymfonyStyle $io, bool $someFailed, bool $someKept): void
     {
         // Failed records still hold their plaintext: a TCA switch now would
         // treat that plaintext as an identifier.
@@ -278,9 +291,13 @@ final class VaultMigrateFieldCommand extends Command
         $steps[] = 'Update TCA configuration to use renderType => "vaultSecret" for this field';
         $steps[] = 'Test that the field displays correctly in the TYPO3 backend';
         $steps[] = 'Update any code that reads this field to use VaultFieldResolver::resolveFields()';
-        $steps[] = $someFailed
-            ? 'The migrated records now hold the vault identifier instead of the plaintext value; the failed ones do not'
-            : 'The field now holds the vault identifier instead of the plaintext value';
+        // A failed record whose secret was kept may hold the identifier, its
+        // previous value or something else; the others do not hold it.
+        $steps[] = match (true) {
+            $someKept   => 'The migrated records now hold the vault identifier instead of the plaintext value; check each failed record, which may hold the identifier or another value',
+            $someFailed => 'The migrated records now hold the vault identifier instead of the plaintext value; the failed ones do not',
+            default     => 'The field now holds the vault identifier instead of the plaintext value',
+        };
 
         $io->section('Next Steps');
         $io->listing($steps);
@@ -296,7 +313,7 @@ final class VaultMigrateFieldCommand extends Command
      * @param array<int, array<string, mixed>> $records
      * @param int<1, max>                      $batchSize
      *
-     * @return array{migrated: int, failed: int, errors: list<string>, skipped: list<string>, unlinked: list<string>}
+     * @return array{migrated: int, failed: int, errors: list<string>, kept: list<string>, skipped: list<string>, unlinked: list<string>}
      */
     private function migrateRecords(
         array &$records,
@@ -309,6 +326,7 @@ final class VaultMigrateFieldCommand extends Command
         $migrated = 0;
         $failed   = 0;
         $errors   = [];
+        $kept     = [];
         $skipped  = [];
         $unlinked = [];
 
@@ -328,14 +346,19 @@ final class VaultMigrateFieldCommand extends Command
                 $valueStr = (string) $value;
                 unset($value);
 
-                [$outcome, $detail] = $this->migrateRecord($table, $field, $uidField, $key, $valueStr);
+                [$outcome, $detail, $identifier] = $this->migrateRecord($table, $field, $uidField, $key, $valueStr);
                 if ($outcome === 'migrated') {
                     ++$migrated;
                 } elseif ($outcome === 'unlinked') {
                     ++$migrated;
                     $unlinked[] = sprintf('UID %s: %s', $key, $detail);
+                    $this->logRecord('Migrated a value whose record link is missing or of unknown state', $identifier, $table, $field, $key, $detail);
                 } elseif ($outcome === 'skipped') {
                     $skipped[] = $key;
+                } elseif ($outcome === 'kept') {
+                    ++$failed;
+                    $kept[] = sprintf('UID %s: %s', $key, $detail);
+                    $this->logRecord('A record failed to migrate and its value was kept in a secret', $identifier, $table, $field, $key, $detail);
                 } else {
                     ++$failed;
                     $errors[] = sprintf('UID %s: %s', $key, $detail);
@@ -347,14 +370,31 @@ final class VaultMigrateFieldCommand extends Command
             }
         }
 
-        return ['migrated' => $migrated, 'failed' => $failed, 'errors' => $errors, 'skipped' => $skipped, 'unlinked' => $unlinked];
+        return ['migrated' => $migrated, 'failed' => $failed, 'errors' => $errors, 'kept' => $kept, 'skipped' => $skipped, 'unlinked' => $unlinked];
+    }
+
+    /**
+     * One warning per record a re-run cannot recover, with the same context
+     * as the migration module logs.
+     */
+    private function logRecord(string $message, string $identifier, string $table, string $field, string $key, string $reason): void
+    {
+        $this->logger->warning($message, [
+            'identifier' => $identifier,
+            'table'      => $table,
+            'field'      => $field,
+            'uid'        => $key,
+            'reason'     => $reason,
+        ]);
     }
 
     /**
      * Migrate one record: 'migrated', 'skipped', 'unlinked' (migrated, but
-     * without the record link) with the reason, or 'failed' with the reason.
+     * without the record link) with the reason, 'kept' (failed, the secret
+     * kept as the possible only copy) with the reason, or 'failed' with the
+     * reason; each with the identifier it used.
      *
-     * @return array{'migrated'|'skipped'|'unlinked'|'failed', string}
+     * @return array{'migrated'|'skipped'|'unlinked'|'kept'|'failed', string, string}
      */
     private function migrateRecord(string $table, string $field, string $uidField, string $uid, string $value): array
     {
@@ -365,18 +405,19 @@ final class VaultMigrateFieldCommand extends Command
         // blind.
         try {
             if ($this->isExistingVaultIdentifier($value)) {
-                return ['skipped', ''];
+                return ['skipped', '', ''];
             }
         } catch (Throwable $e) {
-            return ['failed', 'could not check whether the value is a vault identifier: ' . $e->getMessage()];
+            return ['failed', 'could not check whether the value is a vault identifier: ' . $e->getMessage(), ''];
         }
 
-        $outcome = $this->migrator->migrate($table, $field, $uidField, $uid, $value, IdentifierValidator::generateUuid());
+        $identifier = IdentifierValidator::generateUuid();
+        $outcome    = $this->migrator->migrate($table, $field, $uidField, $uid, $value, $identifier);
         if (!$outcome->migrated) {
-            return ['failed', (string) $outcome->message];
+            return [$outcome->secretKept ? 'kept' : 'failed', (string) $outcome->message, $identifier];
         }
 
-        return $outcome->message === null ? ['migrated', ''] : ['unlinked', $outcome->message];
+        return $outcome->message === null ? ['migrated', '', $identifier] : ['unlinked', $outcome->message, $identifier];
     }
 
     /**
