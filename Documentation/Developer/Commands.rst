@@ -1133,7 +1133,11 @@ Options
    Clear the source field after migration (set to empty string).
 
 --uid-field=NAME
-   Name of the UID field (default: uid).
+   Name of the UID field (default: uid). Only with ``uid`` does a migrated
+   secret get the record link that orphan cleanup reads: the cleanup looks a
+   record up by its ``uid`` column, so a value from another column would name
+   the wrong record. With any other column the secret is stored without a link
+   and :ref:`vault:cleanup-orphans <command-cleanup-orphans>` never deletes it.
 
 .. attention::
 
@@ -1163,9 +1167,33 @@ vault:cleanup-orphans
 
 Clean up orphaned vault secrets from deleted TCA records.
 
-When records with vault-backed fields are deleted, the corresponding vault
-secrets may become orphaned. This command identifies and removes such orphaned
-secrets.
+When records with vault-backed fields disappear without DataHandler (a hard
+delete in SQL, a dropped extension table), their vault secrets may become
+orphaned. This command identifies and removes such orphaned secrets. The
+:guilabel:`Vault Orphan Cleanup` scheduler task applies the same rules.
+
+A secret is a candidate only when its ``metadata`` holds a record link
+(``source``, ``table``, ``field`` or ``flexField``, ``uid``) with one of the
+sources ``tca_field``, ``record_copy``, ``flexform_field``,
+``flexform_record_copy`` or ``migration``. It is deleted only when all of the
+following hold:
+
+*  it is older than ``--retention-days``;
+*  the linked record (table, uid) no longer exists; deleted rows count as
+   existing. The field is not read: a record whose field no longer holds the
+   identifier keeps its secret.
+
+Inside a workspace the link names the live record, so publishing a version
+does not orphan its secret. A table or connection the command cannot resolve
+keeps the secret and logs a warning; it is never read as "record gone".
+
+.. important::
+
+   Only secrets created after the update to the version that introduced the
+   record link (#565) carry it. Secrets created earlier through TCA or FlexForm
+   fields, record copies or migrations have no link and stay invisible to the
+   cleanup; no upgrade step adds the link, because doing so would make those
+   secrets deletable.
 
 .. code-block:: bash
    :caption: Command syntax

@@ -10,6 +10,7 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Hook;
 
 use Exception;
+use Netresearch\NrVault\Domain\Dto\SecretRecordLink;
 use Netresearch\NrVault\Exception\SecretNotFoundException;
 use Netresearch\NrVault\Hook\Dto\PendingSecret;
 use Netresearch\NrVault\Service\VaultFieldPermission;
@@ -112,6 +113,7 @@ final class DataHandlerHook
         private readonly VaultFailureReporter $failureReporter,
         private readonly VaultFieldPermissionService $fieldPermissionService,
         private readonly FlexFormVaultHook $flexFormVaultHook,
+        private readonly RecordLinkFactory $recordLinkFactory,
     ) {}
 
     /**
@@ -232,10 +234,12 @@ final class DataHandlerHook
             $error = $this->pendingSecretPersister->persist(
                 $pending,
                 [
-                    'table'  => $table,
-                    'field'  => $fieldName,
-                    'uid'    => $uid,
-                    'source' => 'tca_field',
+                    'metadata' => $this->recordLinkFactory->forField(
+                        SecretRecordLink::SOURCE_TCA_FIELD,
+                        $table,
+                        $fieldName,
+                        $uid,
+                    ),
                 ],
                 'TCA field cleared',
                 'TCA field updated',
@@ -635,11 +639,13 @@ final class DataHandlerHook
 
                 // Store as new secret
                 $this->vaultService->store($newIdentifier, $sourceValue, [
-                    'table'       => $table,
-                    'field'       => $fieldName,
-                    'uid'         => $newId,
-                    'source'      => 'record_copy',
-                    'copied_from' => $sourceIdentifier,
+                    'metadata' => $this->recordLinkFactory->forField(
+                        SecretRecordLink::SOURCE_RECORD_COPY,
+                        $table,
+                        $fieldName,
+                        $newId,
+                        ['copied_from' => $sourceIdentifier],
+                    ),
                 ]);
 
                 // Track update for the copied record

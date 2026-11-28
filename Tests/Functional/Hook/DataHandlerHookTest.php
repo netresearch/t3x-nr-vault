@@ -16,6 +16,7 @@ use Netresearch\NrVault\Hook\DataHandlerHook;
 use Netresearch\NrVault\Hook\FlexFormVaultHook;
 use Netresearch\NrVault\Hook\PendingSecretExtractor;
 use Netresearch\NrVault\Hook\PendingSecretPersister;
+use Netresearch\NrVault\Hook\RecordLinkFactory;
 use Netresearch\NrVault\Hook\VaultFailureReporter;
 use Netresearch\NrVault\Service\VaultFieldPermissionService;
 use Netresearch\NrVault\Service\VaultServiceInterface;
@@ -29,6 +30,7 @@ use ReflectionProperty;
 use Throwable;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\DataHandling\DataHandler;
+use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 use function sprintf;
@@ -538,6 +540,7 @@ final class DataHandlerHookTest extends AbstractVaultFunctionalTestCase
             $this->get(VaultFailureReporter::class),
             $this->get(VaultFieldPermissionService::class),
             $this->get(FlexFormVaultHook::class),
+            new RecordLinkFactory($this->get(ConnectionPool::class), $this->get(TcaSchemaFactory::class)),
         );
 
         // Pre-seed the field cache via reflection (setAccessible is a no-op since PHP 8.1)

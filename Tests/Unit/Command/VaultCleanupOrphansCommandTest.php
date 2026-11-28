@@ -35,6 +35,20 @@ use function sprintf;
 #[AllowMockObjectsWithoutExpectations]
 final class VaultCleanupOrphansCommandTest extends TestCase
 {
+    /**
+     * Columns the mocked schema reports, keyed like listTableColumns(): every
+     * field name the fixtures link to, so the checker's column check passes.
+     */
+    private const LINKED_COLUMNS = [
+        'api_key'         => null,
+        'k'               => null,
+        'key'             => null,
+        'secret'          => null,
+        'x'               => null,
+        'pi_flexform'     => null,
+        'settings.apikey' => null,
+    ];
+
     private const MSG_NO_TCA_SECRETS = 'No TCA-sourced secrets found';
 
     private const MSG_NO_ORPHANS = 'No orphaned secrets found';
@@ -553,6 +567,7 @@ final class VaultCleanupOrphansCommandTest extends TestCase
         yield 'tca_field' => ['tca_field', true];
         yield 'flexform_field' => ['flexform_field', true];
         yield 'record_copy' => ['record_copy', true];
+        yield 'flexform_record_copy' => ['flexform_record_copy', true];
         yield 'migration' => ['migration', true];
         yield 'manual' => ['manual', false];
         yield 'api' => ['api', false];
@@ -604,7 +619,8 @@ final class VaultCleanupOrphansCommandTest extends TestCase
         $this->commandTester->setInputs(['yes']);
         $this->commandTester->execute([]);
 
-        self::assertStringContainsString(self::MSG_NO_ORPHANS, $this->commandTester->getDisplay());
+        // A secret without a usable link is no cleanup candidate at all.
+        self::assertStringContainsString(self::MSG_NO_TCA_SECRETS, $this->commandTester->getDisplay());
     }
 
     /**
@@ -626,7 +642,8 @@ final class VaultCleanupOrphansCommandTest extends TestCase
         $this->commandTester->setInputs(['yes']);
         $this->commandTester->execute([]);
 
-        self::assertStringContainsString(self::MSG_NO_ORPHANS, $this->commandTester->getDisplay());
+        // A secret without a usable link is no cleanup candidate at all.
+        self::assertStringContainsString(self::MSG_NO_TCA_SECRETS, $this->commandTester->getDisplay());
     }
 
     /**
@@ -1125,16 +1142,48 @@ final class VaultCleanupOrphansCommandTest extends TestCase
         $this->vaultService->expects(self::never())->method('delete');
     }
 
+    /**
+     * The command fails closed like the scheduler task: a table it cannot
+     * resolve proves nothing about the record, so the secret stays (#565).
+     * Before, the command read "unknown table" as "record gone" and deleted.
+     */
+    #[Test]
+    public function keepsTheSecretWhenTheReferencedTableDoesNotExist(): void
+    {
+        $this->vaultService->method('list')->willReturn([
+            $this->createSecretMetadata(
+                self::IDENTIFIER,
+                time() - 86400 * 30,
+                ['source' => 'tca_field', 'table' => 'tx_dropped', 'field' => 'api_key', 'uid' => 1],
+            ),
+        ]);
+
+        $schemaManager = $this->createMock(AbstractSchemaManager::class);
+        $schemaManager->method('tablesExist')->willReturn(false);
+        $connection = $this->createMock(Connection::class);
+        $connection->method('createSchemaManager')->willReturn($schemaManager);
+        $this->connectionPool->method('getConnectionForTable')->willReturn($connection);
+
+        $this->vaultService->expects(self::never())->method('delete');
+
+        $this->commandTester->setInputs(['yes']);
+        $exitCode = $this->commandTester->execute([]);
+
+        self::assertSame(0, $exitCode);
+        self::assertStringContainsString(self::MSG_NO_ORPHANS, $this->commandTester->getDisplay());
+    }
+
     private function mockRecordExists(int $uid, bool $exists): void
     {
         $schemaManager = $this->createMock(AbstractSchemaManager::class);
         $schemaManager->method('tablesExist')->willReturn(true);
+        $schemaManager->method('listTableColumns')->willReturn(self::LINKED_COLUMNS);
 
         $connection = $this->createMock(Connection::class);
         $connection->method('createSchemaManager')->willReturn($schemaManager);
 
         $this->connectionPool
-            ->method('getConnectionByName')
+            ->method('getConnectionForTable')
             ->willReturn($connection);
 
         $result = $this->createMock(Result::class);
@@ -1163,12 +1212,13 @@ final class VaultCleanupOrphansCommandTest extends TestCase
     {
         $schemaManager = $this->createMock(AbstractSchemaManager::class);
         $schemaManager->method('tablesExist')->willReturn(true);
+        $schemaManager->method('listTableColumns')->willReturn(self::LINKED_COLUMNS);
 
         $connection = $this->createMock(Connection::class);
         $connection->method('createSchemaManager')->willReturn($schemaManager);
 
         $this->connectionPool
-            ->method('getConnectionByName')
+            ->method('getConnectionForTable')
             ->willReturn($connection);
 
         $result = $this->createMock(Result::class);

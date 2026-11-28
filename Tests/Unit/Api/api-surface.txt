@@ -612,6 +612,17 @@ Netresearch\NrVault\Domain\Dto\SecretMetadata (class)
   property readonly updatedAt: int
   property readonly version: int
 
+Netresearch\NrVault\Domain\Dto\SecretRecordLink (class)
+  const ORPHAN_CLEANUP_SOURCES = array
+  const SOURCE_FLEXFORM_FIELD = "flexform_field"
+  const SOURCE_FLEXFORM_RECORD_COPY = "flexform_record_copy"
+  const SOURCE_MIGRATION = "migration"
+  const SOURCE_RECORD_COPY = "record_copy"
+  const SOURCE_TCA_FIELD = "tca_field"
+  method static forField(string $source, string $table, string $field, int $uid, array $extra = …): array
+  method static forFlexField(string $source, string $table, string $flexField, int $uid, array $extra = …): array
+  method static referenceFrom(array $metadata): ?Netresearch\NrVault\Domain\Dto\OrphanReference
+
 Netresearch\NrVault\Domain\Dto\StaleSecret (class)
   constructor(int $uid, string $identifier, string $context, string $adapter, ?int $lastReadAt, int $automatedReads, int $manualReveals, int $ageDays, array $rules)
   method highestSeverity(): string

@@ -9,20 +9,22 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Command;
 
+use Netresearch\NrVault\Domain\Dto\OrphanReference;
+use Netresearch\NrVault\Domain\Dto\SecretRecordLink;
 use Netresearch\NrVault\Exception\VaultException;
+use Netresearch\NrVault\Service\OrphanReferenceChecker;
 use Netresearch\NrVault\Service\VaultServiceInterface;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
+use Symfony\Component\Console\Logger\ConsoleLogger;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
-use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 
 use function array_slice;
 use function count;
-use function in_array;
 use function is_string;
 use function sprintf;
 
@@ -166,10 +168,11 @@ final class VaultCleanupOrphansCommand extends Command
         $orphans            = [];
         $retentionCutoff    = $retentionDays > 0 ? time() - ($retentionDays * 86400) : PHP_INT_MAX;
         $effectiveBatchSize = max(1, $batchSize);
+        $checker            = new OrphanReferenceChecker($this->connectionPool, new ConsoleLogger($io));
 
         foreach (array_chunk($secrets, $effectiveBatchSize) as $batch) {
             foreach ($batch as $secret) {
-                $orphan = $this->classifyOrphan($secret, $retentionCutoff);
+                $orphan = $this->classifyOrphan($checker, $secret, $retentionCutoff);
                 if ($orphan !== null) {
                     $orphans[] = $orphan;
                 }
@@ -185,40 +188,34 @@ final class VaultCleanupOrphansCommand extends Command
     }
 
     /**
-     * Classify a single secret. Returns the orphan payload if the backing
-     * record is gone and retention has elapsed, otherwise null.
+     * Classify a single secret. Returns the orphan payload if retention has
+     * elapsed and the linked record is gone (see OrphanReferenceChecker),
+     * otherwise null.
      *
      * @param array{identifier: string, metadata: array<string, mixed>, created_at: int} $secret
      *
      * @return array{identifier: string, table: string, field: string, uid: int, created_at: int}|null
      */
-    private function classifyOrphan(array $secret, int $retentionCutoff): ?array
+    private function classifyOrphan(OrphanReferenceChecker $checker, array $secret, int $retentionCutoff): ?array
     {
         $identifier   = $secret['identifier'];
-        $metadata     = $secret['metadata'];
         $createdAtRaw = $secret['created_at'] ?? 0;
         $createdAt    = is_numeric($createdAtRaw) ? (int) $createdAtRaw : 0;
 
-        $tableValue = $metadata['table'] ?? '';
-        $table      = is_string($tableValue) ? $tableValue : '';
-        $fieldValue = $metadata['field'] ?? $metadata['flexField'] ?? '';
-        $field      = is_string($fieldValue) ? $fieldValue : '';
-        $uidValue   = $metadata['uid'] ?? 0;
-        $uid        = is_numeric($uidValue) ? (int) $uidValue : 0;
-
-        if ($table === '' || $uid === 0) {
+        $reference = SecretRecordLink::referenceFrom($secret['metadata']);
+        if (!$reference instanceof OrphanReference) {
             return null;
         }
 
-        if ($this->recordExists($table, $uid) || $createdAt >= $retentionCutoff) {
+        if ($createdAt >= $retentionCutoff || !$checker->isOrphaned($reference, $identifier)) {
             return null;
         }
 
         return [
             'identifier' => $identifier,
-            'table'      => $table,
-            'field'      => $field,
-            'uid'        => $uid,
+            'table'      => $reference->table,
+            'field'      => $reference->field,
+            'uid'        => $reference->uid,
             'created_at' => $createdAt,
         ];
     }
@@ -273,7 +270,7 @@ final class VaultCleanupOrphansCommand extends Command
     }
 
     /**
-     * Get all secrets that were created from TCA fields.
+     * Get all secrets that carry a record link (see SecretRecordLink).
      *
      * @return array<int, array{identifier: string, metadata: array<string, mixed>, created_at: int}>
      */
@@ -283,21 +280,15 @@ final class VaultCleanupOrphansCommand extends Command
         $tcaSecrets = [];
 
         foreach ($allSecrets as $secret) {
-            $metadata = $secret->metadata;
-            $source   = $metadata['source'] ?? '';
-
-            // Only include TCA-sourced secrets (regular fields, FlexForm, or copied records)
-            $tcaSources = ['tca_field', 'flexform_field', 'record_copy', 'migration'];
-            if (!in_array($source, $tcaSources, true)) {
+            $metadata  = $secret->metadata;
+            $reference = SecretRecordLink::referenceFrom($metadata);
+            if (!$reference instanceof OrphanReference) {
                 continue;
             }
 
             // Apply table filter if specified
-            if ($tableFilter !== null) {
-                $table = $metadata['table'] ?? '';
-                if ($table !== $tableFilter) {
-                    continue;
-                }
+            if ($tableFilter !== null && $reference->table !== $tableFilter) {
+                continue;
             }
 
             $tcaSecrets[] = [
@@ -308,32 +299,6 @@ final class VaultCleanupOrphansCommand extends Command
         }
 
         return $tcaSecrets;
-    }
-
-    /**
-     * Check if a record exists in the database.
-     */
-    private function recordExists(string $table, int $uid): bool
-    {
-        // Check if table exists first
-        $connection = $this->connectionPool->getConnectionByName(ConnectionPool::DEFAULT_CONNECTION_NAME);
-        if (!$connection->createSchemaManager()->tablesExist([$table])) {
-            return false;
-        }
-
-        $queryBuilder = $this->connectionPool->getQueryBuilderForTable($table);
-        $queryBuilder->getRestrictions()->removeAll();
-
-        $count = $queryBuilder
-            ->count('*')
-            ->from($table)
-            ->where(
-                $queryBuilder->expr()->eq('uid', $queryBuilder->createNamedParameter($uid, Connection::PARAM_INT)),
-            )
-            ->executeQuery()
-            ->fetchOne();
-
-        return $count > 0;
     }
 
     /**

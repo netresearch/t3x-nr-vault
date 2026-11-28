@@ -10,6 +10,7 @@ declare(strict_types=1);
 namespace Netresearch\NrVault\Utility;
 
 use Netresearch\NrVault\Exception\ValidationException;
+use SensitiveParameter;
 
 use function is_string;
 use function ord;
@@ -135,7 +136,7 @@ final class IdentifierValidator
      * - Vault reference syntax: %vault(identifier)%
      * - Legacy TCA format: table__field__uid (e.g. tx_myext_config__api_key__123)
      */
-    public static function looksLikeVaultIdentifier(string $value): bool
+    public static function looksLikeVaultIdentifier(#[SensitiveParameter] string $value): bool
     {
         return preg_match(self::UUID_PATTERN, $value) === 1
             || preg_match('/\A%vault\([^)]+\)%\z/', $value) === 1;
