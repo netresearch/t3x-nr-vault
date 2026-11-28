@@ -642,37 +642,51 @@ final class DataHandlerHook
         foreach ($candidates as $table => $versions) {
             foreach ($versions as $versionUid => $fields) {
                 foreach ($fields as $fieldName => $identifier) {
-                    try {
-                        // A lookup that fails proves nothing: it throws, and
-                        // the secret is kept.
-                        if ($this->fieldHoldsIdentifier($table, $fieldName, $identifier)) {
-                            continue;
-                        }
-
-                        $this->vaultService->delete($identifier, 'Workspace version discarded');
-                    } catch (SecretNotFoundException) {
-                        continue;
-                    } catch (Throwable $e) {
-                        $userMessage = $this->failureReporter->report($e, [
-                            'table'      => $table,
-                            'field'      => $fieldName,
-                            'uid'        => $versionUid,
-                            'identifier' => $identifier,
-                            'operation'  => 'discard',
-                        ]);
-
-                        /** @phpstan-ignore method.internal */
-                        $dataHandler->log(
-                            $table,
-                            $versionUid,
-                            3,
-                            null,
-                            1,
-                            'Vault error after discarding the workspace version, field "' . $fieldName . '": ' . $userMessage,
-                        );
-                    }
+                    $this->deleteSecretOfDiscardedVersion($dataHandler, $table, $versionUid, $fieldName, $identifier);
                 }
             }
+        }
+    }
+
+    /**
+     * Delete one discarded version's secret unless a row still holds it. A
+     * failure is reported and logged on the DataHandler.
+     */
+    private function deleteSecretOfDiscardedVersion(
+        DataHandler $dataHandler,
+        string $table,
+        int $versionUid,
+        string $fieldName,
+        string $identifier,
+    ): void {
+        try {
+            // A lookup that fails proves nothing: it throws, and the secret
+            // is kept.
+            if ($this->fieldHoldsIdentifier($table, $fieldName, $identifier)) {
+                return;
+            }
+
+            $this->vaultService->delete($identifier, 'Workspace version discarded');
+        } catch (SecretNotFoundException) {
+            return;
+        } catch (Throwable $e) {
+            $userMessage = $this->failureReporter->report($e, [
+                'table'      => $table,
+                'field'      => $fieldName,
+                'uid'        => $versionUid,
+                'identifier' => $identifier,
+                'operation'  => 'discard',
+            ]);
+
+            /** @phpstan-ignore method.internal */
+            $dataHandler->log(
+                $table,
+                $versionUid,
+                3,
+                null,
+                1,
+                'Vault error after discarding the workspace version, field "' . $fieldName . '": ' . $userMessage,
+            );
         }
     }
 
