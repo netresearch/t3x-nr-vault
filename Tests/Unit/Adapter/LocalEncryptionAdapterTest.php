@@ -194,7 +194,7 @@ final class LocalEncryptionAdapterTest extends TestCase
     public function getMetadataReturnsNullWhenSecretNotFound(): void
     {
         $repository = $this->createStub(SecretRepositoryInterface::class);
-        $repository->method('findByIdentifier')->willReturn(null);
+        $repository->method('findByIdentifierIncludingDisabled')->willReturn(null);
 
         $adapter = new LocalEncryptionAdapter($repository);
 
@@ -217,7 +217,7 @@ final class LocalEncryptionAdapterTest extends TestCase
         );
 
         $repository = $this->createStub(SecretRepositoryInterface::class);
-        $repository->method('findByIdentifier')->willReturn($secret);
+        $repository->method('findByIdentifierIncludingDisabled')->willReturn($secret);
 
         $adapter  = new LocalEncryptionAdapter($repository);
         $metadata = $adapter->getMetadata('api-key');
@@ -240,12 +240,31 @@ final class LocalEncryptionAdapterTest extends TestCase
         $secret = new Secret(identifier: 'test', expiresAt: 0);
 
         $repository = $this->createStub(SecretRepositoryInterface::class);
-        $repository->method('findByIdentifier')->willReturn($secret);
+        $repository->method('findByIdentifierIncludingDisabled')->willReturn($secret);
 
         $adapter  = new LocalEncryptionAdapter($repository);
         $metadata = $adapter->getMetadata('test');
 
         self::assertNull($metadata['expiresAt']);
+    }
+
+    /**
+     * The record link of the field migration is read back through
+     * getMetadata(), and updateMetadata() merges into a disabled secret too:
+     * the read-back must see the same row, or a stored link reads as lost
+     * (#565).
+     */
+    #[Test]
+    public function getMetadataReadsADisabledSecret(): void
+    {
+        $repository = $this->createMock(SecretRepositoryInterface::class);
+        $repository->expects(self::never())->method('findByIdentifier');
+        $repository->method('findByIdentifierIncludingDisabled')
+            ->willReturn(new Secret(identifier: 'disabled', metadata: ['source' => 'migration']));
+
+        $metadata = (new LocalEncryptionAdapter($repository))->getMetadata('disabled');
+
+        self::assertSame(['source' => 'migration'], $metadata['metadata'] ?? null);
     }
 
     #[Test]

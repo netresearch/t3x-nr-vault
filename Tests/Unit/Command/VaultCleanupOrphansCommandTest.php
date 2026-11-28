@@ -303,11 +303,12 @@ final class VaultCleanupOrphansCommandTest extends TestCase
         $this->commandTester->setInputs(['yes']);
         $exitCode = $this->commandTester->execute([]);
 
-        self::assertSame(0, $exitCode);
+        self::assertSame(1, $exitCode, 'Secrets that could not be checked again must not end as a success');
         $display = (string) preg_replace('/\s+/', ' ', $this->commandTester->getDisplay());
         self::assertMatchesRegularExpression('/Kept \(referenced again\)\s*\|?\s*0/', $display);
         self::assertMatchesRegularExpression('/Kept \(could not be checked\)\s*\|?\s*1/', $display);
         self::assertStringContainsString('Kept ' . self::IDENTIFIER . ': could not be resolved: connection lost', $display);
+        self::assertStringContainsString('1 secret(s) could not be checked again and were kept', $display);
     }
 
     #[Test]

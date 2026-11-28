@@ -550,7 +550,7 @@ final readonly class MigrationController
                 } elseif ($outcome->migrated) {
                     ++$migrated;
                     if ($outcome->message !== null) {
-                        $errors[] = sprintf('uid %d: %s', $uid, $outcome->message);
+                        $errors[] = sprintf('uid %d: migrated, unlinked: %s', $uid, $outcome->message);
                     }
                 } else {
                     ++$failed;

@@ -258,7 +258,7 @@ final readonly class FieldValueMigrator implements FieldValueMigratorInterface
             // The value is migrated: the row holds the identifier. Only the
             // link is missing, which a re-run (it skips the row) cannot add.
             return FieldMigrationOutcome::migratedUnlinked(sprintf(
-                'migrated, unlinked: the field holds the identifier %s, but the record link could not be stored (%s); orphan cleanup will not consider this secret',
+                'the field holds the identifier %s, but the record link could not be stored (%s); orphan cleanup will not consider this secret',
                 $identifier,
                 $e->getMessage(),
             ));

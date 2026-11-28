@@ -22,12 +22,16 @@ use Netresearch\NrVault\Service\VaultServiceInterface;
 use Netresearch\NrVault\Tests\Functional\AbstractVaultFunctionalTestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
+use ReflectionClass;
 use ReflectionMethod;
 
+use function array_key_exists;
 use function is_array;
 use function is_numeric;
 use function is_string;
 use function json_decode;
+use function sprintf;
+use function substr_count;
 
 /**
  * The migration links a secret to its record without the secret.rotate
@@ -175,10 +179,64 @@ final class MigrationRecordLinkPermissionTest extends AbstractVaultFunctionalTes
         self::assertSame(1, $this->countAuditEntries($identifier, AuditAction::AccessDenied->value));
     }
 
+    /**
+     * A row whose value moved into the vault but whose record link was
+     * refused is reported once, with one label, as needing attention (#565).
+     */
+    #[Test]
+    public function anUnlinkedRowIsReportedWithOneLabel(): void
+    {
+        $connection = $this->getConnectionPool()->getConnectionForTable(self::TABLE);
+        $connection->insert(self::TABLE, ['pid' => 1, 'secret' => 'unlinked-plaintext']);
+
+        $uid = (int) $connection->lastInsertId();
+
+        $refusingWriter = new class implements SecretRecordLinkWriterInterface {
+            public function linkCreatedSecret(string $identifier, array $createdMetadata, array $link): void
+            {
+                throw new AccessDeniedException('link refused for the test', 1795000201);
+            }
+        };
+        $migrator   = $this->rebuild($this->get(FieldValueMigratorInterface::class), ['recordLinkWriter' => $refusingWriter]);
+        $controller = $this->rebuild($this->get(MigrationController::class), ['fieldValueMigrator' => $migrator]);
+
+        $result = (new ReflectionMethod(MigrationController::class, 'migrateColumn'))
+            ->invoke($controller, self::TABLE, 'secret', 'linkunl_{uid}');
+        self::assertInstanceOf(MigrationResult::class, $result);
+
+        self::assertSame(1, $result->migrated);
+        self::assertCount(1, $result->failureReasons);
+        self::assertStringStartsWith(sprintf('uid %d: migrated, unlinked: the field holds the identifier', $uid), $result->failureReasons[0]);
+        self::assertSame(1, substr_count($result->failureReasons[0], 'migrated, unlinked'), 'The label is printed once');
+    }
+
     #[Test]
     public function theContainerProvidesTheMigratorBehindItsInterface(): void
     {
         self::assertInstanceOf(FieldValueMigrator::class, $this->get(FieldValueMigratorInterface::class));
+    }
+
+    /**
+     * A new instance of $service's class with the same constructor arguments,
+     * except those named in $replace.
+     *
+     * @template T of object
+     *
+     * @param T                    $service
+     * @param array<string, mixed> $replace
+     *
+     * @return T
+     */
+    private function rebuild(object $service, array $replace): object
+    {
+        $class     = new ReflectionClass($service);
+        $arguments = [];
+        foreach ($class->getConstructor()?->getParameters() ?? [] as $parameter) {
+            $name             = $parameter->getName();
+            $arguments[$name] = array_key_exists($name, $replace) ? $replace[$name] : $class->getProperty($name)->getValue($service);
+        }
+
+        return $class->newInstanceArgs($arguments);
     }
 
     /**

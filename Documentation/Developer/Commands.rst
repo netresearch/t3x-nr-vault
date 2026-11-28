@@ -1109,9 +1109,12 @@ The value is never left without a copy:
    Orphan cleanup deletes only linked secrets, so a secret kept after a failed
    write stays until you remove it. The link is written as metadata of the
    creation: it needs ``secret.create``, like the creation, not
-   ``secret.rotate``. It is written in its own transaction with its
-   metadata-update audit entry, after the value was stored, and counts only
-   when a read-back shows it. A record whose link could not be added is
+   ``secret.rotate``. It counts only when a read-back of the registry row
+   shows it. With the local adapter it is written in its own transaction
+   with its metadata-update audit entry, after the value was stored. The
+   external adapters (HashiCorp Vault, AWS Secrets Manager) have no such
+   transaction: when the read-back or the audit entry fails after the write,
+   a targeted metadata write takes the link back by resetting its keys. A record whose link could not be added is
    listed as migrated, unlinked: a re-run skips it, so the link has to be
    added by hand.
 *  The update names the value the row held when the command read it. A value

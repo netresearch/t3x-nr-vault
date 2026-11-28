@@ -49,9 +49,11 @@ use Throwable;
 use TYPO3\CMS\Core\SingletonInterface;
 
 use function array_intersect_key;
+use function array_key_exists;
 use function array_keys;
 use function array_replace;
 use function is_array;
+use function is_bool;
 use function is_int;
 use function is_scalar;
 use function is_string;
@@ -762,6 +764,12 @@ final readonly class VaultService implements VaultServiceInterface, SecretRecord
      */
     private function assertMetadataOptions(array $options): void
     {
+        // A flag that decides between create and update is a bool or absent:
+        // 1, '1' or 'true' would silently fall back to updating.
+        if (array_key_exists('createOnly', $options) && !is_bool($options['createOnly'])) {
+            throw ValidationException::invalidOption('createOnly', 'expected a bool');
+        }
+
         if (!isset($options['mergeMetadata'])) {
             return;
         }
@@ -946,15 +954,17 @@ final readonly class VaultService implements VaultServiceInterface, SecretRecord
             // fail on the constraint instead of updating the record.
             $existing = $this->adapter->retrieveIncludingDisabled($identifier);
 
+            $this->assertWritePermission($identifier, $existing);
+
             // A caller that creates must not update someone else's secret:
             // two concurrent migrations generating the same identifier
             // would otherwise overwrite each other. A create racing this
-            // check fails on the unique key instead.
+            // check fails on the unique key instead. Checked after the write
+            // permission, so an actor without it learns nothing about which
+            // identifiers exist.
             if (($options['createOnly'] ?? false) === true && $existing instanceof Secret) {
                 throw ValidationException::invalidOption('createOnly', 'a secret with this identifier already exists');
             }
-
-            $this->assertWritePermission($identifier, $existing);
 
             // A record that exists but carries no encrypted value is a
             // creation in progress, not a rotation target: the FormEngine
@@ -1342,29 +1352,32 @@ final readonly class VaultService implements VaultServiceInterface, SecretRecord
 
         $this->adapter->updateMetadata($identifier, $link);
 
-        // Verified by reading the value back, not by the absence of an
-        // error: an adapter whose lookup skips the secret (disabled, say)
-        // writes nothing and does not say so.
-        $linked   = $this->adapter->retrieveIncludingDisabled($identifier);
-        $stored   = $linked instanceof Secret ? array_intersect_key($linked->getMetadata(), $link) : [];
-        $expected = $link;
-        ksort($stored);
-        ksort($expected);
-        if ($stored !== $expected) {
-            throw ValidationException::invalidOption('link', 'the record link was not stored');
-        }
-
-        // The audit context holds scalars: the link's keys, one by one.
-        $context = ['column' => 'metadata'];
-        foreach ($link as $key => $value) {
-            if (is_scalar($value)) {
-                $context['link_' . $key] = $value;
-            }
-        }
-
-        // The coordinated stock path rolls back its transaction on failure.
-        // Legacy/custom constructions retain their compensating recovery.
+        // From here on the link is written. Any failure, including one of the
+        // read-back or of the audit write, takes it back: outside a
+        // transaction (remote adapters) nothing else would.
         try {
+            // Verified by reading the value back, not by the absence of an
+            // error: an adapter whose lookup skips the secret writes nothing
+            // and does not say so. Read from the registry row, where the
+            // metadata lives; the envelope of a remote adapter plays no part.
+            $row      = $this->adapter->getMetadata($identifier);
+            $metadata = is_array($row) && is_array($row['metadata'] ?? null) ? $row['metadata'] : [];
+            $stored   = array_intersect_key($metadata, $link);
+            $expected = $link;
+            ksort($stored);
+            ksort($expected);
+            if ($stored !== $expected) {
+                throw ValidationException::invalidOption('link', 'the record link was not stored');
+            }
+
+            // The audit context holds scalars: the link's keys, one by one.
+            $context = ['column' => 'metadata'];
+            foreach ($link as $key => $value) {
+                if (is_scalar($value)) {
+                    $context['link_' . $key] = $value;
+                }
+            }
+
             $this->auditLogService->log(
                 $identifier,
                 AuditAction::MetadataUpdate->value,
@@ -1375,26 +1388,54 @@ final readonly class VaultService implements VaultServiceInterface, SecretRecord
                 null,
                 new GenericContext($context),
             );
-        } catch (AuditWriteException $auditException) {
-            $this->compensateAuditFailure(
-                $identifier,
-                function () use ($identifier, $createdMetadata, $link): void {
-                    // A targeted metadata write, never a whole-entity store:
-                    // remote adapters would send the value again as a new
-                    // version and roll back the counters. The merge cannot
-                    // remove keys, so each link key goes back to its created
-                    // value or to null, which no orphan cleanup reads as a
-                    // link.
-                    $revert = [];
-                    foreach (array_keys($link) as $key) {
-                        $revert[$key] = $createdMetadata[$key] ?? null;
-                    }
-
-                    $this->adapter->updateMetadata($identifier, $revert);
-                },
-                $auditException,
-            );
+        } catch (Throwable $failure) {
+            $this->takeBackRecordLink($identifier, $createdMetadata, $link, $failure);
         }
+    }
+
+    /**
+     * Undo a written record link after a later step failed. Inside the
+     * mutation transaction the rollback undoes it; outside (remote adapters,
+     * legacy constructions) a targeted metadata write does. Never a
+     * whole-entity store: remote adapters would send the value again as a
+     * new version and roll back the counters. The merge cannot remove keys,
+     * so each link key goes back to its created value or to null, which no
+     * orphan cleanup reads as a link.
+     *
+     * @param array<string, mixed> $createdMetadata
+     * @param array<string, mixed> $link
+     */
+    private function takeBackRecordLink(string $identifier, array $createdMetadata, array $link, Throwable $failure): never
+    {
+        $revert = function () use ($identifier, $createdMetadata, $link): void {
+            $values = [];
+            foreach (array_keys($link) as $key) {
+                $values[$key] = $createdMetadata[$key] ?? null;
+            }
+
+            $this->adapter->updateMetadata($identifier, $values);
+        };
+
+        if ($failure instanceof AuditWriteException) {
+            $this->compensateAuditFailure($identifier, $revert, $failure);
+        }
+
+        if ($this->mutationTransaction?->isActive() !== true) {
+            try {
+                $revert();
+            } catch (Throwable $revertFailure) {
+                $this->logger?->critical(
+                    'Vault inconsistency: a record link could not be verified and could not be taken back. Manual reconciliation required.',
+                    [
+                        'identifier'    => $identifier,
+                        'error'         => $failure->getMessage(),
+                        'rollbackError' => $revertFailure->getMessage(),
+                    ],
+                );
+            }
+        }
+
+        throw $failure;
     }
 
     /**

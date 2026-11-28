@@ -883,10 +883,13 @@ final class VaultMigrateFieldCommandTest extends TestCase
         $this->commandTester->setInputs(['yes']);
         $exitCode = $this->commandTester->execute(['table' => 'tx_myext_settings', 'field' => 'api_key']);
 
-        self::assertSame(0, $exitCode);
+        self::assertSame(1, $exitCode, 'A run that leaves records unlinked must not exit as a success');
         $display = $this->normalizedDisplay();
-        self::assertStringContainsString('Migrated, unlinked UID 1: migrated, unlinked: the field holds the identifier', $display);
+        self::assertStringContainsString('Migrated, unlinked UID 1: the field holds the identifier', $display);
         self::assertStringContainsString('the record link could not be stored (missing secret.create permission)', $display);
+        self::assertSame(1, substr_count(strtolower($display), 'migrated, unlinked'), 'The label is printed once');
+        self::assertStringContainsString('1 record(s) were migrated without their record link', $display);
+        self::assertStringNotContainsString('Migration completed successfully', $display);
         self::assertMatchesRegularExpression('/Successfully migrated\s*\|?\s*1/', $display);
         self::assertSame([], $this->linkedMetadata);
         self::assertSame(['migrated_at'], array_keys($this->linkRequests[$this->storeCall($calls, 0)['identifier']] ?? []), 'The writer is asked with the metadata the creation stored');

@@ -293,6 +293,14 @@ final class VaultCleanupOrphansCommand extends Command
             return Command::FAILURE;
         }
 
+        // A secret whose re-check failed is kept; the run did not do what it
+        // was asked for it.
+        if ($unchecked !== []) {
+            $io->warning(sprintf('Cleanup completed, but %d secret(s) could not be checked again and were kept', count($unchecked)));
+
+            return Command::FAILURE;
+        }
+
         $io->success(sprintf('Successfully deleted %d orphaned secrets', $deleted));
 
         return Command::SUCCESS;

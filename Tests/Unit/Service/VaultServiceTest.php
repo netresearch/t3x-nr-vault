@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Unit\Service;
 
+use ArrayObject;
 use DateTimeImmutable;
 use Netresearch\NrVault\Adapter\CreateCompensatingAdapterInterface;
 use Netresearch\NrVault\Adapter\VaultAdapterInterface;
@@ -36,6 +37,9 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
+use Psr\Log\LoggerInterface;
+use RuntimeException;
+use Throwable;
 
 #[CoversClass(VaultService::class)]
 #[AllowMockObjectsWithoutExpectations]
@@ -1457,19 +1461,7 @@ final class VaultServiceTest extends TestCase
     #[Test]
     public function linkCreatedSecretRevertsTheLinkWithATargetedWrite(): void
     {
-        $metadata = ['migrated_at' => 5];
-        $this->adapter->method('retrieve')->willReturnCallback(function () use (&$metadata): Secret {
-            return $this->createSecretEntity('link_audit_down', 7, metadata: $metadata);
-        });
-        $this->accessControlService->method('canWrite')->willReturn(true);
-        $this->adapter->expects(self::never())->method('store');
-
-        $writes = [];
-        $this->adapter->expects(self::exactly(2))->method('updateMetadata')
-            ->willReturnCallback(static function (string $identifier, array $merge) use (&$writes, &$metadata): void {
-                $writes[] = $merge;
-                $metadata = array_replace($metadata, $merge);
-            });
+        $writes = $this->linkAdapterWithRegistryRow(['migrated_at' => 5]);
         $this->auditLogService->method('log')->willThrowException(new AuditWriteException(self::AUDIT_WRITE_ERROR, 1795000101));
 
         $this->expectException(AuditWriteException::class);
@@ -1482,7 +1474,7 @@ final class VaultServiceTest extends TestCase
                     ['source' => 'migration', 'table' => 'tx_a', 'uid' => 3, 'migrated_at' => 5],
                     ['source' => null, 'table' => null, 'uid' => null, 'migrated_at' => 5],
                 ],
-                $writes,
+                $writes->getArrayCopy(),
                 'The revert must null the link keys and keep the created ones.',
             );
         }
@@ -1490,15 +1482,14 @@ final class VaultServiceTest extends TestCase
 
     /**
      * A link the adapter did not store (its lookup skipped the secret) is a
-     * failure, not a success: the read-back decides, and nothing is audited
-     * as a metadata update (#565).
+     * failure, not a success: the read-back of the registry row decides,
+     * nothing is audited as a metadata update, and whatever was written is
+     * taken back (#565).
      */
     #[Test]
     public function linkCreatedSecretFailsWhenTheLinkWasNotStored(): void
     {
-        $this->adapter->method('retrieve')->willReturn($this->createSecretEntity('link_lost', 7, metadata: ['migrated_at' => 5]));
-        $this->accessControlService->method('canWrite')->willReturn(true);
-        $this->adapter->expects(self::once())->method('updateMetadata');
+        $writes = $this->linkAdapterWithRegistryRow(['migrated_at' => 5], applyWrites: false);
         $this->auditLogService->expects(self::never())->method('log');
 
         try {
@@ -1507,6 +1498,94 @@ final class VaultServiceTest extends TestCase
         } catch (ValidationException $e) {
             self::assertStringContainsString('the record link was not stored', $e->getMessage());
         }
+
+        self::assertSame([['source' => 'migration'], ['source' => null]], $writes->getArrayCopy());
+    }
+
+    /**
+     * On a remote adapter no transaction surrounds the link. A read-back that
+     * fails after the write (a KV GET timeout, say) must not leave the link
+     * behind unaudited: it is taken back and the failure surfaces (#565).
+     */
+    #[Test]
+    public function linkCreatedSecretTakesTheLinkBackWhenTheReadBackFails(): void
+    {
+        $writes = $this->linkAdapterWithRegistryRow(['migrated_at' => 5], readBackFailure: new RuntimeException('registry read timed out', 1795000102));
+        $this->auditLogService->expects(self::never())->method('log');
+
+        try {
+            $this->subject->linkCreatedSecret('link_timeout', ['migrated_at' => 5], ['source' => 'migration', 'uid' => 3]);
+            self::fail('A failed read-back must fail the link');
+        } catch (RuntimeException $e) {
+            self::assertSame('registry read timed out', $e->getMessage());
+        }
+
+        self::assertSame([['source' => 'migration', 'uid' => 3], ['source' => null, 'uid' => null]], $writes->getArrayCopy());
+    }
+
+    /**
+     * When the take-back fails as well, the original failure still surfaces
+     * and the inconsistency is logged as critical for manual reconciliation
+     * (#565).
+     */
+    #[Test]
+    public function linkCreatedSecretLogsATakeBackThatFails(): void
+    {
+        $this->adapter->method('retrieve')->willReturn($this->createSecretEntity('link_both_down', 7, metadata: ['migrated_at' => 5]));
+        $this->accessControlService->method('canWrite')->willReturn(true);
+        $writes = 0;
+        $this->adapter->method('updateMetadata')->willReturnCallback(static function () use (&$writes): void {
+            if (++$writes > 1) {
+                throw new RuntimeException('registry write failed', 1795000104);
+            }
+        });
+        $this->adapter->method('getMetadata')->willThrowException(new RuntimeException('registry read timed out', 1795000105));
+        $logger = $this->createMock(LoggerInterface::class);
+        $logger->expects(self::once())->method('critical')
+            ->with(self::stringContains('could not be taken back'), self::callback(
+                static fn (array $context): bool => ($context['identifier'] ?? null) === 'link_both_down'
+                    && ($context['rollbackError'] ?? null) === 'registry write failed',
+            ));
+        $subject = new VaultService(
+            $this->adapter,
+            $this->encryptionService,
+            $this->accessControlService,
+            $this->auditLogService,
+            $this->configuration,
+            $this->httpClientFactory,
+            logger: $logger,
+        );
+
+        try {
+            $subject->linkCreatedSecret('link_both_down', ['migrated_at' => 5], ['source' => 'migration']);
+            self::fail('A failed read-back must fail the link');
+        } catch (RuntimeException $e) {
+            self::assertSame('registry read timed out', $e->getMessage());
+        }
+
+        self::assertSame(2, $writes);
+    }
+
+    /**
+     * The read-back reads the registry row (getMetadata()), not the secret
+     * with its envelope: a remote envelope fetch that fails says nothing
+     * about the link (#565).
+     */
+    #[Test]
+    public function linkCreatedSecretReadsTheLinkBackFromTheRegistryRow(): void
+    {
+        $this->linkAdapterWithRegistryRow(['migrated_at' => 5]);
+        $calls = 0;
+        $this->adapter->method('retrieve')->willReturnCallback(function () use (&$calls): Secret {
+            if (++$calls > 1) {
+                throw new RuntimeException('KV GET returned 503', 1795000103);
+            }
+
+            return $this->createSecretEntity('link_envelope_down', 7, metadata: ['migrated_at' => 5]);
+        });
+        $this->auditLogService->expects(self::once())->method('log');
+
+        $this->subject->linkCreatedSecret('link_envelope_down', ['migrated_at' => 5], ['source' => 'migration']);
     }
 
     /**
@@ -1533,6 +1612,7 @@ final class VaultServiceTest extends TestCase
     public function storeWithCreateOnlyRefusesAnExistingSecret(): void
     {
         $this->adapter->method('retrieve')->willReturn($this->createSecretEntity('create_only', 7));
+        $this->accessControlService->method('canWrite')->willReturn(true);
         $this->adapter->expects(self::never())->method('store');
 
         try {
@@ -1540,6 +1620,52 @@ final class VaultServiceTest extends TestCase
             self::fail('A create-only store must not update an existing secret');
         } catch (ValidationException $e) {
             self::assertStringContainsString('a secret with this identifier already exists', $e->getMessage());
+        }
+    }
+
+    /**
+     * The existence check of createOnly comes after the write permission: an
+     * actor who may not write the secret is refused as such and learns
+     * nothing about which identifiers exist (#565).
+     */
+    #[Test]
+    public function storeWithCreateOnlyChecksTheWritePermissionFirst(): void
+    {
+        $this->adapter->method('retrieve')->willReturn($this->createSecretEntity('create_only_denied', 7));
+        $this->accessControlService->method('canWrite')->willReturn(false);
+        $this->adapter->expects(self::never())->method('store');
+
+        $this->expectException(AccessDeniedException::class);
+
+        $this->subject->store('create_only_denied', 'value', ['createOnly' => true]);
+    }
+
+    /**
+     * createOnly decides between create and update, so only a bool passes:
+     * 1, '1' or 'true' would silently fall back to updating (#565).
+     *
+     * @return iterable<string, array{mixed}>
+     */
+    public static function nonBoolCreateOnlyProvider(): iterable
+    {
+        yield 'int' => [1];
+        yield 'numeric string' => ['1'];
+        yield 'word' => ['true'];
+    }
+
+    #[Test]
+    #[DataProvider('nonBoolCreateOnlyProvider')]
+    public function storeRefusesACreateOnlyThatIsNotABool(mixed $createOnly): void
+    {
+        $this->adapter->method('retrieve')->willReturn($this->createSecretEntity('create_only_loose', 7));
+        $this->accessControlService->method('canWrite')->willReturn(true);
+        $this->adapter->expects(self::never())->method('store');
+
+        try {
+            $this->subject->store('create_only_loose', 'value', ['createOnly' => $createOnly]);
+            self::fail('A createOnly that is not a bool must be refused');
+        } catch (ValidationException $e) {
+            self::assertStringContainsString('expected a bool', $e->getMessage());
         }
     }
 
@@ -2396,6 +2522,42 @@ final class VaultServiceTest extends TestCase
             $this->configuration,
             $this->httpClientFactory,
         );
+    }
+
+    /**
+     * An adapter double for the record link: the secret as created, a
+     * registry row whose metadata the merges change (unless $applyWrites is
+     * false), and a log of every metadata write.
+     *
+     * @param array<string, mixed> $created
+     *
+     * @return ArrayObject<int, array<mixed>>
+     */
+    private function linkAdapterWithRegistryRow(array $created, bool $applyWrites = true, ?Throwable $readBackFailure = null): ArrayObject
+    {
+        $metadata = $created;
+        $writes   = new ArrayObject();
+        $this->adapter->method('retrieve')->willReturn($this->createSecretEntity('link', 7, metadata: $created));
+        $this->accessControlService->method('canWrite')->willReturn(true);
+        $this->adapter->expects(self::never())->method('store');
+        $this->adapter->method('updateMetadata')
+            ->willReturnCallback(
+                static function (string $identifier, array $merge) use ($writes, $applyWrites, &$metadata): void {
+                    $writes[] = $merge;
+                    if ($applyWrites) {
+                        $metadata = array_replace($metadata, $merge);
+                    }
+                },
+            );
+        $this->adapter->method('getMetadata')->willReturnCallback(static function () use ($readBackFailure, &$metadata): array {
+            if ($readBackFailure instanceof Throwable) {
+                throw $readBackFailure;
+            }
+
+            return ['metadata' => $metadata];
+        });
+
+        return $writes;
     }
 
     /**

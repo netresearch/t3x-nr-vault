@@ -251,6 +251,14 @@ final class VaultMigrateFieldCommand extends Command
             return Command::FAILURE;
         }
 
+        // Migrated, but invisible to orphan cleanup until the link is added
+        // by hand: not a success to report as one.
+        if ($unlinked !== []) {
+            $io->warning(sprintf('Migration completed, but %d record(s) were migrated without their record link', count($unlinked)));
+
+            return Command::FAILURE;
+        }
+
         $io->success('Migration completed successfully');
 
         // Show next steps
