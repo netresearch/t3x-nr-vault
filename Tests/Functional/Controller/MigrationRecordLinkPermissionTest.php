@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 namespace Netresearch\NrVault\Tests\Functional\Controller;
 
+use ArrayObject;
 use Doctrine\DBAL\Schema\Column;
 use Netresearch\NrVault\Audit\AuditAction;
 use Netresearch\NrVault\Controller\MigrationController;
@@ -28,6 +29,7 @@ use Psr\Log\AbstractLogger;
 use Psr\Log\LogLevel;
 use ReflectionClass;
 use ReflectionMethod;
+use RuntimeException;
 use Stringable;
 use TYPO3\CMS\Core\Database\Query\QueryBuilder;
 use TYPO3\CMS\Core\Http\ServerRequest;
@@ -225,6 +227,51 @@ final class MigrationRecordLinkPermissionTest extends AbstractVaultFunctionalTes
         self::assertCount(1, $result->failureReasons);
         self::assertStringStartsWith(sprintf('uid %d: migrated, unlinked: the field holds the identifier', $uid), $result->failureReasons[0]);
         self::assertSame(1, substr_count($result->failureReasons[0], 'migrated, unlinked'), 'The label is printed once');
+    }
+
+    /**
+     * With zend.exception_ignore_args off, no frame between the module and
+     * the link writer shows the plaintext (#565).
+     */
+    #[Test]
+    public function noStackTraceFromTheModuleShowsThePlaintext(): void
+    {
+        $connection = $this->getConnectionPool()->getConnectionForTable(self::TABLE);
+        $connection->insert(self::TABLE, ['pid' => 1, 'secret' => 'plaintext-SECRET-module']);
+
+        $traces = new ArrayObject();
+        $writer = new class ($traces) implements SecretRecordLinkWriterInterface {
+            /**
+             * @param ArrayObject<int, string> $traces
+             */
+            public function __construct(private readonly ArrayObject $traces) {}
+
+            public function linkCreatedSecret(string $identifier, array $createdMetadata, array $link): void
+            {
+                $this->traces[] = (string) new RuntimeException('trace probe', 1795000204);
+            }
+        };
+        $migrator   = $this->rebuild($this->get(FieldValueMigratorInterface::class), ['recordLinkWriter' => $writer]);
+        $controller = $this->rebuild($this->get(MigrationController::class), ['fieldValueMigrator' => $migrator]);
+
+        $previous       = ini_set('zend.exception_ignore_args', '0');
+        $previousLength = ini_set('zend.exception_string_param_max_len', '15');
+        self::assertNotFalse($previous);
+        self::assertNotFalse($previousLength);
+
+        try {
+            (new ReflectionMethod(MigrationController::class, 'migrateColumn'))
+                ->invoke($controller, self::TABLE, 'secret', 'linktrace_{uid}');
+        } finally {
+            ini_set('zend.exception_ignore_args', $previous);
+            ini_set('zend.exception_string_param_max_len', $previousLength);
+        }
+
+        $rendered = implode("\n", $traces->getArrayCopy());
+        self::assertStringContainsString("'tx_nrvaulttest_", $rendered, 'The traces show string arguments at all');
+        self::assertStringContainsString('migrateRow(', $rendered);
+        self::assertStringContainsString('Object(SensitiveParameterValue)', $rendered);
+        self::assertStringNotContainsString('plaintext-SECRE', $rendered);
     }
 
     /**

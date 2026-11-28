@@ -22,6 +22,7 @@ use Netresearch\NrVault\Utility\IdentifierValidator;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Log\LoggerInterface;
+use SensitiveParameter;
 use TYPO3\CMS\Backend\Attribute\AsController;
 use TYPO3\CMS\Backend\Routing\UriBuilder;
 use TYPO3\CMS\Backend\Template\Components\ButtonBar;
@@ -635,6 +636,7 @@ final readonly class MigrationController
         string $column,
         Column $columnSchema,
         int $uid,
+        #[SensitiveParameter]
         string $value,
         string $identifierPattern,
     ): ?FieldMigrationOutcome {

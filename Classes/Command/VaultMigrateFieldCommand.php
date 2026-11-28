@@ -14,6 +14,7 @@ use Netresearch\NrVault\Service\FieldValueMigratorInterface;
 use Netresearch\NrVault\Utility\IdentifierValidator;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
+use SensitiveParameter;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Helper\ProgressBar;
@@ -316,6 +317,7 @@ final class VaultMigrateFieldCommand extends Command
      * @return array{migrated: int, failed: int, errors: list<string>, kept: list<string>, skipped: list<string>, unlinked: list<string>}
      */
     private function migrateRecords(
+        #[SensitiveParameter]
         array &$records,
         int $batchSize,
         string $table,
@@ -396,7 +398,7 @@ final class VaultMigrateFieldCommand extends Command
      *
      * @return array{'migrated'|'skipped'|'unlinked'|'kept'|'failed', string, string}
      */
-    private function migrateRecord(string $table, string $field, string $uidField, string $uid, string $value): array
+    private function migrateRecord(string $table, string $field, string $uidField, string $uid, #[SensitiveParameter] string $value): array
     {
         // The field already holds the identifier of an existing secret (an
         // earlier run, or --force): wrapping it in a new secret would leave
@@ -450,7 +452,7 @@ final class VaultMigrateFieldCommand extends Command
      * that happens to name a secret must still be migrated. A disabled
      * secret owns its identifier too.
      */
-    private function isExistingVaultIdentifier(string $value): bool
+    private function isExistingVaultIdentifier(#[SensitiveParameter] string $value): bool
     {
         return IdentifierValidator::isGeneratedIdentifier($value) && $this->migrator->identifierInUse($value);
     }
@@ -526,6 +528,7 @@ final class VaultMigrateFieldCommand extends Command
      */
     private function showDryRunResults(
         SymfonyStyle $io,
+        #[SensitiveParameter]
         array $records,
         string $field,
         string $uidField,
@@ -552,7 +555,7 @@ final class VaultMigrateFieldCommand extends Command
         }
     }
 
-    private function truncateValue(mixed $value, int $maxLength): string
+    private function truncateValue(#[SensitiveParameter] mixed $value, int $maxLength): string
     {
         if (!is_string($value)) {
             return '(non-string)';

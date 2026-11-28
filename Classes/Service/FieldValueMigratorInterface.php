@@ -11,6 +11,7 @@ namespace Netresearch\NrVault\Service;
 
 use Doctrine\DBAL\Schema\Column;
 use Netresearch\NrVault\Domain\Dto\FieldMigrationOutcome;
+use SensitiveParameter;
 use TYPO3\CMS\Core\Database\Query\QueryBuilder;
 
 /**
@@ -62,6 +63,7 @@ interface FieldValueMigratorInterface
         string $field,
         string $keyField,
         string $key,
+        #[SensitiveParameter]
         string $value,
         string $identifier,
     ): FieldMigrationOutcome;

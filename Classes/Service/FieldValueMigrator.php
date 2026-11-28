@@ -18,6 +18,7 @@ use Netresearch\NrVault\Domain\Dto\FieldMigrationOutcome;
 use Netresearch\NrVault\Domain\Dto\SecretRecordLink;
 use Netresearch\NrVault\Domain\Model\Secret;
 use Netresearch\NrVault\Exception\RecordLinkStateUnknownException;
+use SensitiveParameter;
 use Throwable;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Database\Query\QueryBuilder;
@@ -173,6 +174,7 @@ final readonly class FieldValueMigrator implements FieldValueMigratorInterface
         string $field,
         string $keyField,
         string $key,
+        #[SensitiveParameter]
         string $value,
         string $identifier,
     ): FieldMigrationOutcome {
@@ -186,6 +188,7 @@ final readonly class FieldValueMigrator implements FieldValueMigratorInterface
         string $field,
         string $keyField,
         string $key,
+        #[SensitiveParameter]
         string $value,
         string $identifier,
     ): FieldMigrationOutcome|string {
@@ -288,9 +291,11 @@ final readonly class FieldValueMigrator implements FieldValueMigratorInterface
         string $field,
         string $keyField,
         string $key,
+        #[SensitiveParameter]
         string $value,
         string $identifier,
         array $created,
+        #[SensitiveParameter]
         mixed $written,
     ): FieldMigrationOutcome|string {
         $reason = 'the field does not hold the identifier after the update';
@@ -340,6 +345,7 @@ final readonly class FieldValueMigrator implements FieldValueMigratorInterface
         string $field,
         string $keyField,
         string $key,
+        #[SensitiveParameter]
         string $value,
         string $identifier,
         array $created,
@@ -390,7 +396,7 @@ final readonly class FieldValueMigrator implements FieldValueMigratorInterface
      * never ends in a space. The checks that allow a delete compare the
      * plaintext exactly instead.
      */
-    private function holdsIdentifier(mixed $fieldValue, string $identifier): bool
+    private function holdsIdentifier(#[SensitiveParameter] mixed $fieldValue, string $identifier): bool
     {
         return is_scalar($fieldValue) && rtrim((string) $fieldValue, ' ') === $identifier;
     }
@@ -413,7 +419,7 @@ final readonly class FieldValueMigrator implements FieldValueMigratorInterface
     /**
      * Write $value where the key matches AND the field still holds $expected.
      */
-    private function writeField(string $table, string $field, string $keyField, string $key, string $value, string $expected): int
+    private function writeField(string $table, string $field, string $keyField, string $key, #[SensitiveParameter] string $value, #[SensitiveParameter] string $expected): int
     {
         $queryBuilder = $this->connectionPool->getQueryBuilderForTable($table);
         $queryBuilder->getRestrictions()->removeAll();

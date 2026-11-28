@@ -78,6 +78,9 @@ final class VaultMigrateFieldCommandTest extends TestCase
     /** Whether an UPDATE that throws has still changed the row (connection lost after the write). */
     private bool $failedUpdateApplied = false;
 
+    /** @var list<string> exceptions rendered with their trace inside the database and link doubles */
+    private array $renderedTraces = [];
+
     /** When set, what the read-back after the UPDATE returns instead. */
     private ?string $readBackOverride = null;
 
@@ -978,6 +981,64 @@ final class VaultMigrateFieldCommandTest extends TestCase
     }
 
     /**
+     * With zend.exception_ignore_args off (the default of the official php
+     * Docker image), a rendered stack trace shows the arguments of every
+     * frame. No frame on the way from the command to the database or the
+     * link writer may show the plaintext: each parameter that carries it is
+     * a SensitiveParameter (#565).
+     *
+     * @return iterable<string, array{string, list<string>}>
+     */
+    public static function plaintextPathProvider(): iterable
+    {
+        yield 'migrated and linked' => ['link', ['migrateRecords(', 'migrateRecord(', 'migrate(', 'migrateValue(', 'writeField(']];
+        yield 'truncated and restored' => ['truncate', ['restore(', 'writeField(']];
+        yield 'failed update' => ['update', ['afterFailedUpdate(']];
+    }
+
+    /**
+     * @param list<string> $frames
+     */
+    #[Test]
+    #[DataProvider('plaintextPathProvider')]
+    public function noStackTraceShowsThePlaintext(string $path, array $frames): void
+    {
+        // The PHP defaults: arguments shown, strings cut at 15 characters.
+        $previous       = ini_set('zend.exception_ignore_args', '0');
+        $previousLength = ini_set('zend.exception_string_param_max_len', '15');
+        self::assertNotFalse($previous, 'zend.exception_ignore_args can be set at runtime');
+        self::assertNotFalse($previousLength);
+
+        try {
+            $vaultService = $this->useStrictVaultServiceMock();
+            $this->mockTableAndFieldExist('api_key');
+            $this->mockQueryReturnsRecords([['uid' => 1, 'api_key' => 'plaintext-SECRET-value-1']]);
+            if ($path === 'truncate') {
+                $this->truncateAt = 16;
+            } elseif ($path === 'update') {
+                $this->updateFailure       = new class ('connection lost', 1795000013) extends RuntimeException implements DbalException {};
+                $this->failedUpdateApplied = true;
+            }
+
+            $this->recordStores($vaultService, 1);
+            $this->commandTester->setInputs(['yes']);
+            $this->commandTester->execute(['table' => 'tx_myext_settings', 'field' => 'api_key']);
+        } finally {
+            ini_set('zend.exception_ignore_args', $previous);
+            ini_set('zend.exception_string_param_max_len', $previousLength);
+        }
+
+        $traces = implode("\n", $this->renderedTraces);
+        self::assertStringContainsString("'tx_myext_settin", $traces, 'The traces show string arguments at all');
+        foreach ($frames as $frame) {
+            self::assertStringContainsString($frame, $traces, 'The path runs through ' . $frame);
+        }
+
+        self::assertStringContainsString('Object(SensitiveParameterValue)', $traces);
+        self::assertStringNotContainsString('plaintext-SECRE', $traces, 'No frame shows the plaintext');
+    }
+
+    /**
      * A record migrated without its link is logged with the same context
      * (#565).
      */
@@ -1455,6 +1516,7 @@ final class VaultMigrateFieldCommandTest extends TestCase
         $result->method('fetchAllAssociative')->willReturn($records);
         $result->method('fetchAssociative')->willReturnCallback(fn (): array => $this->keyCounts);
         $result->method('fetchOne')->willReturnCallback(function (): mixed {
+            $this->renderedTraces[] = (string) new RuntimeException('trace probe', 1795000011);
             if ($this->readBackFailure instanceof Throwable) {
                 throw $this->readBackFailure;
             }
@@ -1500,8 +1562,9 @@ final class VaultMigrateFieldCommandTest extends TestCase
             return $queryBuilder;
         });
         $queryBuilder->method('executeStatement')->willReturnCallback(function (): int {
-            $key     = $this->keyOfQuery();
-            $failure = $this->updateFailure;
+            $this->renderedTraces[] = (string) new RuntimeException('trace probe', 1795000012);
+            $key                    = $this->keyOfQuery();
+            $failure                = $this->updateFailure;
             if ($failure instanceof Throwable) {
                 if ($this->failedUpdateApplied) {
                     $this->writeRow($key, $this->pendingValue);
@@ -1626,6 +1689,7 @@ final class VaultMigrateFieldCommandTest extends TestCase
 
         $linkWriter = self::createStub(SecretRecordLinkWriterInterface::class);
         $linkWriter->method('linkCreatedSecret')->willReturnCallback(function (string $identifier, array $createdMetadata, array $link): void {
+            $this->renderedTraces[]          = (string) new RuntimeException('trace probe', 1795000010);
             $this->linkRequests[$identifier] = $createdMetadata;
             $failure                         = $this->linkFailure;
             if ($failure instanceof Throwable) {
